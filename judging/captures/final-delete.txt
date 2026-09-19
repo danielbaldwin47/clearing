@@ -1,0 +1,44 @@
+
+  DISK ALLOCATION                                                                                                 610.0 MiB
+                                                                                                                  physical space used
+  ssd-story  /  Caches  /  Browser  /  Media Cache
+
+  1 files   /   1 folders   /   1 items here
+
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  SPACE MAP   Area is proportional to allocated bytes                                                   LARGEST FIRST
+
+  ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐  ▸ video-buffer.bin
+  │ video-buffer.bin                                                                                 │    610.0 MiB  100.0%
+  │ 610.0 MiB  ·  100.0%                                                                             │    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  │                                                                                                  │
+  │                             ┌──────────────────────────────────────────────────────────────────────────┐
+  │                             │                                                                          │
+  │                             │  Permanently delete this item?                                           │
+  │                             │                                                                          │
+  │                             │  video-buffer.bin                                                        │
+  │                             │  /home/diggle/Work/tui-disk/fixtures/ssd-story/Caches/Browser/Media Ca…  │
+  │                             │                                                                          │
+  │                             │  610.0 MiB on disk  ·  1 files                                           │
+  │                             │                                                                          │
+  │                             │  This cannot be undone. No trash or recovery.                            │
+  │                             │                                                                          │
+  │                             │  Type delete to confirm: ▏                                               │
+  │                             │                                                                          │
+  │                             │  Esc cancel                         Enter delete                         │
+  │                             │                                                                          │
+  │                             └──────────────────────────────────────────────────────────────────────────┘
+  │                                                                                                  │
+  │                                                                                                  │
+  │                                                                                                  │
+  │ FILE                                                                                             │
+  │                                                                                                  │
+  └──────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  video-buffer.bin  /  610.0 MiB  /  100.0% of this view
+  file  ·  1 files
+
+  ↑↓ choose   Enter open   Backspace up   d delete   r rescan   ? help   q quit
+

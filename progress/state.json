@@ -1,0 +1,629 @@
+{
+  "schema": 1,
+  "started_at": "2026-09-19T22:46:22Z",
+  "deadline": "2026-09-20T00:46:22Z",
+  "updated_at": "2026-09-19T23:29:41Z",
+  "frozen": false,
+  "phase": "All six product pieces won; release ded90014 verified",
+  "pieces": {
+    "calibration": {
+      "status": "won",
+      "valid_wins": 1,
+      "required_wins": 1,
+      "rounds": [
+        "p1c79a814b6e7fdbb",
+        "p5f0a050f721c83fe",
+        "p93fc1ce678ea0a04"
+      ],
+      "source_fingerprint": "3e9680712dd5e4b29775473d5171bbb017de2d8cf776f64fdd526587967f183d"
+    },
+    "foundation": {
+      "status": "won",
+      "valid_wins": 1,
+      "required_wins": 1,
+      "rounds": [
+        "pc25d1e7face600fa"
+      ],
+      "source_fingerprint": "1c44485f6bf65dc16e0a474447a6aaa129d2bfb8655f41811ea5bb12694ff463"
+    },
+    "overview": {
+      "status": "won",
+      "valid_wins": 1,
+      "required_wins": 1,
+      "rounds": [
+        "pcbff6a1637462de3",
+        "pc83853a2daa4e070"
+      ],
+      "source_fingerprint": "c8915d7756405139a7d1b6fd6957bb3703e7517f68571fb1f02df6775ebe27c0"
+    },
+    "navigation": {
+      "status": "won",
+      "valid_wins": 1,
+      "required_wins": 1,
+      "rounds": [
+        "p1ba94d91efb900c3",
+        "p421f341599daec0c"
+      ],
+      "source_fingerprint": "3a08190f497a0c2e29a5c2ba9f1d01fea1b9d062cf241653284acf5ae0e18bb7"
+    },
+    "deletion": {
+      "status": "won",
+      "valid_wins": 1,
+      "required_wins": 1,
+      "rounds": [
+        "p5f6fd2cc9a281bb5",
+        "p60620b5fa1e60199"
+      ],
+      "source_fingerprint": "218cd5dea4448b34089809a8718f38ff1a643b3512f77010eb05568ba1587040",
+      "note": "Final audited win on ded90014: same 610 MiB target, explicit consequences and typed confirmation."
+    },
+    "performance": {
+      "status": "won",
+      "valid_wins": 1,
+      "required_wins": 1,
+      "rounds": [],
+      "note": "28/28 paired wins: both cache states on160k-file and exactUI trees. Broad cold120.125ms vs149.204ms; warm37.055ms vs50.115ms.",
+      "binary_sha256": "ded90014d6625cdb1272115f5c579cf6df89c0615dc83437a8b1d5c2342694e9",
+      "source_fingerprint": "71169cf2fb9695d6b2e32c98adf8656911f393a3cb88550578d5512bba084be5",
+      "evidence": [
+        {
+          "path": "/benchmarks/final-fable-broad.json",
+          "fixture": "broad",
+          "summary": {
+            "cold": {
+              "median_seconds": {
+                "gdu": 0.149203778,
+                "tui-disk": 0.12012548
+              },
+              "speedup": 1.2420660296216923,
+              "paired_wins": 7,
+              "trials": 7,
+              "won": true
+            },
+            "warm": {
+              "median_seconds": {
+                "gdu": 0.050114548,
+                "tui-disk": 0.037055087
+              },
+              "speedup": 1.3524336887942,
+              "paired_wins": 7,
+              "trials": 7,
+              "won": true
+            }
+          }
+        },
+        {
+          "path": "/benchmarks/final-fable-ui.json",
+          "fixture": "ui",
+          "summary": {
+            "cold": {
+              "median_seconds": {
+                "gdu": 0.004622404,
+                "tui-disk": 0.002473027
+              },
+              "speedup": 1.869127995771983,
+              "paired_wins": 7,
+              "trials": 7,
+              "won": true
+            },
+            "warm": {
+              "median_seconds": {
+                "gdu": 0.002757228,
+                "tui-disk": 0.000762564
+              },
+              "speedup": 3.6157332368168444,
+              "paired_wins": 7,
+              "trials": 7,
+              "won": true
+            }
+          }
+        }
+      ]
+    },
+    "whole": {
+      "status": "won",
+      "valid_wins": 1,
+      "required_wins": 1,
+      "rounds": [
+        "pd44914d4ea5d7e8e",
+        "pefda64fbbeee7cb1"
+      ],
+      "source_fingerprint": "df216f714f684a8d8dd7c6cd6a56bc73e504e09e9dba4cb0a625f762a7ed0bff"
+    }
+  },
+  "rounds": [
+    {
+      "id": "p1c79a814b6e7fdbb",
+      "piece": "calibration",
+      "packet": "/judging/blind/p1c79a814b6e7fdbb",
+      "status": "judged",
+      "created_at": "2026-09-19T22:51:40Z",
+      "source_fingerprint": "518ece0c6fcc452b19e04eda46296d3b561c0c1f4525081cab555ce0bd607611",
+      "judged_at": "2026-09-19T22:53:22Z",
+      "result": "candidate",
+      "identities": {
+        "A": "Saved visual bar",
+        "B": "Rough draft"
+      },
+      "critic": "critic_calibration_a",
+      "group": "1c79a814b6e7fdbb",
+      "orientation": 0,
+      "audit": "Calibration failed: initial implementation preferred for task-target labels and explicit actions. No product or calibration win counted. Swapped-order second critic pending; reference framing audit pending.",
+      "counts": false,
+      "verdict": {
+        "choice": "B",
+        "evidence": "A: The size list identifies Library at 83.6 GB, and the bottom shows 10.9 GB collected beside Delete. But the radial map contains many unnamed subdivisions, so the large colored sectors do not directly tell me which folders they represent.\n\nB: The map labels Caches at 1.8 GiB and 42.2%, Games at 1.1 GiB and 27.2%, and Downloads at 760.0 MiB. The largest-first list reinforces those targets. Caches is visibly selected, with its size, file count, exploration instruction, and delete shortcut shown below.",
+        "loser_reason": "A's unnamed radial subdivisions make translating the space visualization into a specific cleanup target harder."
+      }
+    },
+    {
+      "id": "p5f0a050f721c83fe",
+      "piece": "calibration",
+      "packet": "/judging/blind/p5f0a050f721c83fe",
+      "status": "judged",
+      "created_at": "2026-09-19T22:51:40Z",
+      "source_fingerprint": "518ece0c6fcc452b19e04eda46296d3b561c0c1f4525081cab555ce0bd607611",
+      "judged_at": "2026-09-19T22:53:56Z",
+      "result": "candidate",
+      "identities": {
+        "A": "Rough draft",
+        "B": "Saved visual bar"
+      },
+      "critic": "critic_calibration_b",
+      "group": "1c79a814b6e7fdbb",
+      "orientation": 1,
+      "audit": "Reversed-order calibration consistently preferred the initial implementation. Test too easy for a product win: negative control was already functionally substantial and intro-ss1 was a weaker still. Both verdicts preserved; zero calibration or product wins. Referee independently selects larger shots-ss reference and awaits actual unfinished builder wireframe control.",
+      "counts": false,
+      "verdict": {
+        "choice": "A",
+        "evidence": "A: Caches is immediately identifiable as 1.8 GiB and 42.2% from its large labeled rectangle; the largest-first list repeats the size ranking. The selected folder and Enter/open and d/delete controls are visible. Some secondary text is dim.\n\nB: The list identifies Library as 83.6 GB, and the bottom shows 10.9 GB collected beside a prominent Delete button. However, the radial chart's many unlabeled segments require interpretation, and its large orange region has no corresponding orange label in the visible list.",
+        "loser_reason": "B makes it harder to connect the largest visible chart region to a named folder, which delays identifying what to examine for cleanup."
+      }
+    },
+    {
+      "id": "p93fc1ce678ea0a04",
+      "piece": "calibration",
+      "packet": "/judging/blind/p93fc1ce678ea0a04",
+      "status": "judged",
+      "created_at": "2026-09-19T22:56:44Z",
+      "source_fingerprint": "3e9680712dd5e4b29775473d5171bbb017de2d8cf776f64fdd526587967f183d",
+      "judged_at": "2026-09-19T22:58:13Z",
+      "result": "bar",
+      "identities": {
+        "A": "Rendered unfinished wireframe control",
+        "B": "Saved strongest visual bar"
+      },
+      "critic": "Fresh Claude Fable 936699a1-0204-4d3e-8783-9f8892902d62",
+      "group": "93fc1ce678ea0a04",
+      "orientation": 0,
+      "audit": "Calibration passes after explicit validity investigation: former negative control was already complete enough to win on direct labels; current actual wireframe contains only initial rectangle outlines and selected-item size. Strongest saved still presents sizes, colour relationships, and nested hierarchy. Fresh isolated critic saw only brief+A+B and independently preferred bar; no image degradation or identity hint used.",
+      "counts": true,
+      "verdict": {
+        "choice": "B",
+        "evidence": "A: A is a monochrome treemap of five white-outlined, empty black rectangles: Caches, Games, Downloads, Projects and Photos. Area is the only encoding of size. The header reads 'ssd-story 4.2 GiB', and the only per-item number on screen is the status line '> Caches 1.8 GiB'. Games, Downloads, Projects and Photos show no sizes, so the Games and Downloads boxes have to be compared by eye. There is no colour and no fill, and nothing inside the map marks which box is selected; the selection appears only in the text line below. Each box's interior is blank, so nothing shows what inside Caches is large. The footer 'up/down select | Enter open | Backspace back | d delete | q quit' does make the cleanup key explicit. There is unused space under Photos.\n\nB: B is a multi-ring radial chart with '192.7 GB' in the centre. Hue separates the top-level folders, and the deeper rings show nested contents, so the large yellow-green Library wedge and its big sub-blocks are obvious at once. The right-hand legend lists every top-level item with its size, in descending order: Library 117.1 GB, Pictures 28.7 GB, Downloads 23.4 GB, Documents 15.4 GB, Dropbox 4 GB, Movies 3 GB, and 'smaller objects\u2026 1.3 GB'. Each entry has a colour dot keyed to the chart. At the bottom, a '3.3 GB collected' tray with a red 'Delete' button shows that a cleanup batch is staged. There are real flaws. The ring segments carry no labels, so the sub-blocks cannot be named by looking. The large orange and red region matches no legend dot. The thin outer slivers are unreadable noise. The three blues for Documents, Dropbox and Movies are nearly indistinguishable.",
+        "loser_reason": "A lost mainly because it shows a size for only one item (Caches 1.8 GiB). The other four boxes are blank outlines with no sizes, no colour and no nested detail, so it does not show what is using the disk. B shows a size for every top-level folder and visualises the hierarchy beneath each one."
+      }
+    },
+    {
+      "id": "pc25d1e7face600fa",
+      "piece": "foundation",
+      "packet": "/judging/blind/pc25d1e7face600fa",
+      "status": "judged",
+      "created_at": "2026-09-19T22:58:01Z",
+      "source_fingerprint": "1c44485f6bf65dc16e0a474447a6aaa129d2bfb8655f41811ea5bb12694ff463",
+      "judged_at": "2026-09-19T22:59:36Z",
+      "result": "candidate",
+      "identities": {
+        "A": "Current shared foundation",
+        "B": "Saved strongest visual bar"
+      },
+      "critic": "Fresh Claude Fable ae6725f1-e6f4-4f36-af6e-9dd6740d77e1",
+      "group": "c25d1e7face600fa",
+      "orientation": 0,
+      "audit": "First-round investigation completed: calibrated critic rejected the real wireframe, then preferred current foundation on direct two-level labels and explicit size encoding. Strongest saved still used, equal content framing, no withheld controls counted. Early win comes from task-specific legibility versus anonymous sub-arcs in the supplied still, not source identity or a degraded bar. The candidate retains disclosed truncation, small-child and dim-text flaws. Recaptured fixed release is pixel-identical to judged candidate. This scope wins only visual foundation; live navigation/delete and complete overview remain unjudged.",
+      "counts": true,
+      "verdict": {
+        "choice": "A",
+        "evidence": "A: A is a treemap whose blocks carry a name and size printed inside them: Caches 1.8 GiB \u00b7 42.2%, Games 1.1 GiB \u00b7 27.2%, Downloads 760.0 MiB \u00b7 17.8%. One level down the children are labelled too (Browser 1.0 GiB, Package cache 590.0 MiB, Orbit 940.0 MiB, archlinux-o\u2026 410.0 MiB, video-ex\u2026 240.0 MiB). The caption 'Area is proportional to allocated bytes' says how size is drawn. The 'LARGEST FIRST' list on the right repeats each colour with its size, its percentage and a proportional bar, and Caches is highlighted with a marker. A has visible problems. The child labels 'archlinux-o\u2026', 'video-ex\u2026' and 'design-a\u2026' are truncated. 'Signal', 'design-a\u2026' and an unlabelled teal block next to Package cache show no size. Documents (16.0 MiB) appears only as an unlabelled mauve sliver at the bottom right. Text in the unselected legend rows is dim grey. About a fifth of the canvas above and below the map is empty.\n\nB: B is a sunburst with '192.7 GB' at the centre and many concentric rings broken into dozens of thin slivers and spikes. No label appears on any segment of the chart. The only text is a right-hand legend of six top-level names with sizes (Library 117.1 GB, Pictures 28.7 GB, Downloads 23.4 GB, Documents 15.4 GB, Dropbox 4 GB, Movies 3 GB, smaller objects\u2026 1.3 GB). Library fills more than half the wheel, and its yellow-green, yellow and orange-to-red rings have no names or sizes at all. The legend dot colours are close to one another: Pictures and the 'oleg' root are both green, and Documents, Dropbox and Movies are three similar blues, so matching a legend row to a wedge is guesswork. The shift from orange to red in the Library wedge has no key. Grey stub segments are unexplained. The legend has no percentages. Arc length at different radii makes it hard to compare the sizes of inner and outer segments.",
+        "loser_reason": "B puts no names or sizes on the chart itself. Below the six top-level legend rows every segment is an anonymous coloured arc, including everything inside the 117.1 GB Library wedge. The image can show that Library is large but not what inside it to delete. A prints names and sizes on the blocks two levels deep."
+      },
+      "validated_at": "2026-09-19T23:00:19Z"
+    },
+    {
+      "id": "pcbff6a1637462de3",
+      "piece": "overview",
+      "packet": "/judging/blind/pcbff6a1637462de3",
+      "status": "judged",
+      "created_at": "2026-09-19T23:02:38Z",
+      "source_fingerprint": "c8915d7756405139a7d1b6fd6957bb3703e7517f68571fb1f02df6775ebe27c0",
+      "capture_binary_sha256": "3e5d21588a4ce7c1c4f3123bec6722917565a19667a92cc9f5f979f9b0b9cbf0",
+      "captured_at": "2026-09-19T22:59:14.859455+00:00",
+      "judged_at": "2026-09-19T23:06:05Z",
+      "result": "candidate",
+      "identities": {
+        "A": "Current overview",
+        "B": "Saved strongest overview bar"
+      },
+      "critic": "Fresh Claude Fable e7a8c772-18d3-4ab4-b89a-92e7f5ea41bb",
+      "group": "cbff6a1637462de3",
+      "orientation": 0,
+      "audit": "Uncounted after first-round investigation: reference full-state crop removed in-app breadcrumbs/back controls along with Mac furniture; critique cited missing navigation. Referee will retain app controls, mask only platform buttons and obtain a fresh verdict.",
+      "counts": false,
+      "verdict": {
+        "choice": "A",
+        "evidence": "A: The treemap labels every major block in place with a name, size and percentage: Caches 1.8 GiB 42.2%, Games 1.1 GiB 27.2%, Downloads 760.0 MiB 17.8%. Nested children are also named and sized, such as Browser 1.0 GiB, Package cache 590.0 MiB, Orbit 940.0 MiB and archlinux-o\u2026 410.0 MiB, so the culprit is readable two levels deep without opening anything. The right-hand 'LARGEST FIRST' list repeats the ranking with proportional bars and a marker on the selected Caches row. The status line reads 'Caches / 1.8 GiB / 42.2% of this view \u00b7 folder \u00b7 5 files \u00b7 Enter to look inside', and the footer spells out the keys: choose, Enter open, Backspace up, d delete, r rescan. Several things are weak. One teal block inside Caches has no label, as does a reddish sliver at the bottom right. Names are truncated ('video-ex\u2026', 'design-a\u2026'). Documents at 0.4% is essentially invisible on the map. The header is sparse, and the 4.2 GiB total sits far from the title.\n\nB: The sunburst has no labels on any of its dozens of ring segments. Only the centre reads '192.7 GB'. The only names are in the right-hand legend: Library 117.1 GB, Pictures 28.7 GB, Downloads 23.4 GB, Documents 15.4 GB, Dropbox 4 GB, Movies 3 GB and 'smaller objects\u2026 1.3 GB'. That legend covers top-level folders only and matches them to the chart by small coloured dots. The large yellow-green and orange/red arcs are clearly the Library share, but nothing visible says what the subfolders within them are, so the actual consumer inside the 117.1 GB stays anonymous. Grey stub segments are unexplained. A bottom bar shows '3.3 GB collected' with a red Delete button, but nothing on screen indicates what those 3.3 GB consist of. No navigation or action hints are visible. Large areas of the canvas are empty.",
+        "loser_reason": "B's chart is unlabelled. Everything below the six top-level legend entries is anonymous coloured wedges, so the screen never names what inside the 117.1 GB Library is eating the disk. Its Delete button also sits next to an unexplained '3.3 GB collected' total. A names and sizes the offenders two levels deep and states how to open or delete the selected one."
+      }
+    },
+    {
+      "id": "p1ba94d91efb900c3",
+      "piece": "navigation",
+      "packet": "/judging/blind/p1ba94d91efb900c3",
+      "status": "judged",
+      "created_at": "2026-09-19T23:02:38Z",
+      "source_fingerprint": "3a08190f497a0c2e29a5c2ba9f1d01fea1b9d062cf241653284acf5ae0e18bb7",
+      "capture_binary_sha256": "41a8c8c64d978403e5521ffe9f4eba87ae953c8b41addcc547f3435bfea43287",
+      "captured_at": "2026-09-19T23:00:56.413723+00:00",
+      "judged_at": "2026-09-19T23:06:05Z",
+      "result": "candidate",
+      "identities": {
+        "A": "Live navigation bar",
+        "B": "Current drilled directory"
+      },
+      "critic": "Fresh Claude Fable 1a39a250-6bd4-4290-9cfe-fd70e9063603",
+      "group": "1ba94d91efb900c3",
+      "orientation": 0,
+      "audit": "Uncounted after first-round investigation: both were actual just-drilled defaults, but one automatically selected Browser while live bar began unselected. No-highlight became central critique; repeat with Browser selected in both to eliminate avoidable mismatch. Browser2files was verified correct:2leaf files plus2subfolders.",
+      "counts": false,
+      "verdict": {
+        "choice": "B",
+        "evidence": "A: The header crams everything into one line: 'Total: 4.2G (39 files), freed: 0 | fixtures/ssd-story/Caches (1.8G, 10 files)'. The location is there, but only as coloured text in a run-on string. The map is three almost empty outlined boxes: 'Browser/ (+4 descendants) 1.0G (57%)', 'Package cache/ (+2 descendants) 590.0M (33%)' and 'Thumbnails/ 180.0M' (no percentage on Thumbnails). Nothing shows what is inside Browser or Package cache, so each one has to be entered blind. No tile is visibly selected or highlighted, so it is unclear what ENTER or delete would act on. There is no ranked list. '(x = Small files)' sits in a corner and marks nothing visible. The key line names '<ESC> - parent folder' and '<ENTER> - enter folder', but it binds '<BACKSPACE> - delete', which is an easy key to hit when trying to go back, and there is no selection cue to show what it would hit.\n\nB: The breadcrumb 'ssd-story / Caches' stands alone, with '1.8 GiB physical space used' and '5 files / 6 folders / 3 items here'. The map shows Browser (1.0 GiB \u00b7 57.2%) already split into 'Media Cache 610.0 MiB' and 'Code Cache 420.0 MiB'. Package cache (590.0 MiB \u00b7 32.8%) is split into 'toolchain-old.pkg\u2026' 330.0 MiB and 'linux-headers\u2026' 260.0 MiB, and Thumbnails is 180.0 MiB \u00b7 10.0%. The next targets can therefore be read one level down without drilling. Browser has a bright selection border, a matching '\u25b8 Browser' row in the 'LARGEST FIRST' list with proportion bars, and a status line 'Browser / 1.0 GiB / 57.2% of this view \u2026 Enter to look inside'. The keys are 'Enter open', 'Backspace up', 'd delete', 'r rescan', '? help'. Weaknesses: the file names are truncated with ellipses. The status line says 'folder \u00b7 2 files', while Browser's visible children look like folders (A's Browser/ reads '+4 descendants'), so the counts are questionable. The tints have low contrast, and the side list repeats the map's numbers.",
+        "loser_reason": "A shows no selected tile and nothing inside its tiles. It tells me only what the folder names already say, I cannot see what ENTER or the Backspace-bound delete would act on, and I must drill blind to find the files actually eating the disk, which B shows on the same screen."
+      }
+    },
+    {
+      "id": "p5f6fd2cc9a281bb5",
+      "piece": "deletion",
+      "packet": "/judging/blind/p5f6fd2cc9a281bb5",
+      "status": "judged",
+      "created_at": "2026-09-19T23:03:07Z",
+      "source_fingerprint": "f7f6c4ec04cc3044fdeac3c4750474ad1e3722789a06d415678e4e8c6a25e668",
+      "capture_binary_sha256": "68ecd31121561f888f18ff36aa5a8ebbbb437d631f4dacdc9831f44af13c0547",
+      "captured_at": "2026-09-19T23:03:01.602160+00:00",
+      "judged_at": "2026-09-19T23:06:05Z",
+      "result": "candidate",
+      "identities": {
+        "A": "Live delete-confirmation bar",
+        "B": "Current delete confirmation"
+      },
+      "critic": "Fresh Claude Fable 72a0ea70-7522-4d9a-9767-0fada20bfc6f",
+      "group": "5f6fd2cc9a281bb5",
+      "orientation": 0,
+      "audit": "First-round audit confirms exact same610MiB file and real full-colour live confirmation. Recaptured live-bar content is pixel-identical; its grey pane is native selected single-file rendering, not capture loss. Main advantage is explicit permanent-delete consequences, byte amount and typed confirmation. Full target remains visible in both (candidate filename+breadcrumb); candidate path truncation and equally coloured cancel/delete remain disclosed. This verdict wins the captured deletion state; forthcoming behavior edits will invalidate it.",
+      "counts": false,
+      "verdict": {
+        "choice": "B",
+        "evidence": "A: The dialog is red text on black: 'Delete this file?', the full path 'fixtures/ssd-story/Caches/Browser/Media Cache/video-buffer.bin', and a bare '(y/n)'. It does not give the size, say whether deletion is permanent, or say whether a trash exists. The 610.0M figure appears only outside the dialog, in the header 'Media Cache (610.0M, 1 files)' and the footer 'SELECTED: video-buffer.bin (610.0M)'. The main pane behind the dialog is a blank grey rectangle with no file block or label, so the target cannot be checked visually. The header reads 'Total: 4.2G (39 files), freed: 0'. The keybar lists '<BACKSPACE> - delete', and one 'y' keystroke is all that separates the user from deletion. A corner legend, '(x = Small files)', is unexplained.\n\nB: The dialog is titled 'Permanently delete this item?'. It names 'video-buffer.bin' in bold and states '610.0 MiB on disk \u00b7 1 files' inside the dialog. It warns 'This cannot be undone. No trash or recovery.' It requires 'Type delete to confirm:' and labels both exits, 'Esc cancel' and 'Enter delete'. Behind it, the space map block labelled 'video-buffer.bin 610.0 MiB \u00b7 100.0%' stays visible. A 'LARGEST FIRST' list shows the same entry, the breadcrumb reads 'ssd-story / Caches / Browser / Media Cache', and '610.0 MiB physical space used' sits at top right. The path in the dialog is truncated to 'ssd-story/Caches/Browser/Media Ca\u2026', so the full location can only be confirmed from the breadcrumb. 'Esc cancel' and 'Enter delete' share the same salmon colour, so the destructive choice is not visually set apart from the safe one. There is no running 'freed' total.",
+        "loser_reason": "A lost mainly because its confirmation dialog says nothing about consequences. It gives no size, no statement that deletion is permanent, and no word on whether a trash exists. It sits over an empty grey pane and needs only a single 'y' keypress. The user therefore cannot verify, from the prompt itself, how much space is recovered or what is lost."
+      },
+      "validated_at": "2026-09-19T23:07:59Z",
+      "invalidated_reason": "Fable builder is changing deletion behavior and cancellation; preserve this historical visual win, require a new final deletion verdict after implementation and acceptance."
+    },
+    {
+      "id": "pc83853a2daa4e070",
+      "piece": "overview",
+      "packet": "/judging/blind/pc83853a2daa4e070",
+      "status": "judged",
+      "created_at": "2026-09-19T23:08:18Z",
+      "source_fingerprint": "c8915d7756405139a7d1b6fd6957bb3703e7517f68571fb1f02df6775ebe27c0",
+      "capture_binary_sha256": "3e5d21588a4ce7c1c4f3123bec6722917565a19667a92cc9f5f979f9b0b9cbf0",
+      "captured_at": "2026-09-19T22:59:14.859455+00:00",
+      "judged_at": "2026-09-19T23:11:57Z",
+      "result": "candidate",
+      "identities": {
+        "A": "Saved strongest overview bar, app controls preserved",
+        "B": "Current overview"
+      },
+      "critic": "Fresh Claude Fable 2ed67b84-0cbc-4eee-a399-37d26258326f",
+      "group": "c83853a2daa4e070",
+      "orientation": 0,
+      "audit": "Repeated comparison corrects initial weak framing: strongest saved reference retains breadcrumb/back/forward and cleanup tray, while only platform controls are masked. Fresh critic still prefers direct named nested consumers and explicit selected-target actions. No earlier missing-navigation penalty is required to explain this result. Same pixel-proven release candidate and visual source fingerprint unchanged.",
+      "counts": true,
+      "verdict": {
+        "choice": "B",
+        "evidence": "A: A is a sunburst with 192.7 GB in the centre. A sorted legend lists Library 117.1 GB, Pictures 28.7 GB, Downloads 23.4 GB, Documents 15.4 GB, Dropbox 4 GB, Movies 3 GB and 'smaller objects\u2026 1.3 GB'. A breadcrumb reads Disks and Folders > Macintosh HD > Users > oleg. Along the bottom is a '3.3 GB collected' tray with a red Delete button. None of the dozens of ring segments carries a label, so the large yellow-green and orange wedges inside Library cannot be identified from the screen. Depth is shown as thin outer slivers that are hard to compare by area. Only the six top-level folders have names and sizes. Nothing shows how to select a segment or drill into it. The adjacent legend colours (three near-identical blues, two greens) are hard to match to wedges.\n\nB: B is a treemap with the caption 'Area is proportional to allocated bytes'. Every top-level block shows its name, size and percentage: Caches 1.8 GiB 42.2%, Games 1.1 GiB 27.2%, Downloads 760.0 MiB 17.8%, Projects 320.0 MiB, Photos 210.0 MiB. Named children appear inside the blocks: Browser 1.0 GiB, Package cache 590.0 MiB, Orbit 940.0 MiB, archlinux-o\u2026 410.0 MiB, video-ex\u2026 240.0 MiB. A 'LARGEST FIRST' list on the right repeats the ranking with proportion bars and a \u25b8 marker on Caches, which is also outlined in the map. The status line reads 'Caches / 1.8 GiB / 42.2% of this view \u00b7 folder \u00b7 5 files \u00b7 Enter to look inside'. The key legend reads '\u2191\u2193 choose, Enter open, Backspace up, d delete, r rescan, ? help, q quit'. Several things are weak. Labels are truncated ('archlinux-o\u2026', 'video-ex\u2026', 'design-a\u2026'). One Caches child block and a reddish sliver at the bottom right have no label. Signal and design-a\u2026 show no size. The list duplicates the top-level map data. Header totals ('18 files / 22 folders / 6 items here') are low-contrast grey, and there is no free-space figure.",
+        "loser_reason": "A names only the six top-level folders. The chart that should show what inside the 117.1 GB Library is eating the disk is a mass of unlabeled coloured wedges. Nothing visible shows how to pick a target, and the Delete button applies to an unexplained '3.3 GB collected' tray. B labels the second-level consumers with sizes and shows the selected target and the open and delete keys on screen."
+      },
+      "validated_at": "2026-09-19T23:11:57Z"
+    },
+    {
+      "id": "p421f341599daec0c",
+      "piece": "navigation",
+      "packet": "/judging/blind/p421f341599daec0c",
+      "status": "judged",
+      "created_at": "2026-09-19T23:08:18Z",
+      "source_fingerprint": "3a08190f497a0c2e29a5c2ba9f1d01fea1b9d062cf241653284acf5ae0e18bb7",
+      "capture_binary_sha256": "41a8c8c64d978403e5521ffe9f4eba87ae953c8b41addcc547f3435bfea43287",
+      "captured_at": "2026-09-19T23:00:56.413723+00:00",
+      "judged_at": "2026-09-19T23:11:57Z",
+      "result": "candidate",
+      "identities": {
+        "A": "Current drilled directory, Browser selected",
+        "B": "Live navigation bar, Browser selected"
+      },
+      "critic": "Fresh Claude Fable 8ae01f7d-0e8d-4dce-b636-bd5ef4fd4b2b",
+      "group": "421f341599daec0c",
+      "orientation": 0,
+      "audit": "Repeated comparison aligns sameCaches subtree and Browser selection in both real live interfaces. Fresh critic now identifies named nested contents as primary difference; missing-selection confound removed. Exact fixture verifies Browser2leaf files+2descendant directories=4descendants, so count suspicion is not treated as a bug. Colour environment, terminal size, source bytes, and capture framing match.",
+      "counts": true,
+      "verdict": {
+        "choice": "A",
+        "evidence": "A: I can tell where I am from the breadcrumb 'ssd-story / Caches' and the '1.8 GiB physical space used' figure. The space map draws Browser (1.0 GiB, 57.2%), Package cache (590.0 MiB, 32.8%) and Thumbnails (180.0 MiB, 10.0%) as proportional boxes. Each box shows its children inside it: Media Cache 610.0 MiB and Code Cache 420.0 MiB under Browser, and toolchain-old.pkg\u2026 330.0 MiB and linux-headers\u2026 260.0 MiB under Package cache. That means I can already see the next big target, Media Cache, before drilling in. A 'LARGEST FIRST' list on the right repeats the ranking with bars and a marker on Browser. The footer reads 'Browser / 1.0 GiB / 57.2% of this view \u2026 Enter to look inside', and the key line is short: 'Enter open, Backspace up, d delete, r rescan'. Its faults: the teal-on-teal palette is low contrast and the selection is only a thin lighter outline. The counts don't agree, with '5 files / 6 folders / 3 items here' next to 'folder \u00b7 2 files' for Browser, whose two children look like folders. Two filenames are truncated with an ellipsis. There is no whole-disk total and no count of space freed so far.\n\nB: The top line gives useful context: 'Total: 4.2G (39 files), freed: 0 | fixtures/ssd-story/Caches (1.8G, 10 files)'. The treemap is three flat, undivided blocks: Browser/ (+4 descendants) 1.0G (57%) as a solid blue slab, Package cache/ (+2 descendants) 590.0M (33%), and Thumbnails/ 180.0M with no percentage. '+4 descendants' tells me nothing about which child is large, so most of the screen is empty fill. The size text on the selected block is dark on saturated blue and hard to read. There is no ranked list. The footer is one crowded line: '<arrows> - move around, <ENTER> - enter folder, <ESC> - parent folder, <BACKSPACE> - delete, <+/-/0> - zoom\u2026'. It binds delete to Backspace, which is the key I would reach for to go back. A stray '(x = Small files)' legend adds clutter.",
+        "loser_reason": "B lost because the view shows only the three top-level blocks, with children reduced to '+4 descendants'. It therefore never shows what inside Browser or Package cache is actually eating the space, whereas A shows Media Cache 610 MiB and toolchain-old.pkg 330 MiB at the same depth."
+      },
+      "validated_at": "2026-09-19T23:11:57Z"
+    },
+    {
+      "id": "p60620b5fa1e60199",
+      "piece": "deletion",
+      "packet": "/judging/blind/p60620b5fa1e60199",
+      "status": "judged",
+      "created_at": "2026-09-19T23:15:17Z",
+      "source_fingerprint": "218cd5dea4448b34089809a8718f38ff1a643b3512f77010eb05568ba1587040",
+      "capture_binary_sha256": "ded90014d6625cdb1272115f5c579cf6df89c0615dc83437a8b1d5c2342694e9",
+      "captured_at": "2026-09-19T23:14:36.812578+00:00",
+      "submitted_at": "2026-09-19T23:16:31Z",
+      "submitted_verdict": {
+        "choice": "A",
+        "evidence_A": "The dialog is titled 'Permanently delete this item?' and names video-buffer.bin. It shows '610.0 MiB on disk \u00b7 1 files' inside the dialog, so the space to recover sits next to the target. It states the consequence directly: 'This cannot be undone. No trash or recovery.' Confirming requires typing 'delete', and the two exits are labelled 'Esc cancel' and 'Enter delete'. The filename and 610.0 MiB / 100.0% remain visible behind the dialog in the space map tile, the 'Largest first' list and the footer status line, and the Caches / Browser / Media Cache breadcrumb is at the top. Weaknesses: the dialog truncates the path to 'ssd-story/Caches/Browser/Media Ca\u2026', so the full directory can only be confirmed from the breadcrumb. 'Enter delete' is shown as available while the typed-confirmation field is still empty, which is slightly ambiguous. '1 items here' and '1 files' are ungrammatical.",
+        "evidence_B": "The dialog says 'Delete this file?' and gives the full untruncated path 'fixtures/ssd-story/Caches/Browser/Media Cache/video-buffer.bin', followed only by '(y/n)'. It shows no size, does not say whether deletion is permanent or goes to trash, and does not say which key cancels beyond 'n'. The 610.0M figure appears only outside the dialog, in the header '(610.0M, 1 files)' and the footer 'SELECTED: video-buffer.bin (610.0M)'. The main area is a blank light-grey rectangle with no labels, so the map gives no visual confirmation of what is selected. The dialog text is dark red on black, which is low contrast and hard to read. Useful extras are the header's 'Total: 4.2G (39 files), freed: 0' and the footer key legend, which notes that a single BACKSPACE triggers delete.",
+        "loser_reason": "B's confirmation never says the deletion is irreversible and shows no size to recover inside the dialog. The only thing between the user and deletion is a single 'y' keypress in dim red-on-black text over a blank, unlabelled map, so the user cannot confidently verify consequences or reclaimed space at the moment of decision."
+      },
+      "critic": "Fresh Claude Fable dedb0e73-0b75-4eff-9b54-52838d96c555",
+      "verdict": {
+        "choice": "A",
+        "evidence": "A: The dialog is titled 'Permanently delete this item?' and names video-buffer.bin. It shows '610.0 MiB on disk \u00b7 1 files' inside the dialog, so the space to recover sits next to the target. It states the consequence directly: 'This cannot be undone. No trash or recovery.' Confirming requires typing 'delete', and the two exits are labelled 'Esc cancel' and 'Enter delete'. The filename and 610.0 MiB / 100.0% remain visible behind the dialog in the space map tile, the 'Largest first' list and the footer status line, and the Caches / Browser / Media Cache breadcrumb is at the top. Weaknesses: the dialog truncates the path to 'ssd-story/Caches/Browser/Media Ca\u2026', so the full directory can only be confirmed from the breadcrumb. 'Enter delete' is shown as available while the typed-confirmation field is still empty, which is slightly ambiguous. '1 items here' and '1 files' are ungrammatical.\n\nB: The dialog says 'Delete this file?' and gives the full untruncated path 'fixtures/ssd-story/Caches/Browser/Media Cache/video-buffer.bin', followed only by '(y/n)'. It shows no size, does not say whether deletion is permanent or goes to trash, and does not say which key cancels beyond 'n'. The 610.0M figure appears only outside the dialog, in the header '(610.0M, 1 files)' and the footer 'SELECTED: video-buffer.bin (610.0M)'. The main area is a blank light-grey rectangle with no labels, so the map gives no visual confirmation of what is selected. The dialog text is dark red on black, which is low contrast and hard to read. Useful extras are the header's 'Total: 4.2G (39 files), freed: 0' and the footer key legend, which notes that a single BACKSPACE triggers delete.",
+        "loser_reason": "B's confirmation never says the deletion is irreversible and shows no size to recover inside the dialog. The only thing between the user and deletion is a single 'y' keypress in dim red-on-black text over a blank, unlabelled map, so the user cannot confidently verify consequences or reclaimed space at the moment of decision."
+      },
+      "judged_at": "2026-09-19T23:18:10Z",
+      "result": "candidate",
+      "identities": {
+        "A": "Final deletion confirmation",
+        "B": "Live delete-confirmation bar"
+      },
+      "group": "60620b5fa1e60199",
+      "orientation": 0,
+      "audit": "Final raw verdict was automatically published before referee review. Exact same610MiB target and confirmed matching terminal/capture route; installed live-bar binary matches verified recapture. No post-capture changes except provenance-prefix removal. Final behavior accepted34/34checks; consequence disclosure and typed confirmation legitimately distinguish prompts.",
+      "counts": true
+    },
+    {
+      "id": "pd44914d4ea5d7e8e",
+      "piece": "whole",
+      "packet": "/judging/blind/pd44914d4ea5d7e8e",
+      "status": "judged",
+      "created_at": "2026-09-19T23:18:35Z",
+      "source_fingerprint": "df216f714f684a8d8dd7c6cd6a56bc73e504e09e9dba4cb0a625f762a7ed0bff",
+      "capture_binary_sha256": "ded90014d6625cdb1272115f5c579cf6df89c0615dc83437a8b1d5c2342694e9",
+      "frames": [
+        "Overview 1",
+        "Overview 2",
+        "Overview 3",
+        "Drilled folder",
+        "Delete confirmation"
+      ],
+      "blocked_by": [],
+      "submitted_at": "2026-09-19T23:20:35Z",
+      "submitted_verdict": {
+        "choice": "B",
+        "evidence_A": "A changes interface partway through the flow, and its terminal panels give too little information for safe cleanup. Overviews 1-3 are a sunburst chart with a ranked legend (Library 117.1 GB, Pictures 28.7 GB; Users 166.6 GB, plus rows for free space 27 GB and free + purgeable 30.9 GB), a breadcrumb (Disks and Folders > Macintosh HD > Users > oleg), and a '3.3 / 10.9 GB collected' tray with a red Delete pill. The ring segments have no labels, so I can only name the top-level wedges through the legend; the dozens of thin outer slivers are unidentifiable in a still image. The drilled panel (4) and the delete panel (5) are a terminal treemap that shares nothing visually with the overviews. Panel 4 shows three flat boxes: 'Browser/ (+4 descendants) 1.0G (57%)' as a large saturated blue slab, 'Package cache/ 590.0M (33%)', and Thumbnails 180.0M. It shows no nested children and no ranked list, and the only orientation is a yellow and green path line crammed along the top. The hint row is one dense line, and it binds <BACKSPACE> to delete while <ESC> goes to the parent folder. Panel 5 blanks the whole map to a light-grey field behind a black box with dim red text: 'Delete this file? fixtures/ssd-story/Caches/Browser/Media Cache/video-buffer.bin (y/n)'. The dialog gives no size, no warning that the deletion is permanent, and a single keystroke confirms it. The file's size, 610.0M, appears only in the status line at the bottom.",
+        "evidence_B": "B uses one consistent layout in all five states. The header shows the breadcrumb ('ssd-story / Caches / Browser / Media Cache') and the physical space used (4.2 GiB, then 1.8 GiB, then 610.0 MiB as you drill in), along with file, folder and item counts. The labelled treemap is captioned 'Area is proportional to allocated bytes', and it names nested children with their sizes inside each parent: Caches 1.8 GiB 42.2% contains Browser 1.0 GiB and Package cache 590.0 MiB; Games contains Orbit 940.0 MiB; Downloads contains archlinux-o\u2026 410.0 MiB and video-ex\u2026 240.0 MiB. That makes the culprits readable before any drilling. A 'LARGEST FIRST' side list with percentage bars keeps the ranking visible, from Caches 42.2% down to Documents 16.0 MiB 0.4%. The drilled view (4) keeps the same structure: Browser 57.2% contains Media Cache 610.0 MiB and Code Cache 420.0 MiB, and Package cache contains toolchain-old.pkg\u2026 330.0 MiB and linux-headers\u2026 260.0 MiB. The footer reads 'Browser / 1.0 GiB / 57.2% of this view \u00b7 Enter to look inside', and the key row reads 'choose, Enter open, Backspace up, d delete, r rescan'. The delete dialog (5) overlays the map, which stays visible behind it, and reads: 'Permanently delete this item? video-buffer.bin, 610.0 MiB on disk \u00b7 1 files, This cannot be undone. No trash or recovery. Type delete to confirm', with 'Esc cancel' and 'Enter delete'. B also has visible weaknesses. Names are truncated ('archlinux-o\u2026', 'design-a\u2026', and the dialog path 'ssd-story/Caches/Browser/Media Ca\u2026'). One Caches child tile and a sliver at the bottom right have no labels. The dimmed text has low contrast. At one level the drilled view's tiles are all a single shade of teal. The counts are ungrammatical ('1 files', '1 folders'). There is no free-space figure and no running count of space freed.",
+        "loser_reason": "A lost mainly because its flow falls apart at the point where a mistake costs the most. The drilled and delete states drop the sunburst and its legend for a bare three-box terminal treemap. The confirmation blanks the screen to grey behind dim red text on black and asks only '(y/n)'. It shows no size, gives no warning that the deletion is permanent, and accepts a single keystroke. B instead states 610.0 MiB, says 'This cannot be undone', and requires typing the word 'delete' to confirm."
+      },
+      "critic": "Fresh Claude Fable c15801d1-7e92-4cca-b683-c454dd0d748d",
+      "verdict": {
+        "choice": "B",
+        "evidence": "A: A changes interface partway through the flow, and its terminal panels give too little information for safe cleanup. Overviews 1-3 are a sunburst chart with a ranked legend (Library 117.1 GB, Pictures 28.7 GB; Users 166.6 GB, plus rows for free space 27 GB and free + purgeable 30.9 GB), a breadcrumb (Disks and Folders > Macintosh HD > Users > oleg), and a '3.3 / 10.9 GB collected' tray with a red Delete pill. The ring segments have no labels, so I can only name the top-level wedges through the legend; the dozens of thin outer slivers are unidentifiable in a still image. The drilled panel (4) and the delete panel (5) are a terminal treemap that shares nothing visually with the overviews. Panel 4 shows three flat boxes: 'Browser/ (+4 descendants) 1.0G (57%)' as a large saturated blue slab, 'Package cache/ 590.0M (33%)', and Thumbnails 180.0M. It shows no nested children and no ranked list, and the only orientation is a yellow and green path line crammed along the top. The hint row is one dense line, and it binds <BACKSPACE> to delete while <ESC> goes to the parent folder. Panel 5 blanks the whole map to a light-grey field behind a black box with dim red text: 'Delete this file? fixtures/ssd-story/Caches/Browser/Media Cache/video-buffer.bin (y/n)'. The dialog gives no size, no warning that the deletion is permanent, and a single keystroke confirms it. The file's size, 610.0M, appears only in the status line at the bottom.\n\nB: B uses one consistent layout in all five states. The header shows the breadcrumb ('ssd-story / Caches / Browser / Media Cache') and the physical space used (4.2 GiB, then 1.8 GiB, then 610.0 MiB as you drill in), along with file, folder and item counts. The labelled treemap is captioned 'Area is proportional to allocated bytes', and it names nested children with their sizes inside each parent: Caches 1.8 GiB 42.2% contains Browser 1.0 GiB and Package cache 590.0 MiB; Games contains Orbit 940.0 MiB; Downloads contains archlinux-o\u2026 410.0 MiB and video-ex\u2026 240.0 MiB. That makes the culprits readable before any drilling. A 'LARGEST FIRST' side list with percentage bars keeps the ranking visible, from Caches 42.2% down to Documents 16.0 MiB 0.4%. The drilled view (4) keeps the same structure: Browser 57.2% contains Media Cache 610.0 MiB and Code Cache 420.0 MiB, and Package cache contains toolchain-old.pkg\u2026 330.0 MiB and linux-headers\u2026 260.0 MiB. The footer reads 'Browser / 1.0 GiB / 57.2% of this view \u00b7 Enter to look inside', and the key row reads 'choose, Enter open, Backspace up, d delete, r rescan'. The delete dialog (5) overlays the map, which stays visible behind it, and reads: 'Permanently delete this item? video-buffer.bin, 610.0 MiB on disk \u00b7 1 files, This cannot be undone. No trash or recovery. Type delete to confirm', with 'Esc cancel' and 'Enter delete'. B also has visible weaknesses. Names are truncated ('archlinux-o\u2026', 'design-a\u2026', and the dialog path 'ssd-story/Caches/Browser/Media Ca\u2026'). One Caches child tile and a sliver at the bottom right have no labels. The dimmed text has low contrast. At one level the drilled view's tiles are all a single shade of teal. The counts are ungrammatical ('1 files', '1 folders'). There is no free-space figure and no running count of space freed.",
+        "loser_reason": "A lost mainly because its flow falls apart at the point where a mistake costs the most. The drilled and delete states drop the sunburst and its legend for a bare three-box terminal treemap. The confirmation blanks the screen to grey behind dim red text on black and asks only '(y/n)'. It shows no size, gives no warning that the deletion is permanent, and accepts a single keystroke. B instead states 610.0 MiB, says 'This cannot be undone', and requires typing the word 'delete' to confirm."
+      },
+      "judged_at": "2026-09-19T23:24:03Z",
+      "result": "candidate",
+      "identities": {
+        "A": "Whole applicable saved and live bar",
+        "B": "Complete current interface"
+      },
+      "group": "pd44914d4ea5d7e8e",
+      "orientation": 0,
+      "audit": "WHOLE VERDICT NOT COUNTED. Referee independently verified all13allowedfiles read, but critic inferred a single interface changing from radial to terminal across panels and made that invented transition a central loser reason. The reference is necessarily composite under the requested saved/live bar. This is a test framing failure, not a candidate win. Raw evidence retained; repair will require independent matched-state findings without invented transitions and a completely fresh critic.",
+      "counts": false
+    },
+    {
+      "id": "pefda64fbbeee7cb1",
+      "piece": "whole",
+      "packet": "/judging/blind/pefda64fbbeee7cb1",
+      "status": "judged",
+      "created_at": "2026-09-19T23:24:04Z",
+      "source_fingerprint": "df216f714f684a8d8dd7c6cd6a56bc73e504e09e9dba4cb0a625f762a7ed0bff",
+      "capture_binary_sha256": "ded90014d6625cdb1272115f5c579cf6df89c0615dc83437a8b1d5c2342694e9",
+      "frames": [
+        "Overview 1",
+        "Overview 2",
+        "Overview 3",
+        "Drilled folder",
+        "Delete confirmation"
+      ],
+      "blocked_by": [],
+      "submitted_at": "2026-09-19T23:25:02Z",
+      "submitted_verdict": {
+        "choice": "B",
+        "evidence_A": "Overviews 1-3 show a sunburst with a size-sorted legend (Library 117.1 GB, Pictures 28.7 GB), a breadcrumb ('Disks and Folders > Macintosh HD > Users > oleg') and a 'GB collected' tray with a red Delete button. Overview 3 also shows free space (27 GB) and 'hidden space'. Only the top-level legend is named. None of the dozens of outer ring slices has a label or size, so the nested items that actually take the space cannot be read from a still. No key hints are visible. Panel 4 (drilled folder) is a bare treemap with three boxes: 'Browser/ (+4 descendants) 1.0G (57%)', 'Package cache/ 590.0M (33%)' and 'Thumbnails/ 180.0M'. It shows no nested children and has no ranked list. Thumbnails has no percentage. The path appears only in a cramped yellow/green status line. The footer does list ENTER, ESC for parent and BACKSPACE for delete. Panel 5 (delete confirmation) blanks the whole map to a flat light-grey field. A small black box with dim red text reads 'Delete this file?', the full path and '(y/n)'. The file size is not in the dialog (it appears only in the footer, 610.0M). Nothing warns that the delete is permanent, and one keystroke confirms it.",
+        "evidence_B": "Overviews 1-3 show a labelled treemap captioned 'Area is proportional to allocated bytes'. Every top-level block carries a size and percentage (Caches 1.8 GiB \u00b7 42.2%, Games 1.1 GiB \u00b7 27.2%, Downloads 760.0 MiB \u00b7 17.8%). Named children are visible inside the blocks (Browser 1.0 GiB, Package cache 590.0 MiB, Orbit 940.0 MiB, archlinux-o\u2026 410.0 MiB). A 'LARGEST FIRST' ranked list with bars sits beside the map, and a selection footer reads 'Caches / 1.8 GiB / 42.2% of this view \u00b7 Enter to look inside'. The persistent key row reads 'Enter open, Backspace up, d delete, r rescan, ? help, q quit'. Weaknesses: some names are truncated ('video-ex\u2026', 'design-a\u2026'), one small teal block in Caches and a reddish sliver are unlabelled, and there is no free-space figure. Panel 4 (drilled folder) has the breadcrumb 'ssd-story / Caches' and a header that updates to 1.8 GiB. It shows Browser 57.2% with Media Cache 610.0 MiB and Code Cache 420.0 MiB visible inside, Package cache with toolchain-old.pkg\u2026 330.0 MiB and linux-headers\u2026 260.0 MiB, and Thumbnails 180.0 MiB \u00b7 10.0%. The ranked list is re-sorted and 'Backspace up' is shown. Panel 5 (delete confirmation) keeps the map and breadcrumb visible behind the modal. The modal reads 'Permanently delete this item?', video-buffer.bin, '610.0 MiB on disk \u00b7 1 files' and 'This cannot be undone. No trash or recovery.' It requires typing 'delete' to confirm and offers 'Esc cancel / Enter delete'. The path inside the modal is truncated ('ssd-story/Caches/Browser/Media Ca\u2026').",
+        "loser_reason": "A lost mainly because it does not label where the space goes below the top level. Its overview rings are anonymous coloured slices with no names or sizes, and its drilled view is three bare boxes with no children and no ranked list. B's views name and size the nested items directly. A's delete confirmation is a single-key y/n prompt on a blanked screen, with no size and no warning that the delete is permanent. That makes the final step riskier than B's typed confirmation."
+      },
+      "critic": "Fresh Claude Fable 202d8838-0ede-44b1-bbaa-05a26d055641",
+      "verdict": {
+        "choice": "B",
+        "evidence": "A: Overviews 1-3 show a sunburst with a size-sorted legend (Library 117.1 GB, Pictures 28.7 GB), a breadcrumb ('Disks and Folders > Macintosh HD > Users > oleg') and a 'GB collected' tray with a red Delete button. Overview 3 also shows free space (27 GB) and 'hidden space'. Only the top-level legend is named. None of the dozens of outer ring slices has a label or size, so the nested items that actually take the space cannot be read from a still. No key hints are visible. Panel 4 (drilled folder) is a bare treemap with three boxes: 'Browser/ (+4 descendants) 1.0G (57%)', 'Package cache/ 590.0M (33%)' and 'Thumbnails/ 180.0M'. It shows no nested children and has no ranked list. Thumbnails has no percentage. The path appears only in a cramped yellow/green status line. The footer does list ENTER, ESC for parent and BACKSPACE for delete. Panel 5 (delete confirmation) blanks the whole map to a flat light-grey field. A small black box with dim red text reads 'Delete this file?', the full path and '(y/n)'. The file size is not in the dialog (it appears only in the footer, 610.0M). Nothing warns that the delete is permanent, and one keystroke confirms it.\n\nB: Overviews 1-3 show a labelled treemap captioned 'Area is proportional to allocated bytes'. Every top-level block carries a size and percentage (Caches 1.8 GiB \u00b7 42.2%, Games 1.1 GiB \u00b7 27.2%, Downloads 760.0 MiB \u00b7 17.8%). Named children are visible inside the blocks (Browser 1.0 GiB, Package cache 590.0 MiB, Orbit 940.0 MiB, archlinux-o\u2026 410.0 MiB). A 'LARGEST FIRST' ranked list with bars sits beside the map, and a selection footer reads 'Caches / 1.8 GiB / 42.2% of this view \u00b7 Enter to look inside'. The persistent key row reads 'Enter open, Backspace up, d delete, r rescan, ? help, q quit'. Weaknesses: some names are truncated ('video-ex\u2026', 'design-a\u2026'), one small teal block in Caches and a reddish sliver are unlabelled, and there is no free-space figure. Panel 4 (drilled folder) has the breadcrumb 'ssd-story / Caches' and a header that updates to 1.8 GiB. It shows Browser 57.2% with Media Cache 610.0 MiB and Code Cache 420.0 MiB visible inside, Package cache with toolchain-old.pkg\u2026 330.0 MiB and linux-headers\u2026 260.0 MiB, and Thumbnails 180.0 MiB \u00b7 10.0%. The ranked list is re-sorted and 'Backspace up' is shown. Panel 5 (delete confirmation) keeps the map and breadcrumb visible behind the modal. The modal reads 'Permanently delete this item?', video-buffer.bin, '610.0 MiB on disk \u00b7 1 files' and 'This cannot be undone. No trash or recovery.' It requires typing 'delete' to confirm and offers 'Esc cancel / Enter delete'. The path inside the modal is truncated ('ssd-story/Caches/Browser/Media Ca\u2026').",
+        "loser_reason": "A lost mainly because it does not label where the space goes below the top level. Its overview rings are anonymous coloured slices with no names or sizes, and its drilled view is three bare boxes with no children and no ranked list. B's views name and size the nested items directly. A's delete confirmation is a single-key y/n prompt on a blanked screen, with no size and no warning that the delete is permanent. That makes the final step riskier than B's typed confirmation."
+      },
+      "judged_at": "2026-09-19T23:27:21Z",
+      "result": "candidate",
+      "identities": {
+        "A": "Whole applicable saved and live bar",
+        "B": "Complete current interface"
+      },
+      "group": "pefda64fbbeee7cb1",
+      "orientation": 0,
+      "audit": "WHOLE WIN VALIDATED after repaired test. Referee verified exactly13Read calls confined to brief,contact sheets,and all10full-resolution matched-state panels. Fresh verdict compares actual within-state information: named nested consumers, ranked details, and explicit confirmation consequences. It does not penalize the composite saved-GUI/live-terminal bar for an invented transition, style variation, or different datasets. Strongest saved map plus both additional saved map stills and matched live states remain intact; source/reference hashes unchanged. Original invalid whole vote remains public and uncounted. This establishes superiority against the supplied stills and captured states, not an unobserved live GUI.",
+      "counts": true
+    }
+  ],
+  "events": [
+    {
+      "time": "2026-09-19T22:50:00Z",
+      "message": "All four DaisyDisk stills saved once and checksummed. Headless paired capture under construction."
+    },
+    {
+      "time": "2026-09-19T22:51:22.904208+00:00",
+      "message": "Hard freeze shortened by user to 00:46:22 UTC. Preflight rejected monochrome captures caused by inherited NO_COLOR; no verdicts counted."
+    },
+    {
+      "time": "2026-09-19T22:53:22.803093+00:00",
+      "message": "User shortened hard freeze to 23:46:22 UTC, one hour from first command. Calibration first critic preferred the rough implementation; trial is not validated."
+    },
+    {
+      "time": "2026-09-19T22:53:22Z",
+      "message": "calibration: critic_calibration_a chose B (Rough draft). Uncounted pending validity investigation."
+    },
+    {
+      "time": "2026-09-19T22:53:56Z",
+      "message": "calibration: critic_calibration_b chose A (Rough draft). Uncounted pending validity investigation."
+    },
+    {
+      "time": "2026-09-19T22:54:13.387338+00:00",
+      "message": "User changed acceptance: one fresh critic win now suffices. Earlier calibration losses remain; first-round fairness audit and source-change invalidation remain required."
+    },
+    {
+      "time": "2026-09-19T22:58:13Z",
+      "message": "calibration: Fresh Claude Fable 936699a1-0204-4d3e-8783-9f8892902d62 chose B (Saved strongest visual bar). Counted."
+    },
+    {
+      "time": "2026-09-19T22:59:36Z",
+      "message": "foundation: Fresh Claude Fable ae6725f1-e6f4-4f36-af6e-9dd6740d77e1 chose A (Current shared foundation). Uncounted pending validity investigation."
+    },
+    {
+      "time": "2026-09-19T23:00:19Z",
+      "message": "foundation first-round win validated after referee audit: First-round investigation completed: calibrated critic rejected the real wireframe, then preferred current foundation on direct two-level labels and explicit size encoding. Strongest saved still used, equal content framing, no withheld controls counted. Early win comes from task-specific legibility versus anonymous sub-arcs in the supplied still, not source identity or a degraded bar. The candidate retains disclosed truncation, small-child and dim-text flaws. Recaptured fixed release is pixel-identical to judged candidate. This scope wins only visual foundation; live navigation/delete and complete overview remain unjudged."
+    },
+    {
+      "time": "2026-09-19T23:00:19.907832+00:00",
+      "message": "Independent acceptance:15/15 black-box checks and6/6 Rust release tests pass on release3e5d2158 (21total checks). Functional verification is separate from visual judging."
+    },
+    {
+      "time": "2026-09-19T23:00:19.907832+00:00",
+      "message": "Performance round lost on fixed release3e5d2158: cold142.52ms vs gdu135.31ms (1/7paired wins), warm32.17ms vs51.38ms (7/7). Both modes required; performance remains lost0/1."
+    },
+    {
+      "time": "2026-09-19T23:04:18.690944+00:00",
+      "message": "User extended hard limit back to two hours from first command:00:46:22UTC. One fresh critic win still suffices."
+    },
+    {
+      "time": "2026-09-19T23:04:18.690944+00:00",
+      "message": "Performance iteration68ecd311: broad tree cold187.92ms vs gdu144.45ms lost; warm41.50ms vs48.54ms won. Exact UI fixture cold3.11ms vs4.09ms and warm1.14ms vs2.97ms won. Required broad-tree cold bar remains unmet."
+    },
+    {
+      "time": "2026-09-19T23:06:05Z",
+      "message": "overview: Fresh Claude Fable e7a8c772-18d3-4ab4-b89a-92e7f5ea41bb chose A (Current overview). Uncounted pending validity investigation."
+    },
+    {
+      "time": "2026-09-19T23:06:05Z",
+      "message": "navigation: Fresh Claude Fable 1a39a250-6bd4-4290-9cfe-fd70e9063603 chose B (Current drilled directory). Uncounted pending validity investigation."
+    },
+    {
+      "time": "2026-09-19T23:06:05Z",
+      "message": "deletion: Fresh Claude Fable 72a0ea70-7522-4d9a-9767-0fada20bfc6f chose B (Current delete confirmation). Uncounted pending validity investigation."
+    },
+    {
+      "time": "2026-09-19T23:07:35.006590+00:00",
+      "message": "First-round audit rejected overview/navigation counting pending stronger trials: preserve saved-bar application navigation and align selectedBrowser state in both live interfaces. Verdict evidence remains visible."
+    },
+    {
+      "time": "2026-09-19T23:07:59Z",
+      "message": "deletion first-round win validated after referee audit: First-round audit confirms exact same610MiB file and real full-colour live confirmation. Recaptured live-bar content is pixel-identical; its grey pane is native selected single-file rendering, not capture loss. Main advantage is explicit permanent-delete consequences, byte amount and typed confirmation. Full target remains visible in both (candidate filename+breadcrumb); candidate path truncation and equally coloured cancel/delete remain disclosed. This verdict wins the captured deletion state; forthcoming behavior edits will invalidate it."
+    },
+    {
+      "time": "2026-09-19T23:07:59Z",
+      "message": "deletion win invalidated: Fable builder is changing deletion behavior and cancellation; preserve this historical visual win, require a new final deletion verdict after implementation and acceptance."
+    },
+    {
+      "time": "2026-09-19T23:11:57Z",
+      "message": "overview: Fresh Claude Fable 2ed67b84-0cbc-4eee-a399-37d26258326f chose B (Current overview). Uncounted pending validity investigation."
+    },
+    {
+      "time": "2026-09-19T23:11:57Z",
+      "message": "navigation: Fresh Claude Fable 8ae01f7d-0e8d-4dce-b636-bd5ef4fd4b2b chose A (Current drilled directory, Browser selected). Uncounted pending validity investigation."
+    },
+    {
+      "time": "2026-09-19T23:11:57Z",
+      "message": "overview first-round win validated after referee audit: Repeated comparison corrects initial weak framing: strongest saved reference retains breadcrumb/back/forward and cleanup tray, while only platform controls are masked. Fresh critic still prefers direct named nested consumers and explicit selected-target actions. No earlier missing-navigation penalty is required to explain this result. Same pixel-proven release candidate and visual source fingerprint unchanged."
+    },
+    {
+      "time": "2026-09-19T23:11:57Z",
+      "message": "navigation first-round win validated after referee audit: Repeated comparison aligns sameCaches subtree and Browser selection in both real live interfaces. Fresh critic now identifies named nested contents as primary difference; missing-selection confound removed. Exact fixture verifies Browser2leaf files+2descendant directories=4descendants, so count suspicion is not treated as a bug. Colour environment, terminal size, source bytes, and capture framing match."
+    },
+    {
+      "time": "2026-09-19T23:15:17.581073+00:00",
+      "message": "Final ded90014 release passes17/17 independent black-box checks and17/17 Rust tests:34/34total, including nonUTF8 paths and partial deletion cancellation."
+    },
+    {
+      "time": "2026-09-19T23:15:17.581073+00:00",
+      "message": "Final3state captures all attest ded90014; overview is pixel-identical to the won candidate. One benchmark attempt predeclared invalid before reading timings because it overlapped rasterization; raw result preserved, official measurement will run after capture ended."
+    },
+    {
+      "time": "2026-09-19T23:16:31Z",
+      "message": "deletion: blind verdict A landed from claude-fable-5-1 / dedb0e73-0b75-4eff-9b54-52838d96c555. Identity and acceptance remain pending independent referee review."
+    },
+    {
+      "time": "2026-09-19T23:17:14.802693+00:00",
+      "message": "Performance WON after independent referee audit: release ded90014 matches both measured/current hashes; all56 measurements match independent bytes/counts. Broad tree cold120.125ms vs149.204ms, warm37.055ms vs50.115ms. ExactUI cold2.473ms vs4.622ms, warm0.763ms vs2.757ms.28/28pairedwins, lower median and7/7wins in each mode. Full-tree gdu engine; isolatedLinux/ext4/KVM caches. Invalidoverlapattempt excluded."
+    },
+    {
+      "time": "2026-09-19T23:18:10Z",
+      "message": "deletion: Fresh Claude Fable dedb0e73-0b75-4eff-9b54-52838d96c555 chose A (Final deletion confirmation). Counted."
+    },
+    {
+      "time": "2026-09-19T23:20:35Z",
+      "message": "whole: blind verdict B landed from claude-fable-5-1 / c15801d1-7e92-4cca-b683-c454dd0d748d. Identity and acceptance remain pending independent referee review."
+    },
+    {
+      "time": "2026-09-19T23:24:03Z",
+      "message": "whole: Fresh Claude Fable c15801d1-7e92-4cca-b683-c454dd0d748d chose B (Complete current interface). Uncounted pending validity investigation."
+    },
+    {
+      "time": "2026-09-19T23:25:02Z",
+      "message": "whole: blind verdict B landed from claude-fable-5-1 / 202d8838-0ede-44b1-bbaa-05a26d055641. Identity and acceptance remain pending independent referee review."
+    },
+    {
+      "time": "2026-09-19T23:27:21Z",
+      "message": "whole: Fresh Claude Fable 202d8838-0ede-44b1-bbaa-05a26d055641 chose B (Complete current interface). Counted."
+    },
+    {
+      "time": "2026-09-19T23:27:21Z",
+      "message": "Task completed by winning, before the deadline. All6productpieces have valid wins; calibration passed, finalrelease provenance unchanged. No timeout converted a verdict into a win."
+    },
+    {
+      "time": "2026-09-19T23:29:41Z",
+      "message": "Final packaging integrity check passed: all six product wins and ded90014 release hash unchanged. Active source watcher stopped; live HTTP progress server retained."
+    }
+  ],
+  "validation": {
+    "release_sha256": "ded90014d6625cdb1272115f5c579cf6df89c0615dc83437a8b1d5c2342694e9",
+    "black_box_passed": 17,
+    "black_box_total": 17,
+    "rust_tests_passed": 17,
+    "rust_tests_total": 17,
+    "aggregate_passed": 34,
+    "aggregate_total": 34
+  },
+  "completed": true,
+  "completed_at": "2026-09-19T23:27:21Z"
+}

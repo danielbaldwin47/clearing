@@ -1,0 +1,5 @@
+Two interface entries are provided as A.png and B.png. Inspect only these images. Do not inspect other files, browse, infer authorship, or identify products.
+
+Both entries show a scanned directory overview. Evaluate the clarity of colour, typography, and how disk usage is encoded. Judge the visible interface for finding large data and beginning cleanup.
+
+Which of these two would you rather use to find what is eating your disk and clear it? Choose exactly A or B. Cite concrete visible evidence in each entry. Give the single biggest reason the loser lost. Be harsh; praise is not useful. Return JSON with choice, evidence_A, evidence_B, and loser_reason.

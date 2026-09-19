@@ -1,0 +1,63 @@
+BENCH_ENV cpus=20 trials=3 cache_reset=sync+drop_caches:3
+BENCH_RESULT gdu cold 0 144881434
+BENCH_OUTPUT_BEGIN
+1310715904 tree
+
+BENCH_OUTPUT_END
+BENCH_RESULT tui-disk cold 0 143220425
+BENCH_OUTPUT_BEGIN
+{"apparent_bytes":1339817984,"bytes":1339817984,"directories":7105,"elapsed_seconds":0.131297331,"errors":0,"files":160000,"path":"/tree"}
+
+BENCH_OUTPUT_END
+BENCH_RESULT tui-disk warm 0 31846049
+BENCH_OUTPUT_BEGIN
+{"apparent_bytes":1339817984,"bytes":1339817984,"directories":7105,"elapsed_seconds":0.015659832,"errors":0,"files":160000,"path":"/tree"}
+
+BENCH_OUTPUT_END
+BENCH_RESULT gdu warm 0 54622252
+BENCH_OUTPUT_BEGIN
+1310715904 tree
+
+BENCH_OUTPUT_END
+BENCH_RESULT tui-disk cold 1 123368657
+BENCH_OUTPUT_BEGIN
+{"apparent_bytes":1339817984,"bytes":1339817984,"directories":7105,"elapsed_seconds":0.113225015,"errors":0,"files":160000,"path":"/tree"}
+
+BENCH_OUTPUT_END
+BENCH_RESULT gdu cold 1 143572011
+BENCH_OUTPUT_BEGIN
+1310715904 tree
+
+BENCH_OUTPUT_END
+BENCH_RESULT gdu warm 1 49402263
+BENCH_OUTPUT_BEGIN
+1310715904 tree
+
+BENCH_OUTPUT_END
+BENCH_RESULT tui-disk warm 1 27956332
+BENCH_OUTPUT_BEGIN
+{"apparent_bytes":1339817984,"bytes":1339817984,"directories":7105,"elapsed_seconds":0.017819514,"errors":0,"files":160000,"path":"/tree"}
+
+BENCH_OUTPUT_END
+BENCH_RESULT gdu cold 2 143325060
+BENCH_OUTPUT_BEGIN
+1310715904 tree
+
+BENCH_OUTPUT_END
+BENCH_RESULT tui-disk cold 2 122707868
+BENCH_OUTPUT_BEGIN
+{"apparent_bytes":1339817984,"bytes":1339817984,"directories":7105,"elapsed_seconds":0.112416436,"errors":0,"files":160000,"path":"/tree"}
+
+BENCH_OUTPUT_END
+BENCH_RESULT tui-disk warm 2 35731130
+BENCH_OUTPUT_BEGIN
+{"apparent_bytes":1339817984,"bytes":1339817984,"directories":7105,"elapsed_seconds":0.017550679,"errors":0,"files":160000,"path":"/tree"}
+
+BENCH_OUTPUT_END
+BENCH_RESULT gdu warm 2 46950748
+BENCH_OUTPUT_BEGIN
+1310715904 tree
+
+BENCH_OUTPUT_END
+BENCH_COMPLETE
+[    2.986720] reboot: Power down

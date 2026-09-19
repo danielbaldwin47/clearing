@@ -1,0 +1,28 @@
+{
+  "terminal": {
+    "columns": 140,
+    "rows": 44,
+    "font": "DejaVu Sans Mono",
+    "font_size": 11
+  },
+  "keys": "Right,Enter,Right",
+  "command": [
+    "diskonaut",
+    "fixtures/ssd-story"
+  ],
+  "geometry": "WINDOW=2097166\nX=0\nY=0\nWIDTH=1261\nHEIGHT=881\nSCREEN=0\n",
+  "headless": true,
+  "captured_at": "2026-09-19T23:07:35.040033+00:00",
+  "binary_path": "/usr/bin/diskonaut",
+  "binary_sha256": "42ebcb4f9e1d4f86148ac649e7455b546705693d3a700df79aea39897d5baa4e",
+  "source_files": {
+    "src/delete.rs": "c08bdf7944fcfa2abf060cc3dd05afee1ec8a3868ecf702dedb04f6987ff3c04",
+    "src/main.rs": "216d586fc753d77e38b3e63517ab3d7e502ba5d1e6b2e2617a06b93199c46184",
+    "src/scan.rs": "c749a3734269f5e5a600664f512b36fd750248703317f71ed265e285640d0c3e",
+    "src/theme.rs": "d6c051083b72467a1f7c6134f412634b912fbcdd4d17e02f698a2f97f163188e",
+    "src/ui/confirm.rs": "bc61c2a95c15493147df75bc9540833570a9dedc92f9156889d4a8d4c646ea18",
+    "src/ui/foundation.rs": "fd18f25508c16a56da2a0183d21a0da26ad676a39b75cab9bf9dfb16d2fdd854",
+    "src/ui/view.rs": "b0b33ecd982a36d9e07d4611702e79e0676deb5bcdadaf3a9c6268a688ad88c0",
+    "src/ui.rs": "8a6973ca38023c57d707400b39a6c2d02b0c79e9db1856c97d15fe332c21ac10"
+  }
+}

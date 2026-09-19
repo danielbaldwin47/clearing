@@ -1,0 +1,471 @@
+use rayon::prelude::*;
+use serde::Serialize;
+use std::{
+    collections::HashSet,
+    ffi::{CStr, CString, OsString},
+    fs, io,
+    os::{
+        fd::{AsRawFd, FromRawFd, OwnedFd, RawFd},
+        unix::ffi::{OsStrExt, OsStringExt},
+    },
+    path::{Path, PathBuf},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+    },
+};
+
+pub fn display_path(name: &std::ffi::OsStr) -> String {
+    if let Some(text) = name.to_str() {
+        if !text.chars().any(|c| c.is_control() || c == '\\') {
+            return text.to_owned();
+        }
+    }
+    let mut out = String::with_capacity(name.len());
+    let mut remaining = name.as_bytes();
+    while !remaining.is_empty() {
+        match std::str::from_utf8(remaining) {
+            Ok(text) => {
+                append_display(&mut out, text);
+                break;
+            }
+            Err(error) => {
+                let valid = error.valid_up_to();
+                append_display(&mut out, std::str::from_utf8(&remaining[..valid]).unwrap());
+                let length = error.error_len().unwrap_or(remaining.len() - valid);
+                for byte in &remaining[valid..valid + length] {
+                    out.push_str(&format!("\\x{byte:02X}"));
+                }
+                remaining = &remaining[valid + length..];
+            }
+        }
+    }
+    out
+}
+fn append_display(out: &mut String, text: &str) {
+    for c in text.chars() {
+        if c == '\\' {
+            out.push_str("\\\\")
+        } else if c.is_control() {
+            out.extend(c.escape_default())
+        } else {
+            out.push(c)
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Node {
+    pub name: String,
+    #[serde(skip)]
+    pub path: PathBuf,
+    pub bytes: u64,
+    pub apparent: u64,
+    pub files: u64,
+    pub directories: u64,
+    pub errors: u64,
+    pub is_dir: bool,
+    pub is_symlink: bool,
+    pub shared: bool,
+    #[serde(skip)]
+    pub identity: (u64, u64),
+    pub children: Vec<Node>,
+}
+impl Node {
+    pub fn at<'a>(&'a self, route: &[usize]) -> &'a Node {
+        route.iter().fold(self, |n, &i| &n.children[i])
+    }
+}
+#[derive(Clone)]
+struct Context {
+    links: Arc<Mutex<HashSet<(u64, u64)>>>,
+    progress: Arc<AtomicU64>,
+    cancel: Arc<AtomicBool>,
+}
+pub fn scan(path: &Path, progress: Arc<AtomicU64>) -> io::Result<Node> {
+    scan_cancellable(path, progress, Arc::new(AtomicBool::new(false)))
+}
+pub fn scan_cancellable(
+    path: &Path,
+    progress: Arc<AtomicU64>,
+    cancel: Arc<AtomicBool>,
+) -> io::Result<Node> {
+    let started = std::time::Instant::now();
+    let absolute = fs::canonicalize(path)?;
+    let name = CString::new(absolute.as_os_str().as_bytes())
+        .map_err(|_| io::Error::other("invalid path"))?;
+    let raw = unsafe {
+        libc::open(
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK,
+        )
+    };
+    if raw < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let fd = unsafe { OwnedFd::from_raw_fd(raw) };
+    let stat = stat_fd(fd.as_raw_fd())?;
+    let ctx = Context {
+        links: Arc::new(Mutex::new(HashSet::new())),
+        progress,
+        cancel,
+    };
+    ctx.progress.store(1, Ordering::Relaxed);
+    let mut root = node(absolute, stat, &ctx);
+    if root.is_dir {
+        match names(fd.as_raw_fd()) {
+            Ok(entries) => {
+                let prelude = started.elapsed();
+                let workers = pool(workers(fd.as_raw_fd(), prelude, entries.len()))?;
+                workers.install(|| populate_entries(&mut root, fd, entries, &ctx))
+            }
+            Err(_) => root.errors += 1,
+        }
+    }
+    if ctx.cancel.load(Ordering::Relaxed) {
+        return Err(io::Error::new(io::ErrorKind::Interrupted, "scan cancelled"));
+    }
+    Ok(root)
+}
+fn stat_fd(fd: RawFd) -> io::Result<libc::stat> {
+    let mut s = std::mem::MaybeUninit::uninit();
+    if unsafe { libc::fstat(fd, s.as_mut_ptr()) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(unsafe { s.assume_init() })
+}
+fn stat_at(fd: RawFd, name: &CStr) -> io::Result<libc::stat> {
+    let mut s = std::mem::MaybeUninit::uninit();
+    if unsafe { libc::fstatat(fd, name.as_ptr(), s.as_mut_ptr(), libc::AT_SYMLINK_NOFOLLOW) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(unsafe { s.assume_init() })
+}
+fn node(path: PathBuf, meta: libc::stat, ctx: &Context) -> Node {
+    let is_dir = meta.st_mode & libc::S_IFMT == libc::S_IFDIR;
+    let is_symlink = meta.st_mode & libc::S_IFMT == libc::S_IFLNK;
+    let identity = (meta.st_dev, meta.st_ino);
+    let shared = !is_dir && meta.st_nlink > 1 && !ctx.links.lock().unwrap().insert(identity);
+    Node {
+        name: display_path(
+            path.file_name()
+                .unwrap_or_else(|| std::ffi::OsStr::new("/")),
+        ),
+        path,
+        bytes: if shared {
+            0
+        } else {
+            meta.st_blocks.max(0) as u64 * 512
+        },
+        apparent: if shared {
+            0
+        } else {
+            meta.st_size.max(0) as u64
+        },
+        files: (!is_dir) as u64,
+        directories: is_dir as u64,
+        errors: 0,
+        is_dir,
+        is_symlink,
+        shared,
+        identity,
+        children: Vec::new(),
+    }
+}
+struct Entry {
+    name: CString,
+    is_dir: bool,
+    inode: u64,
+}
+fn names(fd: RawFd) -> io::Result<Vec<Entry>> {
+    let dup = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 3) };
+    if dup < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let dir = unsafe { libc::fdopendir(dup) };
+    if dir.is_null() {
+        unsafe { libc::close(dup) };
+        return Err(io::Error::last_os_error());
+    }
+    let mut names = Vec::new();
+    let mut error = None;
+    loop {
+        unsafe { *libc::__errno_location() = 0 };
+        let entry = unsafe { libc::readdir(dir) };
+        if entry.is_null() {
+            let e = io::Error::last_os_error();
+            if e.raw_os_error() != Some(0) {
+                error = Some(e)
+            }
+            break;
+        }
+        let n = unsafe { CStr::from_ptr((*entry).d_name.as_ptr()) };
+        if n.to_bytes() != b"." && n.to_bytes() != b".." {
+            names.push(Entry {
+                name: n.to_owned(),
+                is_dir: unsafe { (*entry).d_type } == libc::DT_DIR,
+                inode: unsafe { (*entry).d_ino } as u64,
+            })
+        }
+    }
+    unsafe { libc::closedir(dir) };
+    if let Some(e) = error {
+        Err(e)
+    } else {
+        Ok(names)
+    }
+}
+// Metadata scans block on storage when caches are cold, so a worker waiting on a
+// disk read leaves a core idle and the device queue shallow. When resolving and
+// listing the root was slow enough to have waited for storage, the scanner uses
+// more workers than cores. With warm caches the work is CPU-bound and extra
+// workers only add lock contention, so it stays at one worker per core. A small
+// filesystem cannot hold enough entries to repay starting many threads.
+fn workers(fd: RawFd, prelude: std::time::Duration, listed: usize) -> usize {
+    if let Some(n) = std::env::var("TUI_DISK_SCAN_THREADS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+    {
+        return n.clamp(1, 256);
+    }
+    let cores = std::thread::available_parallelism().map_or(4, |n| n.get());
+    let cached = std::time::Duration::from_micros(200)
+        + std::time::Duration::from_nanos(250) * listed as u32;
+    let target = if prelude > cached {
+        (cores * 2).clamp(8, 64)
+    } else {
+        cores
+    };
+    let mut fs = std::mem::MaybeUninit::<libc::statfs>::uninit();
+    if unsafe { libc::fstatfs(fd, fs.as_mut_ptr()) } == 0 {
+        let fs = unsafe { fs.assume_init() };
+        // Filesystems without a fixed inode table report zero and stay unbounded.
+        if fs.f_files > 0 {
+            let used = fs.f_files.saturating_sub(fs.f_ffree) as usize;
+            return target.min((used / 64).max(8));
+        }
+    }
+    target
+}
+fn pool(threads: usize) -> io::Result<rayon::ThreadPool> {
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(threads)
+        .thread_name(|i| format!("scan-{i}"))
+        .build()
+        .map_err(io::Error::other)
+}
+// Non-directories in one directory usually share a few inode-table blocks, so one
+// worker reads them in inode order. Only very large directories are split.
+const FILE_CHUNK: usize = 512;
+fn open_dir(fd: RawFd, name: &CStr) -> Option<OwnedFd> {
+    let raw = unsafe {
+        libc::openat(
+            fd,
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    (raw >= 0).then(|| unsafe { OwnedFd::from_raw_fd(raw) })
+}
+fn child_path(parent: &Path, name: &CStr) -> PathBuf {
+    let mut bytes = Vec::with_capacity(parent.as_os_str().len() + 1 + name.to_bytes().len());
+    bytes.extend_from_slice(parent.as_os_str().as_bytes());
+    let mut path = PathBuf::from(OsString::from_vec(bytes));
+    path.push(std::ffi::OsStr::from_bytes(name.to_bytes()));
+    path
+}
+fn visit(parent: &Path, fd: RawFd, entry: &Entry, ctx: &Context) -> Option<Node> {
+    if ctx.cancel.load(Ordering::Relaxed) {
+        return None;
+    }
+    let name = &entry.name;
+    let path = child_path(parent, name);
+    // A known directory can be opened safely first. fstat then describes
+    // exactly the inode whose children we will read, avoiding two stats.
+    if entry.is_dir {
+        if let Some(owned) = open_dir(fd, name) {
+            let stat = stat_fd(owned.as_raw_fd()).ok()?;
+            let mut child = node(path, stat, ctx);
+            populate(&mut child, owned, ctx);
+            return Some(child);
+        }
+    }
+    let stat = stat_at(fd, name).ok()?;
+    let mut child = node(path, stat, ctx);
+    if child.is_dir {
+        match open_dir(fd, name) {
+            None => child.errors += 1,
+            Some(owned) => match stat_fd(owned.as_raw_fd()) {
+                Ok(s) if (s.st_dev, s.st_ino) == child.identity => populate(&mut child, owned, ctx),
+                _ => child.errors += 1,
+            },
+        }
+    }
+    Some(child)
+}
+fn populate(parent: &mut Node, fd: OwnedFd, ctx: &Context) {
+    if ctx.cancel.load(Ordering::Relaxed) {
+        return;
+    }
+    match names(fd.as_raw_fd()) {
+        Ok(entries) => populate_entries(parent, fd, entries, ctx),
+        Err(_) => parent.errors += 1,
+    }
+}
+fn populate_entries(parent: &mut Node, fd: OwnedFd, entries: Vec<Entry>, ctx: &Context) {
+    // Progress is approximate while scanning; the final tree contains exact counts.
+    // One update per directory avoids a contended atomic for every file.
+    ctx.progress
+        .fetch_add(entries.len() as u64, Ordering::Relaxed);
+    let (dirs, mut files): (Vec<Entry>, Vec<Entry>) = entries.into_iter().partition(|e| e.is_dir);
+    files.sort_unstable_by_key(|e| e.inode);
+    let total = dirs.len() + files.len();
+    let raw = fd.as_raw_fd();
+    let path = parent.path.as_path();
+    let mut dir_slots: Vec<Option<Node>> = Vec::new();
+    dir_slots.resize_with(dirs.len(), || None);
+    let mut children: Vec<Node> = Vec::with_capacity(total);
+    // Subdirectories become stealable tasks before this worker touches any file,
+    // so their disk reads start while the files here are being read in order.
+    rayon::scope(|s| {
+        for (entry, slot) in dirs.iter().zip(dir_slots.iter_mut()) {
+            s.spawn(move |_| *slot = visit(path, raw, entry, ctx));
+        }
+        if files.len() <= FILE_CHUNK {
+            // A d_type of DT_UNKNOWN may still turn out to be a directory; visit handles it.
+            children.extend(files.iter().filter_map(|e| visit(path, raw, e, ctx)));
+        } else {
+            let chunks: Vec<Vec<Node>> = files
+                .par_chunks(FILE_CHUNK)
+                .map(|chunk| {
+                    chunk
+                        .iter()
+                        .filter_map(|e| visit(path, raw, e, ctx))
+                        .collect()
+                })
+                .collect();
+            children.extend(chunks.into_iter().flatten());
+        }
+    });
+    children.extend(dir_slots.into_iter().flatten());
+    parent.errors += (total - children.len()) as u64;
+    for c in &children {
+        parent.bytes += c.bytes;
+        parent.apparent += c.apparent;
+        parent.files += c.files;
+        parent.directories += c.directories;
+        parent.errors += c.errors;
+    }
+    children.sort_unstable_by(|a, b| b.bytes.cmp(&a.bytes).then(a.name.cmp(&b.name)));
+    parent.children = children;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{
+        io::{Seek, SeekFrom, Write},
+        os::unix::fs::symlink,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+    fn fixture() -> PathBuf {
+        let p = std::env::temp_dir().join(format!(
+            "tuidisk-test-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&p).unwrap();
+        p
+    }
+    #[test]
+    fn counts_sparse_hardlinks_and_does_not_follow_symlinks() {
+        let p = fixture();
+        let mut f = fs::File::create(p.join("data")).unwrap();
+        f.write_all(&[42u8; 8192]).unwrap();
+        fs::hard_link(p.join("data"), p.join("linked")).unwrap();
+        let mut sparse = fs::File::create(p.join("sparse")).unwrap();
+        sparse.seek(SeekFrom::Start(100 * 1024 * 1024)).unwrap();
+        sparse.write_all(&[1]).unwrap();
+        symlink("/", p.join("outside")).unwrap();
+        let n = scan(&p, Arc::new(AtomicU64::new(0))).unwrap();
+        assert_eq!(n.files, 4);
+        assert_eq!(n.directories, 1);
+        assert!(n.bytes < 1024 * 1024);
+        assert!(n.apparent > 100 * 1024 * 1024);
+        assert_eq!(n.children.iter().filter(|n| n.shared).count(), 1);
+        assert!(
+            n.children
+                .iter()
+                .find(|n| n.name == "outside")
+                .unwrap()
+                .children
+                .is_empty()
+        );
+        fs::remove_dir_all(p).unwrap();
+    }
+    #[test]
+    fn large_directories_nested_trees_and_raw_names_are_complete() {
+        let p = fixture();
+        let wide = p.join("wide");
+        fs::create_dir(&wide).unwrap();
+        for i in 0..(FILE_CHUNK * 2 + 37) {
+            fs::write(wide.join(format!("f{i}")), b"x").unwrap();
+        }
+        let deep = p.join("a/b/c/d");
+        fs::create_dir_all(&deep).unwrap();
+        fs::write(deep.join("leaf"), b"leaf").unwrap();
+        symlink(&wide, deep.join("loop")).unwrap();
+        let raw = std::ffi::OsStr::from_bytes(b"bad\xFFname\n");
+        fs::write(p.join(raw), b"raw").unwrap();
+        let n = scan(&p, Arc::new(AtomicU64::new(0))).unwrap();
+        assert_eq!(n.files, FILE_CHUNK as u64 * 2 + 37 + 3);
+        assert_eq!(n.directories, 6);
+        assert_eq!(n.errors, 0);
+        fn apparent(n: &Node) -> u64 {
+            fs::symlink_metadata(&n.path).unwrap().len()
+                + n.children.iter().map(apparent).sum::<u64>()
+        }
+        assert_eq!(n.apparent, apparent(&n));
+        let named = n
+            .children
+            .iter()
+            .find(|c| c.name == "bad\\xFFname\\n")
+            .unwrap();
+        assert_eq!(
+            named.path.as_os_str().as_bytes(),
+            p.join(raw).as_os_str().as_bytes()
+        );
+        let wide_node = n.children.iter().find(|c| c.name == "wide").unwrap();
+        assert_eq!(wide_node.children.len(), FILE_CHUNK * 2 + 37);
+        let link = n.at(&[]).children.iter().find(|c| c.name == "a").unwrap();
+        let link = &link.children[0].children[0].children[0];
+        let link = link.children.iter().find(|c| c.name == "loop").unwrap();
+        assert!(link.is_symlink && !link.is_dir && link.children.is_empty());
+        fs::remove_dir_all(p).unwrap();
+    }
+    #[test]
+    fn unreadable_directories_are_errors_and_cancel_interrupts() {
+        let p = fixture();
+        let locked = p.join("locked");
+        fs::create_dir(&locked).unwrap();
+        fs::write(locked.join("hidden"), b"x").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+        let n = scan(&p, Arc::new(AtomicU64::new(0))).unwrap();
+        if unsafe { libc::geteuid() } != 0 {
+            assert_eq!(n.errors, 1);
+            assert_eq!(n.directories, 2);
+        }
+        let cancelled = scan_cancellable(
+            &p,
+            Arc::new(AtomicU64::new(0)),
+            Arc::new(AtomicBool::new(true)),
+        );
+        assert_eq!(cancelled.unwrap_err().kind(), io::ErrorKind::Interrupted);
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::remove_dir_all(p).unwrap();
+    }
+}

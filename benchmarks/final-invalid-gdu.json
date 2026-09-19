@@ -1,0 +1,8 @@
+{
+  "valid": false,
+  "won": false,
+  "reason": "gdu warm trial 3 allocated bytes1305346048 disagreed with independent audit1310715904; whole run rejected. Other measured gdu outputs correct; cause unconfirmed.",
+  "raw_log": "benchmarks/final-invalid-gdu.log",
+  "measured_tui_disk_sha256": "3e5d21588a4ce7c1c4f3123bec6722917565a19667a92cc9f5f979f9b0b9cbf0",
+  "audit_time_utc": "2026-09-19T22:58:58.111417+00:00"
+}

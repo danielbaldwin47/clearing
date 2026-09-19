@@ -1,0 +1,5 @@
+Two interface entries are provided as A.png and B.png. Inspect only these images. Do not inspect other files, browse, infer authorship, or identify products.
+
+These are visualization-and-legend regions of two scanned-directory interfaces. Judge only the shared visual foundation: colour relationships, text readability and hierarchy, and how disk size is drawn. Path headers, keyboard help, and other actions are outside this crop and must not affect this verdict. Use the visible map and its labels to decide which makes a full disk easier to understand.
+
+Which of these two would you rather use to find what is eating your disk and clear it? Choose exactly A or B. Cite concrete visible evidence in each entry. Give the single biggest reason the loser lost. Be harsh; praise is not useful. Return JSON with choice, evidence_A, evidence_B, and loser_reason.

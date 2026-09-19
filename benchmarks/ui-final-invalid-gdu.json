@@ -1,0 +1,8 @@
+{
+  "valid": false,
+  "won": false,
+  "reason": "Four gdu summaries omit whole subtrees; all tui-disk totals and counts match independent audit. Entire run invalid.",
+  "expected_file_allocated_bytes": 4473241600,
+  "raw_log": "benchmarks/ui-final-invalid-gdu.log",
+  "measured_tui_disk_sha256": "3e5d21588a4ce7c1c4f3123bec6722917565a19667a92cc9f5f979f9b0b9cbf0"
+}

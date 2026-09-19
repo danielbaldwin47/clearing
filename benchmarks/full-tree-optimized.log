@@ -1,0 +1,171 @@
+BENCH_ENV cpus=20 trials=7 cache_reset=sync+drop_caches:3
+BENCH_AUDIT {"file_bytes":1310715904,"directory_bytes":29102080,"files":160000,"directories":7105}
+BENCH_RESULT gdu cold 0 154514614
+BENCH_OUTPUT_BEGIN
+[1,2,{"progname":"gdu","progver":"5.37.0","timestamp":1789858951},
+[{"name":"/tree","asize":1310715904,"dsize":1310715904,"items":167105}
+]]
+
+BENCH_OUTPUT_END
+BENCH_RESULT tui-disk cold 0 191020184
+BENCH_OUTPUT_BEGIN
+{"apparent_bytes":1339817984,"bytes":1339817984,"directories":7105,"elapsed_seconds":0.179982855,"errors":0,"files":160000,"path":"/tree"}
+
+BENCH_OUTPUT_END
+BENCH_RESULT tui-disk warm 0 37122426
+BENCH_OUTPUT_BEGIN
+{"apparent_bytes":1339817984,"bytes":1339817984,"directories":7105,"elapsed_seconds":0.024216949,"errors":0,"files":160000,"path":"/tree"}
+
+BENCH_OUTPUT_END
+BENCH_RESULT gdu warm 0 53641864
+BENCH_OUTPUT_BEGIN
+[1,2,{"progname":"gdu","progver":"5.37.0","timestamp":1789858951},
+[{"name":"/tree","asize":1310715904,"dsize":1310715904,"items":167105}
+]]
+
+BENCH_OUTPUT_END
+BENCH_RESULT tui-disk cold 1 184252661
+BENCH_OUTPUT_BEGIN
+{"apparent_bytes":1339817984,"bytes":1339817984,"directories":7105,"elapsed_seconds":0.171756429,"errors":0,"files":160000,"path":"/tree"}
+
+BENCH_OUTPUT_END
+BENCH_RESULT gdu cold 1 152274561
+BENCH_OUTPUT_BEGIN
+[1,2,{"progname":"gdu","progver":"5.37.0","timestamp":1789858952},
+[{"name":"/tree","asize":1310715904,"dsize":1310715904,"items":167105}
+]]
+
+BENCH_OUTPUT_END
+BENCH_RESULT gdu warm 1 48541579
+BENCH_OUTPUT_BEGIN
+[1,2,{"progname":"gdu","progver":"5.37.0","timestamp":1789858952},
+[{"name":"/tree","asize":1310715904,"dsize":1310715904,"items":167105}
+]]
+
+BENCH_OUTPUT_END
+BENCH_RESULT tui-disk warm 1 38918511
+BENCH_OUTPUT_BEGIN
+{"apparent_bytes":1339817984,"bytes":1339817984,"directories":7105,"elapsed_seconds":0.028034305,"errors":0,"files":160000,"path":"/tree"}
+
+BENCH_OUTPUT_END
+BENCH_RESULT gdu cold 2 139677937
+BENCH_OUTPUT_BEGIN
+[1,2,{"progname":"gdu","progver":"5.37.0","timestamp":1789858952},
+[{"name":"/tree","asize":1310715904,"dsize":1310715904,"items":167105}
+]]
+
+BENCH_OUTPUT_END
+BENCH_RESULT tui-disk cold 2 193465934
+BENCH_OUTPUT_BEGIN
+{"apparent_bytes":1339817984,"bytes":1339817984,"directories":7105,"elapsed_seconds":0.180350752,"errors":0,"files":160000,"path":"/tree"}
+
+BENCH_OUTPUT_END
+BENCH_RESULT tui-disk warm 2 48512290
+BENCH_OUTPUT_BEGIN
+{"apparent_bytes":1339817984,"bytes":1339817984,"directories":7105,"elapsed_seconds":0.032430939,"errors":0,"files":160000,"path":"/tree"}
+
+BENCH_OUTPUT_END
+BENCH_RESULT gdu warm 2 46519701
+BENCH_OUTPUT_BEGIN
+[1,2,{"progname":"gdu","progver":"5.37.0","timestamp":1789858953},
+[{"name":"/tree","asize":1310715904,"dsize":1310715904,"items":167105}
+]]
+
+BENCH_OUTPUT_END
+BENCH_RESULT tui-disk cold 3 186039432
+BENCH_OUTPUT_BEGIN
+{"apparent_bytes":1339817984,"bytes":1339817984,"directories":7105,"elapsed_seconds":0.174898748,"errors":0,"files":160000,"path":"/tree"}
+
+BENCH_OUTPUT_END
+BENCH_RESULT gdu cold 3 146662966
+BENCH_OUTPUT_BEGIN
+[1,2,{"progname":"gdu","progver":"5.37.0","timestamp":1789858954},
+[{"name":"/tree","asize":1310715904,"dsize":1310715904,"items":167105}
+]]
+
+BENCH_OUTPUT_END
+BENCH_RESULT gdu warm 3 47625564
+BENCH_OUTPUT_BEGIN
+[1,2,{"progname":"gdu","progver":"5.37.0","timestamp":1789858954},
+[{"name":"/tree","asize":1310715904,"dsize":1310715904,"items":167105}
+]]
+
+BENCH_OUTPUT_END
+BENCH_RESULT tui-disk warm 3 41496963
+BENCH_OUTPUT_BEGIN
+{"apparent_bytes":1339817984,"bytes":1339817984,"directories":7105,"elapsed_seconds":0.030741839,"errors":0,"files":160000,"path":"/tree"}
+
+BENCH_OUTPUT_END
+BENCH_RESULT gdu cold 4 144451752
+BENCH_OUTPUT_BEGIN
+[1,2,{"progname":"gdu","progver":"5.37.0","timestamp":1789858954},
+[{"name":"/tree","asize":1310715904,"dsize":1310715904,"items":167105}
+]]
+
+BENCH_OUTPUT_END
+BENCH_RESULT tui-disk cold 4 184845843
+BENCH_OUTPUT_BEGIN
+{"apparent_bytes":1339817984,"bytes":1339817984,"directories":7105,"elapsed_seconds":0.172716131,"errors":0,"files":160000,"path":"/tree"}
+
+BENCH_OUTPUT_END
+BENCH_RESULT tui-disk warm 4 43546679
+BENCH_OUTPUT_BEGIN
+{"apparent_bytes":1339817984,"bytes":1339817984,"directories":7105,"elapsed_seconds":0.032501013,"errors":0,"files":160000,"path":"/tree"}
+
+BENCH_OUTPUT_END
+BENCH_RESULT gdu warm 4 54278611
+BENCH_OUTPUT_BEGIN
+[1,2,{"progname":"gdu","progver":"5.37.0","timestamp":1789858955},
+[{"name":"/tree","asize":1310715904,"dsize":1310715904,"items":167105}
+]]
+
+BENCH_OUTPUT_END
+BENCH_RESULT tui-disk cold 5 192615054
+BENCH_OUTPUT_BEGIN
+{"apparent_bytes":1339817984,"bytes":1339817984,"directories":7105,"elapsed_seconds":0.181445807,"errors":0,"files":160000,"path":"/tree"}
+
+BENCH_OUTPUT_END
+BENCH_RESULT gdu cold 5 141869107
+BENCH_OUTPUT_BEGIN
+[1,2,{"progname":"gdu","progver":"5.37.0","timestamp":1789858955},
+[{"name":"/tree","asize":1310715904,"dsize":1310715904,"items":167105}
+]]
+
+BENCH_OUTPUT_END
+BENCH_RESULT gdu warm 5 52336418
+BENCH_OUTPUT_BEGIN
+[1,2,{"progname":"gdu","progver":"5.37.0","timestamp":1789858955},
+[{"name":"/tree","asize":1310715904,"dsize":1310715904,"items":167105}
+]]
+
+BENCH_OUTPUT_END
+BENCH_RESULT tui-disk warm 5 39024243
+BENCH_OUTPUT_BEGIN
+{"apparent_bytes":1339817984,"bytes":1339817984,"directories":7105,"elapsed_seconds":0.027735756,"errors":0,"files":160000,"path":"/tree"}
+
+BENCH_OUTPUT_END
+BENCH_RESULT gdu cold 6 142851582
+BENCH_OUTPUT_BEGIN
+[1,2,{"progname":"gdu","progver":"5.37.0","timestamp":1789858956},
+[{"name":"/tree","asize":1310715904,"dsize":1310715904,"items":167105}
+]]
+
+BENCH_OUTPUT_END
+BENCH_RESULT tui-disk cold 6 187916380
+BENCH_OUTPUT_BEGIN
+{"apparent_bytes":1339817984,"bytes":1339817984,"directories":7105,"elapsed_seconds":0.175329337,"errors":0,"files":160000,"path":"/tree"}
+
+BENCH_OUTPUT_END
+BENCH_RESULT tui-disk warm 6 48186180
+BENCH_OUTPUT_BEGIN
+{"apparent_bytes":1339817984,"bytes":1339817984,"directories":7105,"elapsed_seconds":0.032124068,"errors":0,"files":160000,"path":"/tree"}
+
+BENCH_OUTPUT_END
+BENCH_RESULT gdu warm 6 47977603
+BENCH_OUTPUT_BEGIN
+[1,2,{"progname":"gdu","progver":"5.37.0","timestamp":1789858956},
+[{"name":"/tree","asize":1310715904,"dsize":1310715904,"items":167105}
+]]
+
+BENCH_OUTPUT_END
+BENCH_COMPLETE

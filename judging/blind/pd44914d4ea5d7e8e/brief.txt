@@ -1,0 +1,5 @@
+Two complete interface entries are provided. A.png and B.png are matching contact sheets. Inspect every full-resolution panel before choosing: A-1.png, A-2.png, A-3.png, A-4.png, A-5.png, B-1.png, B-2.png, B-3.png, B-4.png, B-5.png. Inspect only this brief and those packet images. Do not inspect other files, browse, infer authorship, or identify products.
+
+Both entries have the same panel sequence: 1=Overview 1, 2=Overview 2, 3=Overview 3, 4=Drilled folder, 5=Delete confirmation. Compare the entire flow for finding large data, drilling into it, getting back out, and safely confirming cleanup. Some overview examples contain different directory data; judge interface clarity, not which dataset is larger. Assess each matched state for its task utility; do not reward repetition of an overview or penalize visual variation among the examples.
+
+Which of these two would you rather use to find what is eating your disk and clear it? Choose exactly A or B. Cite concrete visible evidence across the states in each entry. Give the single biggest reason the loser lost. Be harsh; praise is not useful. Return JSON with choice, evidence_A, evidence_B, and loser_reason.

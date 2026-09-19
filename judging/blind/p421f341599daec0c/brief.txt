@@ -1,0 +1,5 @@
+Two interface entries are provided as A.png and B.png. Inspect only these images. Do not inspect other files, browse, infer authorship, or identify products.
+
+Both entries show the same Caches directory after drilling in, with Browser selected. Judge whether you can understand where you are, identify the next large target, drill deeper, and get back out. Evaluate the complete state as someone clearing a full disk.
+
+Which of these two would you rather use to find what is eating your disk and clear it? Choose exactly A or B. Cite concrete visible evidence in each entry. Give the single biggest reason the loser lost. Be harsh; praise is not useful. Return JSON with choice, evidence_A, evidence_B, and loser_reason.

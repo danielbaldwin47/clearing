@@ -1,0 +1,28 @@
+{
+  "terminal": {
+    "columns": 140,
+    "rows": 44,
+    "font": "DejaVu Sans Mono",
+    "font_size": 11
+  },
+  "keys": "Enter,Enter,Enter,d",
+  "command": [
+    "target/release/tui-disk",
+    "fixtures/ssd-story"
+  ],
+  "geometry": "WINDOW=2097166\nX=0\nY=0\nWIDTH=1261\nHEIGHT=881\nSCREEN=0\n",
+  "headless": true,
+  "captured_at": "2026-09-19T23:03:01.602160+00:00",
+  "binary_path": "/home/diggle/Work/tui-disk/target/release/tui-disk",
+  "binary_sha256": "68ecd31121561f888f18ff36aa5a8ebbbb437d631f4dacdc9831f44af13c0547",
+  "source_files": {
+    "src/delete.rs": "c08bdf7944fcfa2abf060cc3dd05afee1ec8a3868ecf702dedb04f6987ff3c04",
+    "src/main.rs": "216d586fc753d77e38b3e63517ab3d7e502ba5d1e6b2e2617a06b93199c46184",
+    "src/scan.rs": "51d465106c1534eea9afb0263621ed79f7770f04110783b891438e0e3dd963ee",
+    "src/theme.rs": "d6c051083b72467a1f7c6134f412634b912fbcdd4d17e02f698a2f97f163188e",
+    "src/ui/confirm.rs": "bc61c2a95c15493147df75bc9540833570a9dedc92f9156889d4a8d4c646ea18",
+    "src/ui/foundation.rs": "fd18f25508c16a56da2a0183d21a0da26ad676a39b75cab9bf9dfb16d2fdd854",
+    "src/ui/view.rs": "b0b33ecd982a36d9e07d4611702e79e0676deb5bcdadaf3a9c6268a688ad88c0",
+    "src/ui.rs": "8a6973ca38023c57d707400b39a6c2d02b0c79e9db1856c97d15fe332c21ac10"
+  }
+}

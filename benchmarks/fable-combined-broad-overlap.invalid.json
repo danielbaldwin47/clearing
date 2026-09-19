@@ -1,0 +1,7 @@
+{
+  "valid": false,
+  "declared_at": "2026-09-19T23:14:55.813688+00:00",
+  "timings_inspected": false,
+  "reason": "Benchmark was already launched when referee announced concurrent final terminal captures. Reject this entire attempt before looking at timings; rerun only after capture-complete signal.",
+  "output_stem": "fable-combined-broad"
+}

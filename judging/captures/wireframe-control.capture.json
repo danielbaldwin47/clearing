@@ -1,0 +1,16 @@
+{
+  "terminal": {
+    "columns": 140,
+    "rows": 44,
+    "font": "DejaVu Sans Mono",
+    "font_size": 11
+  },
+  "keys": "",
+  "command": [
+    "target/release/tui-disk",
+    "--wireframe",
+    "fixtures/ssd-story"
+  ],
+  "geometry": "WINDOW=2097166\nX=0\nY=0\nWIDTH=1261\nHEIGHT=881\nSCREEN=0\n",
+  "headless": true
+}

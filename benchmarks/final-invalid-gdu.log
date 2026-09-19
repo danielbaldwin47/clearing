@@ -1,0 +1,143 @@
+BENCH_ENV cpus=20 trials=7 cache_reset=sync+drop_caches:3
+BENCH_AUDIT {"file_bytes":1310715904,"directory_bytes":29102080,"files":160000,"directories":7105}
+BENCH_RESULT gdu cold 0 167741390
+BENCH_OUTPUT_BEGIN
+1310715904 tree
+
+BENCH_OUTPUT_END
+BENCH_RESULT tui-disk cold 0 133279251
+BENCH_OUTPUT_BEGIN
+{"apparent_bytes":1339817984,"bytes":1339817984,"directories":7105,"elapsed_seconds":0.1230121,"errors":0,"files":160000,"path":"/tree"}
+
+BENCH_OUTPUT_END
+BENCH_RESULT tui-disk warm 0 38284625
+BENCH_OUTPUT_BEGIN
+{"apparent_bytes":1339817984,"bytes":1339817984,"directories":7105,"elapsed_seconds":0.029806703,"errors":0,"files":160000,"path":"/tree"}
+
+BENCH_OUTPUT_END
+BENCH_RESULT gdu warm 0 49017655
+BENCH_OUTPUT_BEGIN
+1310715904 tree
+
+BENCH_OUTPUT_END
+BENCH_RESULT tui-disk cold 1 118464879
+BENCH_OUTPUT_BEGIN
+{"apparent_bytes":1339817984,"bytes":1339817984,"directories":7105,"elapsed_seconds":0.107308274,"errors":0,"files":160000,"path":"/tree"}
+
+BENCH_OUTPUT_END
+BENCH_RESULT gdu cold 1 140539021
+BENCH_OUTPUT_BEGIN
+1310715904 tree
+
+BENCH_OUTPUT_END
+BENCH_RESULT gdu warm 1 52887408
+BENCH_OUTPUT_BEGIN
+1310715904 tree
+
+BENCH_OUTPUT_END
+BENCH_RESULT tui-disk warm 1 45016215
+BENCH_OUTPUT_BEGIN
+{"apparent_bytes":1339817984,"bytes":1339817984,"directories":7105,"elapsed_seconds":0.034971434,"errors":0,"files":160000,"path":"/tree"}
+
+BENCH_OUTPUT_END
+BENCH_RESULT gdu cold 2 133260768
+BENCH_OUTPUT_BEGIN
+1310715904 tree
+
+BENCH_OUTPUT_END
+BENCH_RESULT tui-disk cold 2 113730884
+BENCH_OUTPUT_BEGIN
+{"apparent_bytes":1339817984,"bytes":1339817984,"directories":7105,"elapsed_seconds":0.1049728,"errors":0,"files":160000,"path":"/tree"}
+
+BENCH_OUTPUT_END
+BENCH_RESULT tui-disk warm 2 39048577
+BENCH_OUTPUT_BEGIN
+{"apparent_bytes":1339817984,"bytes":1339817984,"directories":7105,"elapsed_seconds":0.025178608,"errors":0,"files":160000,"path":"/tree"}
+
+BENCH_OUTPUT_END
+BENCH_RESULT gdu warm 2 50386896
+BENCH_OUTPUT_BEGIN
+1310715904 tree
+
+BENCH_OUTPUT_END
+BENCH_RESULT tui-disk cold 3 118951037
+BENCH_OUTPUT_BEGIN
+{"apparent_bytes":1339817984,"bytes":1339817984,"directories":7105,"elapsed_seconds":0.109751412,"errors":0,"files":160000,"path":"/tree"}
+
+BENCH_OUTPUT_END
+BENCH_RESULT gdu cold 3 139695286
+BENCH_OUTPUT_BEGIN
+1310715904 tree
+
+BENCH_OUTPUT_END
+BENCH_RESULT gdu warm 3 46326086
+BENCH_OUTPUT_BEGIN
+1305346048 tree
+
+BENCH_OUTPUT_END
+BENCH_RESULT tui-disk warm 3 41278203
+BENCH_OUTPUT_BEGIN
+{"apparent_bytes":1339817984,"bytes":1339817984,"directories":7105,"elapsed_seconds":0.032226065,"errors":0,"files":160000,"path":"/tree"}
+
+BENCH_OUTPUT_END
+BENCH_RESULT gdu cold 4 142125319
+BENCH_OUTPUT_BEGIN
+1310715904 tree
+
+BENCH_OUTPUT_END
+BENCH_RESULT tui-disk cold 4 115024795
+BENCH_OUTPUT_BEGIN
+{"apparent_bytes":1339817984,"bytes":1339817984,"directories":7105,"elapsed_seconds":0.105201666,"errors":0,"files":160000,"path":"/tree"}
+
+BENCH_OUTPUT_END
+BENCH_RESULT tui-disk warm 4 32614922
+BENCH_OUTPUT_BEGIN
+{"apparent_bytes":1339817984,"bytes":1339817984,"directories":7105,"elapsed_seconds":0.023937223,"errors":0,"files":160000,"path":"/tree"}
+
+BENCH_OUTPUT_END
+BENCH_RESULT gdu warm 4 48170658
+BENCH_OUTPUT_BEGIN
+1310715904 tree
+
+BENCH_OUTPUT_END
+BENCH_RESULT tui-disk cold 5 115633097
+BENCH_OUTPUT_BEGIN
+{"apparent_bytes":1339817984,"bytes":1339817984,"directories":7105,"elapsed_seconds":0.106359339,"errors":0,"files":160000,"path":"/tree"}
+
+BENCH_OUTPUT_END
+BENCH_RESULT gdu cold 5 140055546
+BENCH_OUTPUT_BEGIN
+1310715904 tree
+
+BENCH_OUTPUT_END
+BENCH_RESULT gdu warm 5 50359260
+BENCH_OUTPUT_BEGIN
+1310715904 tree
+
+BENCH_OUTPUT_END
+BENCH_RESULT tui-disk warm 5 32761817
+BENCH_OUTPUT_BEGIN
+{"apparent_bytes":1339817984,"bytes":1339817984,"directories":7105,"elapsed_seconds":0.024553246,"errors":0,"files":160000,"path":"/tree"}
+
+BENCH_OUTPUT_END
+BENCH_RESULT gdu cold 6 137779444
+BENCH_OUTPUT_BEGIN
+1310715904 tree
+
+BENCH_OUTPUT_END
+BENCH_RESULT tui-disk cold 6 116328852
+BENCH_OUTPUT_BEGIN
+{"apparent_bytes":1339817984,"bytes":1339817984,"directories":7105,"elapsed_seconds":0.107888754,"errors":0,"files":160000,"path":"/tree"}
+
+BENCH_OUTPUT_END
+BENCH_RESULT tui-disk warm 6 36173443
+BENCH_OUTPUT_BEGIN
+{"apparent_bytes":1339817984,"bytes":1339817984,"directories":7105,"elapsed_seconds":0.021245761,"errors":0,"files":160000,"path":"/tree"}
+
+BENCH_OUTPUT_END
+BENCH_RESULT gdu warm 6 46225473
+BENCH_OUTPUT_BEGIN
+1310715904 tree
+
+BENCH_OUTPUT_END
+BENCH_COMPLETE

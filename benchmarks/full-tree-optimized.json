@@ -1,0 +1,458 @@
+{
+  "schema": 1,
+  "author_role": "independent benchmark author",
+  "unix_started": 1789858949.803288,
+  "environment": {
+    "kind": "isolated KVM Linux guest",
+    "cpus": 20,
+    "ram_mib": 4096,
+    "filesystem": "ext4",
+    "host_filesystem": "btrfs",
+    "cold": "guest sync(); write 3 to /proc/sys/vm/drop_caches before each scan",
+    "host_image_cache": "QEMU cache=none (O_DIRECT)",
+    "warm": "immediately follows untimed scan by same executable",
+    "scope": "directory-tree metadata and allocator usage; file data is not read by either scanner"
+  },
+  "binaries": {
+    "tui-disk": {
+      "path": "/home/diggle/Work/tui-disk/target/release/tui-disk",
+      "sha256": "68ecd31121561f888f18ff36aa5a8ebbbb437d631f4dacdc9831f44af13c0547",
+      "measured_snapshot": "/home/diggle/Work/tui-disk/.benchmark-tools/evidence/tui-disk-68ecd31121561f888f18ff36aa5a8ebbbb437d631f4dacdc9831f44af13c0547",
+      "current_binary_matches_measured": true
+    },
+    "gdu": {
+      "path": "/usr/bin/gdu",
+      "sha256": "b5da091d2e099be8aee8362a7e249cbd5aab5cc42307d747bb612c299bc52bff"
+    }
+  },
+  "measured_initramfs_sha256": "9730777358dcaf5c965ae516f0951166aad60f2ee002791bca3fd55448918150",
+  "freeze_deadline_utc": "2026-09-19T23:46:22Z",
+  "fixture_kind": "broad",
+  "gdu_engine": "full",
+  "gdu_command": [
+    "gdu",
+    "--config-file",
+    "/dev/null",
+    "-n",
+    "-p",
+    "-c",
+    "--no-prefix",
+    "-s",
+    "-o",
+    "-",
+    "--output-attrs",
+    "asize,dsize,items",
+    "/tree"
+  ],
+  "fixture": {
+    "root": "/home/diggle/Work/tui-disk/fixtures/benchmark-tree",
+    "regular_files": 160000,
+    "apparent_file_bytes": 1310715904,
+    "sparse": false,
+    "hard_links": false,
+    "symlinks": false,
+    "pattern": "64 top-level branches; 64 broad packages and 5-level subtrees"
+  },
+  "fixture_image": "/home/diggle/Work/tui-disk/.benchmark-tools/benchmark.ext4",
+  "independent_allocation_audit": {
+    "file_bytes": 1310715904,
+    "directory_bytes": 29102080,
+    "files": 160000,
+    "directories": 7105
+  },
+  "allocation_semantics": {
+    "gdu": "regular-file allocated blocks only",
+    "tui-disk": "regular-file plus directory allocated blocks"
+  },
+  "gate": "lower median and strict majority of paired wins in both cache states",
+  "summary": {
+    "cold": {
+      "median_seconds": {
+        "gdu": 0.144451752,
+        "tui-disk": 0.18791638
+      },
+      "speedup": 0.7687022919449598,
+      "paired_wins": 0,
+      "trials": 7,
+      "won": false
+    },
+    "warm": {
+      "median_seconds": {
+        "gdu": 0.048541579,
+        "tui-disk": 0.041496963
+      },
+      "speedup": 1.1697622064535182,
+      "paired_wins": 5,
+      "trials": 7,
+      "won": true
+    }
+  },
+  "won": false,
+  "measurements": [
+    {
+      "app": "gdu",
+      "cache": "cold",
+      "trial": 0,
+      "seconds": 0.154514614,
+      "summary": {
+        "bytes": 1310715904,
+        "apparent_bytes": 1310715904,
+        "items": 167105
+      }
+    },
+    {
+      "app": "tui-disk",
+      "cache": "cold",
+      "trial": 0,
+      "seconds": 0.191020184,
+      "summary": {
+        "apparent_bytes": 1339817984,
+        "bytes": 1339817984,
+        "directories": 7105,
+        "elapsed_seconds": 0.179982855,
+        "errors": 0,
+        "files": 160000,
+        "path": "/tree"
+      }
+    },
+    {
+      "app": "tui-disk",
+      "cache": "warm",
+      "trial": 0,
+      "seconds": 0.037122426,
+      "summary": {
+        "apparent_bytes": 1339817984,
+        "bytes": 1339817984,
+        "directories": 7105,
+        "elapsed_seconds": 0.024216949,
+        "errors": 0,
+        "files": 160000,
+        "path": "/tree"
+      }
+    },
+    {
+      "app": "gdu",
+      "cache": "warm",
+      "trial": 0,
+      "seconds": 0.053641864,
+      "summary": {
+        "bytes": 1310715904,
+        "apparent_bytes": 1310715904,
+        "items": 167105
+      }
+    },
+    {
+      "app": "tui-disk",
+      "cache": "cold",
+      "trial": 1,
+      "seconds": 0.184252661,
+      "summary": {
+        "apparent_bytes": 1339817984,
+        "bytes": 1339817984,
+        "directories": 7105,
+        "elapsed_seconds": 0.171756429,
+        "errors": 0,
+        "files": 160000,
+        "path": "/tree"
+      }
+    },
+    {
+      "app": "gdu",
+      "cache": "cold",
+      "trial": 1,
+      "seconds": 0.152274561,
+      "summary": {
+        "bytes": 1310715904,
+        "apparent_bytes": 1310715904,
+        "items": 167105
+      }
+    },
+    {
+      "app": "gdu",
+      "cache": "warm",
+      "trial": 1,
+      "seconds": 0.048541579,
+      "summary": {
+        "bytes": 1310715904,
+        "apparent_bytes": 1310715904,
+        "items": 167105
+      }
+    },
+    {
+      "app": "tui-disk",
+      "cache": "warm",
+      "trial": 1,
+      "seconds": 0.038918511,
+      "summary": {
+        "apparent_bytes": 1339817984,
+        "bytes": 1339817984,
+        "directories": 7105,
+        "elapsed_seconds": 0.028034305,
+        "errors": 0,
+        "files": 160000,
+        "path": "/tree"
+      }
+    },
+    {
+      "app": "gdu",
+      "cache": "cold",
+      "trial": 2,
+      "seconds": 0.139677937,
+      "summary": {
+        "bytes": 1310715904,
+        "apparent_bytes": 1310715904,
+        "items": 167105
+      }
+    },
+    {
+      "app": "tui-disk",
+      "cache": "cold",
+      "trial": 2,
+      "seconds": 0.193465934,
+      "summary": {
+        "apparent_bytes": 1339817984,
+        "bytes": 1339817984,
+        "directories": 7105,
+        "elapsed_seconds": 0.180350752,
+        "errors": 0,
+        "files": 160000,
+        "path": "/tree"
+      }
+    },
+    {
+      "app": "tui-disk",
+      "cache": "warm",
+      "trial": 2,
+      "seconds": 0.04851229,
+      "summary": {
+        "apparent_bytes": 1339817984,
+        "bytes": 1339817984,
+        "directories": 7105,
+        "elapsed_seconds": 0.032430939,
+        "errors": 0,
+        "files": 160000,
+        "path": "/tree"
+      }
+    },
+    {
+      "app": "gdu",
+      "cache": "warm",
+      "trial": 2,
+      "seconds": 0.046519701,
+      "summary": {
+        "bytes": 1310715904,
+        "apparent_bytes": 1310715904,
+        "items": 167105
+      }
+    },
+    {
+      "app": "tui-disk",
+      "cache": "cold",
+      "trial": 3,
+      "seconds": 0.186039432,
+      "summary": {
+        "apparent_bytes": 1339817984,
+        "bytes": 1339817984,
+        "directories": 7105,
+        "elapsed_seconds": 0.174898748,
+        "errors": 0,
+        "files": 160000,
+        "path": "/tree"
+      }
+    },
+    {
+      "app": "gdu",
+      "cache": "cold",
+      "trial": 3,
+      "seconds": 0.146662966,
+      "summary": {
+        "bytes": 1310715904,
+        "apparent_bytes": 1310715904,
+        "items": 167105
+      }
+    },
+    {
+      "app": "gdu",
+      "cache": "warm",
+      "trial": 3,
+      "seconds": 0.047625564,
+      "summary": {
+        "bytes": 1310715904,
+        "apparent_bytes": 1310715904,
+        "items": 167105
+      }
+    },
+    {
+      "app": "tui-disk",
+      "cache": "warm",
+      "trial": 3,
+      "seconds": 0.041496963,
+      "summary": {
+        "apparent_bytes": 1339817984,
+        "bytes": 1339817984,
+        "directories": 7105,
+        "elapsed_seconds": 0.030741839,
+        "errors": 0,
+        "files": 160000,
+        "path": "/tree"
+      }
+    },
+    {
+      "app": "gdu",
+      "cache": "cold",
+      "trial": 4,
+      "seconds": 0.144451752,
+      "summary": {
+        "bytes": 1310715904,
+        "apparent_bytes": 1310715904,
+        "items": 167105
+      }
+    },
+    {
+      "app": "tui-disk",
+      "cache": "cold",
+      "trial": 4,
+      "seconds": 0.184845843,
+      "summary": {
+        "apparent_bytes": 1339817984,
+        "bytes": 1339817984,
+        "directories": 7105,
+        "elapsed_seconds": 0.172716131,
+        "errors": 0,
+        "files": 160000,
+        "path": "/tree"
+      }
+    },
+    {
+      "app": "tui-disk",
+      "cache": "warm",
+      "trial": 4,
+      "seconds": 0.043546679,
+      "summary": {
+        "apparent_bytes": 1339817984,
+        "bytes": 1339817984,
+        "directories": 7105,
+        "elapsed_seconds": 0.032501013,
+        "errors": 0,
+        "files": 160000,
+        "path": "/tree"
+      }
+    },
+    {
+      "app": "gdu",
+      "cache": "warm",
+      "trial": 4,
+      "seconds": 0.054278611,
+      "summary": {
+        "bytes": 1310715904,
+        "apparent_bytes": 1310715904,
+        "items": 167105
+      }
+    },
+    {
+      "app": "tui-disk",
+      "cache": "cold",
+      "trial": 5,
+      "seconds": 0.192615054,
+      "summary": {
+        "apparent_bytes": 1339817984,
+        "bytes": 1339817984,
+        "directories": 7105,
+        "elapsed_seconds": 0.181445807,
+        "errors": 0,
+        "files": 160000,
+        "path": "/tree"
+      }
+    },
+    {
+      "app": "gdu",
+      "cache": "cold",
+      "trial": 5,
+      "seconds": 0.141869107,
+      "summary": {
+        "bytes": 1310715904,
+        "apparent_bytes": 1310715904,
+        "items": 167105
+      }
+    },
+    {
+      "app": "gdu",
+      "cache": "warm",
+      "trial": 5,
+      "seconds": 0.052336418,
+      "summary": {
+        "bytes": 1310715904,
+        "apparent_bytes": 1310715904,
+        "items": 167105
+      }
+    },
+    {
+      "app": "tui-disk",
+      "cache": "warm",
+      "trial": 5,
+      "seconds": 0.039024243,
+      "summary": {
+        "apparent_bytes": 1339817984,
+        "bytes": 1339817984,
+        "directories": 7105,
+        "elapsed_seconds": 0.027735756,
+        "errors": 0,
+        "files": 160000,
+        "path": "/tree"
+      }
+    },
+    {
+      "app": "gdu",
+      "cache": "cold",
+      "trial": 6,
+      "seconds": 0.142851582,
+      "summary": {
+        "bytes": 1310715904,
+        "apparent_bytes": 1310715904,
+        "items": 167105
+      }
+    },
+    {
+      "app": "tui-disk",
+      "cache": "cold",
+      "trial": 6,
+      "seconds": 0.18791638,
+      "summary": {
+        "apparent_bytes": 1339817984,
+        "bytes": 1339817984,
+        "directories": 7105,
+        "elapsed_seconds": 0.175329337,
+        "errors": 0,
+        "files": 160000,
+        "path": "/tree"
+      }
+    },
+    {
+      "app": "tui-disk",
+      "cache": "warm",
+      "trial": 6,
+      "seconds": 0.04818618,
+      "summary": {
+        "apparent_bytes": 1339817984,
+        "bytes": 1339817984,
+        "directories": 7105,
+        "elapsed_seconds": 0.032124068,
+        "errors": 0,
+        "files": 160000,
+        "path": "/tree"
+      }
+    },
+    {
+      "app": "gdu",
+      "cache": "warm",
+      "trial": 6,
+      "seconds": 0.047977603,
+      "summary": {
+        "bytes": 1310715904,
+        "apparent_bytes": 1310715904,
+        "items": 167105
+      }
+    }
+  ],
+  "raw_log": "benchmarks/full-tree-optimized.log"
+}

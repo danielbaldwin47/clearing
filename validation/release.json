@@ -1,0 +1,52 @@
+{
+  "recorded_at": "2026-09-19T23:29:24.752387+00:00",
+  "release_sha256": "ded90014d6625cdb1272115f5c579cf6df89c0615dc83437a8b1d5c2342694e9",
+  "rust_tests": {
+    "passed": 17,
+    "total": 17,
+    "command": "cargo test",
+    "evidence": "build-evidence/fable-delete-002.jsonl; builder combined-release verification"
+  },
+  "independent_black_box": {
+    "passed": 17,
+    "total": 17,
+    "command": "python scripts/acceptance.py",
+    "binary_unchanged_during_run": true,
+    "covers": [
+      "allocated and apparent totals",
+      "hard links",
+      "sparse files",
+      "symlinks and cycles",
+      "permission errors",
+      "non-UTF8 paths and control filenames",
+      "small terminals",
+      "interactive drill/back",
+      "cancelled and confirmed deletion",
+      "stale inode and parent refusal",
+      "partial recursive deletion cancellation"
+    ]
+  },
+  "benchmarks": {
+    "broad": "benchmarks/final-fable-broad.json",
+    "same_capture_tree": "benchmarks/final-fable-ui.json",
+    "paired_wins": 28,
+    "paired_comparisons": 28,
+    "scope": "release binaries; same ext4 trees in isolated Linux KVM guest; filesystem metadata cold cache via sync/drop_caches=3 and QEMU direct I/O; warm cache after same executable warmup; gdu full-tree engine with root-only JSON"
+  },
+  "visual_acceptance": {
+    "state": "progress/state.json",
+    "completed_at": "2026-09-19T23:27:21Z",
+    "required_wins_per_piece": 1,
+    "product_pieces": {
+      "foundation": "won",
+      "overview": "won",
+      "navigation": "won",
+      "deletion": "won",
+      "performance": "won",
+      "whole": "won"
+    },
+    "calibration": "won",
+    "verdicts_retained": 12,
+    "scope": "Blind comparisons against saved DaisyDisk stills and matched headless diskonaut states; independent referee audited each counted verdict."
+  }
+}
