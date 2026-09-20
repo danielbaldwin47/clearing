@@ -6,6 +6,8 @@ use crate::{
 use crossterm::event::KeyCode;
 mod confirm;
 mod foundation;
+/// PROTOTYPE ONLY: variant switch and the ported first proposal (variant B).
+pub mod prototype;
 mod review;
 mod view;
 pub use foundation::size;

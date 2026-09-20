@@ -1,6 +1,8 @@
 mod collector;
 mod delete;
 mod platform;
+/// PROTOTYPE ONLY: the concept mock-up's sample tree, for `--sample`.
+mod sample;
 mod scan;
 mod theme;
 mod trash;
@@ -65,16 +67,28 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut height = 44;
     let mut json = false;
     let mut wireframe = false;
+    // PROTOTYPE: `--sample` swaps the scan for the mock-up's tree; `--variant`
+    // picks today's screen (a) or the ported first proposal (b).
+    let mut sample_data = false;
+    let mut variant = None;
     let mut args = std::env::args_os().skip(1);
     while let Some(a) = args.next() {
         match a.to_string_lossy().as_ref() {
             "--help" | "-h" => {
                 println!(
-                    "spacemap — find what ate your disk\n\nUsage: spacemap [OPTIONS] [PATH]\n\n  --scan             Scan and exit without starting the terminal interface\n  --json, --summary   Print a summary JSON object (with --scan)\n  --snapshot STATE   Render overview, drilled, delete, trash, or collector as ANSI\n                     (also collector-browse, collector-confirm,\n                     collector-errors, collector-empty)\n  --width N          Snapshot columns (default 140)\n  --height N         Snapshot rows (default 44)\n  -h, --help         Show this help\n\nKeys: ↑↓ / jk select · Enter open · Backspace back · t Trash · d delete\n      t move selected item to Trash · Space collect · c review collector\n      r rescan · ? help · q quit · Esc cancels a scan or dialog\n\nSizes include allocated file and directory blocks. Symlinks are not followed.\nHard links count once. Deletion is permanent and requires typing delete.\nCollected items use the desktop Trash after typing trash; space is freed\nwhen Trash is emptied. A failed move never falls back to deletion."
+                    "spacemap — find what ate your disk\n\nUsage: spacemap [OPTIONS] [PATH]\n\n  --scan             Scan and exit without starting the terminal interface\n  --json, --summary   Print a summary JSON object (with --scan)\n  --snapshot STATE   Render overview, drilled, delete, trash, or collector as ANSI\n                     (also collector-browse, collector-confirm,\n                     collector-errors, collector-empty)\n  --width N          Snapshot columns (default 140)\n  --height N         Snapshot rows (default 44)\n  -h, --help         Show this help\n\nPROTOTYPE (main screen, ticket #3):\n  --sample           Skip the scan; use the concept mock-up's sample tree\n  --variant a|b      a = today's screen, b = first proposal (F2 switches live)\n\nKeys: ↑↓ / jk select · Enter open · Backspace back · t Trash · d delete\n      t move selected item to Trash · Space collect · c review collector\n      r rescan · ? help · q quit · Esc cancels a scan or dialog\n\nSizes include allocated file and directory blocks. Symlinks are not followed.\nHard links count once. Deletion is permanent and requires typing delete.\nCollected items use the desktop Trash after typing trash; space is freed\nwhen Trash is emptied. A failed move never falls back to deletion."
                 );
                 return Ok(());
             }
             "--scan" => scan_only = true,
+            "--sample" => sample_data = true,
+            "--variant" => {
+                variant = Some(
+                    args.next()
+                        .and_then(|v| ui::prototype::Variant::parse(&v.to_string_lossy()))
+                        .ok_or("--variant requires a or b")?,
+                )
+            }
             "--wireframe" => wireframe = true,
             "--json" | "--summary" => json = true,
             "--no-mouse" => {}
@@ -108,9 +122,15 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             _ => path = PathBuf::from(a),
         }
     }
+    let prototype_flags = sample_data || variant.is_some();
+    let variant = variant.unwrap_or(ui::prototype::Variant::A);
     if scan_only || snapshot.is_some() {
         let started = Instant::now();
-        let root = scan::scan(&path, Arc::new(AtomicU64::new(0)))?;
+        let root = if sample_data {
+            sample::tree()
+        } else {
+            scan::scan(&path, Arc::new(AtomicU64::new(0)))?
+        };
         let seconds = started.elapsed().as_secs_f64();
         if scan_only {
             if json {
@@ -133,6 +153,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             return Err("snapshot dimensions must be between 1 and 1000".into());
         }
         let mut app = ui::App::new(root, 0.04);
+        let mut proto = ui::prototype::Proto::new(variant, sample_data, &app.root.path);
+        if sample_data {
+            proto.init_sample(&mut app)
+        }
         let state = snapshot.unwrap();
         if state == "trash" {
             app.open_single_trash()
@@ -194,6 +218,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         terminal.draw(|f| {
             if wireframe {
                 ui::draw_wireframe(f, &app)
+            } else if prototype_flags {
+                ui::prototype::draw(f, &app, &proto)
             } else {
                 ui::draw(f, &app)
             }
@@ -227,16 +253,25 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     let guard = TerminalGuard::enter()?;
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
-    let Some((root, seconds)) = scan_in_terminal(&mut terminal, &path)? else {
-        return Ok(());
+    let (root, seconds) = if sample_data {
+        (sample::tree(), 0.4)
+    } else {
+        let Some(scanned) = scan_in_terminal(&mut terminal, &path)? else {
+            return Ok(());
+        };
+        scanned
     };
     let mut app = ui::App::new(root, seconds);
+    let mut proto = ui::prototype::Proto::new(variant, sample_data, &app.root.path);
+    if sample_data {
+        proto.init_sample(&mut app)
+    }
     loop {
         terminal.draw(|f| {
             if wireframe {
                 ui::draw_wireframe(f, &app)
             } else {
-                ui::draw(f, &app)
+                ui::prototype::draw(f, &app, &proto)
             }
         })?;
         if !event::poll(Duration::from_millis(100))? {
@@ -250,6 +285,24 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             break;
+        }
+        // PROTOTYPE: F2 cycles the variants live, from any state.
+        if key.code == KeyCode::F(2) {
+            proto.cycle();
+            continue;
+        }
+        // PROTOTYPE: the sample tree names nothing on disk. Trash, delete and
+        // rescan are refused outright so no real path can ever be touched.
+        if proto.sample && !app.help {
+            let refused = match key.code {
+                KeyCode::Char('t') => true,
+                KeyCode::Char('d') | KeyCode::Char('r') => !app.review,
+                _ => false,
+            };
+            if refused {
+                app.message = "Sample data · Trash, delete and rescan are switched off".into();
+                continue;
+            }
         }
         if app.confirm {
             match key.code {
@@ -404,6 +457,23 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             app.help = false;
             continue;
         }
+        // PROTOTYPE, variant B only: Tab selects one Tile deeper on the Map and
+        // Space collects that nested Tile. Any other key drops back to the
+        // List's own selection, so variant A never sees a difference.
+        if proto.variant == ui::prototype::Variant::B {
+            match key.code {
+                KeyCode::Tab => {
+                    proto.deeper(&app);
+                    continue;
+                }
+                KeyCode::Char(' ') if !proto.deep.is_empty() => {
+                    proto.toggle_deep(&mut app);
+                    continue;
+                }
+                _ => {}
+            }
+        }
+        proto.deep.clear();
         match key.code {
             KeyCode::Char('q') | KeyCode::Esc => break,
             KeyCode::Down | KeyCode::Char('j') => app.next(1),
