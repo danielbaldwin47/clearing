@@ -1,13 +1,13 @@
 # spacemap
 
-A terminal disk-usage explorer: it shows where disk space went and lets the user reclaim it safely, from seeing to deciding to reclaiming.
+A terminal disk-usage explorer: it shows where disk space went and lets the user reclaim it safely.
 
 ## Language
 
 ### Places
 
 **Map**:
-The labelled, nested treemap of the current folder, in which a tile's area is its allocated size.
+The labelled, nested treemap of the current folder, in which a Tile's area is its allocated size.
 _Avoid_: chart, graph, diagram, treemap view
 
 **List**:
@@ -58,7 +58,7 @@ The line that explains what the active Lens's colours mean.
 _Avoid_: legend (reserved for the keys), palette
 
 **Compact view**:
-How the Map draws a folder with many children: a grid of small Tiles instead of nested previews.
+The Map's rendering of a folder with many children: a grid of small Tiles without nested previews.
 _Avoid_: mosaic, dense view, dense overview
 
 ### Scans and outcomes
