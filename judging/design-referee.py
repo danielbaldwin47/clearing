@@ -3,10 +3,10 @@
 import argparse, datetime as dt, hashlib, json, os, pathlib, secrets, subprocess, sys, tempfile
 from PIL import Image, ImageDraw, ImageFont
 ROOT=pathlib.Path(__file__).resolve().parents[1];STATE=ROOT/'progress/state.json';PRIVATE=pathlib.Path('/tmp/tui-disk-design-referee-private');PRIVATE.mkdir(mode=0o700,exist_ok=True)
-DEADLINE=dt.datetime(2026,9,20,2,45,54,tzinfo=dt.timezone.utc)
+DEADLINE=dt.datetime.fromisoformat(json.loads(STATE.read_text())['deadline'].replace('Z','+00:00'))
 def now(): return dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds').replace('+00:00','Z')
 def guard():
- if (ROOT/'.runtime/DESIGN-FROZEN').exists() or dt.datetime.now(dt.timezone.utc)>=DEADLINE:raise SystemExit('Hard deadline reached: judging frozen')
+ if (ROOT/'.runtime/DESIGN-FROZEN-2').exists() or dt.datetime.now(dt.timezone.utc)>=DEADLINE:raise SystemExit('Hard deadline reached: judging frozen')
 def read():return json.loads(STATE.read_text())
 def write(s):
  guard();s['updated_at']=now();fd,path=tempfile.mkstemp(dir=STATE.parent,prefix='.state-',suffix='.json');os.write(fd,(json.dumps(s,indent=2)+'\n').encode());os.close(fd);os.replace(path,STATE)

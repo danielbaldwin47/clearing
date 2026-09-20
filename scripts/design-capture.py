@@ -2,7 +2,7 @@
 """Referee-owned identical headless terminal capture for both live interfaces."""
 import argparse, datetime, hashlib, json, os, pathlib, shlex, shutil, subprocess, tempfile, time
 def guard():
- if pathlib.Path('.runtime/DESIGN-FROZEN').exists() or datetime.datetime.now(datetime.timezone.utc) >= datetime.datetime(2026,9,20,2,45,54,tzinfo=datetime.timezone.utc):
+ if pathlib.Path('.runtime/DESIGN-FROZEN-2').exists() or datetime.datetime.now(datetime.timezone.utc) >= datetime.datetime.fromisoformat(json.loads(pathlib.Path('progress/state.json').read_text())['deadline'].replace('Z','+00:00')):
   raise SystemExit('Hard deadline reached: capture frozen')
 guard()
 

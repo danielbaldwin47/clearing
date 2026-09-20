@@ -26,7 +26,7 @@ import uuid
 ROOT = Path(__file__).resolve().parent.parent
 MODEL = "gpt-6-astra"
 DEFAULT_MODEL = "fable"
-DEADLINE = dt.datetime(2026, 9, 20, 2, 45, 54, tzinfo=dt.timezone.utc).timestamp()
+DEADLINE = dt.datetime.fromisoformat(json.loads((ROOT / 'progress/state.json').read_text())['deadline'].replace('Z', '+00:00')).timestamp()
 DISABLED = (
     "shell_tool", "unified_exec", "apps", "plugins", "remote_plugin", "memories",
     "multi_agent", "multi_agent_v2", "view_image", "browser_use",

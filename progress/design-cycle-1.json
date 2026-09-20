@@ -2,12 +2,12 @@
   "schema_version": 3,
   "scope": "design-gauntlet",
   "competition_active": false,
-  "first_command": "2026-09-20T03:19:33Z",
-  "deadline": "2026-09-20T05:19:33Z",
+  "first_command": "2026-09-20T02:15:54Z",
+  "deadline": "2026-09-20T02:45:54Z",
   "required_wins": 1,
-  "completed": true,
-  "frozen": false,
-  "phase": "All six design pieces won after independent referee audits",
+  "completed": false,
+  "frozen": true,
+  "phase": "Stopped at user request: 4 of 6 design pieces won. Dense overview lost; whole unjudged/lost.",
   "archives": [
     {
       "title": "Original winning baseline 176da86",
@@ -16,10 +16,6 @@
     {
       "title": "Collector functional acceptance: 72 of 72 checks",
       "path": "/progress/collector-verified.json"
-    },
-    {
-      "title": "Design cycle 1 final state: 4 of 6 won, stopped by user",
-      "path": "/progress/design-cycle-1.json"
     }
   ],
   "pieces": {
@@ -53,11 +49,10 @@
       "rounds": [
         "p5d1138f6295dabf0",
         "pb3abc046e9ddb403",
-        "pd69d4e5a13c0bd51",
-        "p030aab97c4dfa087"
+        "pd69d4e5a13c0bd51"
       ],
-      "source_fingerprint": "ef614ab10efdb9f8c45b192887cb782c2bc87ea97a068e3ad426baebde2388af",
-      "note": "Source changed after judging; a new win is required."
+      "source_fingerprint": "bcbf4f0e515128c0d2cce41c6bf49018af8e9e5bd647865b1097cc350311e1d6",
+      "note": "Won with a fresh Fable preference after independent fairness audit. Original Astra votes retained historically."
     },
     "navigation": {
       "status": "won",
@@ -65,11 +60,10 @@
       "required_wins": 1,
       "rounds": [
         "p3d0e45469888c60f",
-        "pae8380643ff3ef8f",
-        "p57cefa7b26cff0c1"
+        "pae8380643ff3ef8f"
       ],
-      "source_fingerprint": "b121d59ff59f1ae90378f130519f945abd31eddcc7f03c2c791ce1a51849beae",
-      "note": "Source changed after judging; a new win is required."
+      "source_fingerprint": "6aec2e2538541fba681247313dd12853bcfbb9f9c492d0b504d41b23cf485a28",
+      "note": "Won with a fresh Fable preference after independent fairness audit. Original Astra votes retained historically."
     },
     "collector": {
       "status": "won",
@@ -77,33 +71,28 @@
       "required_wins": 1,
       "rounds": [
         "p5360b5df3798dd95",
-        "p20d4a79edd336ec8",
-        "pc2a6080c89fab607"
+        "p20d4a79edd336ec8"
       ],
-      "source_fingerprint": "07e4b8cf1a9b672dc71fb89cc73cd992f190b186e6682a3174033f3a6d8f413a",
-      "note": "Source changed after judging; a new win is required."
+      "source_fingerprint": "258cf2340219823795471649082c71ed1d2b7b4e68591b05774c8c5c8e126d52",
+      "note": "Won with a fresh Fable preference after independent fairness audit. Original Astra votes retained historically."
     },
     "whole": {
-      "status": "won",
-      "valid_wins": 1,
+      "status": "lost",
+      "valid_wins": 0,
       "required_wins": 1,
-      "rounds": [
-        "p6d7be1866fe352ff"
-      ],
-      "note": "Lost/unjudged: user stopped after the current batch before a whole-interface round.",
-      "source_fingerprint": "3f4c95a5fea1389622263e816d6490ee4b10e681e97ac8992de4a9cb2e12f827"
+      "rounds": [],
+      "note": "Lost/unjudged: user stopped after the current batch before a whole-interface round."
     },
     "dense_overview": {
-      "status": "won",
-      "valid_wins": 1,
+      "status": "lost",
+      "valid_wins": 0,
       "required_wins": 1,
       "rounds": [
         "p254644de3bff9c43",
-        "pbbe0bd1ed8fcd262",
-        "p3944546d03f09676"
+        "pbbe0bd1ed8fcd262"
       ],
       "note": "Lost fresh Fable rejudgment: dense labels truncate and55items collapse into a faint mostlyempty aggregate. No further revision authorized.",
-      "source_fingerprint": "ef614ab10efdb9f8c45b192887cb782c2bc87ea97a068e3ad426baebde2388af"
+      "source_fingerprint": "bcbf4f0e515128c0d2cce41c6bf49018af8e9e5bd647865b1097cc350311e1d6"
     },
     "calibration_fable": {
       "status": "won",
@@ -483,9 +472,8 @@
       "group": "p20d4a79edd336ec8",
       "orientation": 0,
       "audit": "First-Fable-round fairness audit passed after explicit test repair: both two-item states now focus a selected folder, preventing the earlier avoidable reference-focus disadvantage. Full-resolution six-image Reads verified. The main loser reason is native undimmed backdrop, equal pane/dialog borders and action-color hierarchy; different Trash/permanent-delete semantics do not determine the vote. Critic notes candidate dimming/path-fragment imperfections, preserved publicly. No changed reference colors, omitted controls or unequal terminal framing.",
-      "counts": false,
-      "validated_at": "2026-09-20T02:42:42Z",
-      "invalidated_reason": "Source fingerprint changed after judging"
+      "counts": true,
+      "validated_at": "2026-09-20T02:42:42Z"
     },
     {
       "id": "p883dac5efe7c864a",
@@ -618,9 +606,8 @@
       "group": "d69d4e5a13c0bd51",
       "orientation": 0,
       "audit": "First-Fable-round fairness audit passed: identical six-directory fixture and authentic selected first row; same native dimensions and font, complete application panes retained. Sparse empty-space imbalance is native design rather than cropping or missing data. Reference label tint is subtly different even though critic describes it as near-monochrome; main focus-hierarchy comparison is supported. Candidate truncation defects retained. Dense behavior judged separately and LOST, so this sparse win cannot conceal that failure.",
-      "counts": false,
-      "validated_at": "2026-09-20T02:42:42Z",
-      "invalidated_reason": "Source fingerprint changed after judging"
+      "counts": true,
+      "validated_at": "2026-09-20T02:42:42Z"
     },
     {
       "id": "pbbe0bd1ed8fcd262",
@@ -686,185 +673,8 @@
       "group": "ae8380643ff3ef8f",
       "orientation": 0,
       "audit": "First-Fable-round fairness audit passed: both are genuinely inside Caches with Browser focused, controls and location labels preserved, equal framing/font. Native reference uses chevron and subtle tint; candidate uses outline/list/detail hierarchy. Preference rests on visible focus and child grouping, not missing task features. Critic retains oversized metric, truncated children and low-contrast rank flaws. Source/capture fingerprints unchanged.",
-      "counts": false,
-      "validated_at": "2026-09-20T02:42:42Z",
-      "invalidated_reason": "Source fingerprint changed after judging"
-    },
-    {
-      "id": "p3944546d03f09676",
-      "piece": "dense_overview",
-      "packet": "/judging/design-blind/p3944546d03f09676",
-      "status": "judged",
-      "created_at": "2026-09-20T03:26:59Z",
-      "source_fingerprint": "ef614ab10efdb9f8c45b192887cb782c2bc87ea97a068e3ad426baebde2388af",
-      "capture_binary_sha256": "46dcbd35069fda25932c2a7f18ce46128f06b36233916e9850fa386954689110",
-      "captured_at": "2026-09-20T03:26:03.319055+00:00",
-      "submitted_at": "2026-09-20T03:27:30Z",
-      "submitted_verdict": {
-        "choice": "A",
-        "evidence_A": "Header/body/footer hierarchy is explicit: a small-caps \"DISK ALLOCATION\" title, a large \"1.2 GiB\" figure with bold weight, and rule-lined section headers \"SPACE MAP \u2014 area = allocated bytes\" and \"LARGEST FIRST\". All 64 cells in the map show name plus \"19.5 MiB\" fully readable; the right list shows rows 01\u201328 with size, \"1.6%\" and a color swatch matching the map tint, plus \"1-28 of 64 \u00b7 scroll\" so truncation is declared. Selection is triple-signaled: cyan left bar on the workspace-02 cell, highlighted row \"01 workspace-02\" with bold name, and a bottom detail strip \"workspace-02 / benchmark-tree/workspace-02 / folder \u00b7 2500 files \u00b7 19.5 MiB \u00b7 1.6%\". Weaknesses: the rainbow tinting of identical-size cells is arbitrary noise, the map selection highlight is subtle against neighbouring tints, and the map has two unexplained horizontal gaps after rows 3 and 7.",
-        "evidence_B": "Roughly half the frame is empty state: sidebar \"Pinned\" and \"Disks\" headings with nothing under them, \"No processes running\", \"No content in clipboard\", and an Attributes row of dashes. The actual data is squeezed: the bordered browser shows only workspace-00 to -27 of 64, and a second unframed column \"package-00\u2026package-32\" floats with no header, is cut off at the top edge of the viewport, and collides with the bottom panels' title row. Selection is a lone \">\" chevron beside workspace-00 with no row highlight. The Metadata panel truncates the date to \"2026-09-19 18...789 -0400 EDT\" and offers no size context for the tree. Everything is one blue on dark grey, so folder icons, names, headings and borders share the same weight and hue; the footer tab strip \"Name | Browser | 1/64\" is cramped against the panel corner.",
-        "loser_reason": "B spends most of its screen on empty placeholder panels while the dense data it exists to show is clipped, unframed, and bleeding off the top of the viewport, with selection reduced to a bare chevron."
-      },
-      "critic": "claude-fable-5-1 / aba594f0-f060-4805-b6ba-e65607f75342",
-      "verdict": {
-        "choice": "A",
-        "evidence": "A: Header/body/footer hierarchy is explicit: a small-caps \"DISK ALLOCATION\" title, a large \"1.2 GiB\" figure with bold weight, and rule-lined section headers \"SPACE MAP \u2014 area = allocated bytes\" and \"LARGEST FIRST\". All 64 cells in the map show name plus \"19.5 MiB\" fully readable; the right list shows rows 01\u201328 with size, \"1.6%\" and a color swatch matching the map tint, plus \"1-28 of 64 \u00b7 scroll\" so truncation is declared. Selection is triple-signaled: cyan left bar on the workspace-02 cell, highlighted row \"01 workspace-02\" with bold name, and a bottom detail strip \"workspace-02 / benchmark-tree/workspace-02 / folder \u00b7 2500 files \u00b7 19.5 MiB \u00b7 1.6%\". Weaknesses: the rainbow tinting of identical-size cells is arbitrary noise, the map selection highlight is subtle against neighbouring tints, and the map has two unexplained horizontal gaps after rows 3 and 7.\n\nB: Roughly half the frame is empty state: sidebar \"Pinned\" and \"Disks\" headings with nothing under them, \"No processes running\", \"No content in clipboard\", and an Attributes row of dashes. The actual data is squeezed: the bordered browser shows only workspace-00 to -27 of 64, and a second unframed column \"package-00\u2026package-32\" floats with no header, is cut off at the top edge of the viewport, and collides with the bottom panels' title row. Selection is a lone \">\" chevron beside workspace-00 with no row highlight. The Metadata panel truncates the date to \"2026-09-19 18...789 -0400 EDT\" and offers no size context for the tree. Everything is one blue on dark grey, so folder icons, names, headings and borders share the same weight and hue; the footer tab strip \"Name | Browser | 1/64\" is cramped against the panel corner.",
-        "loser_reason": "B spends most of its screen on empty placeholder panels while the dense data it exists to show is clipped, unframed, and bleeding off the top of the viewport, with selection reduced to a bare chevron."
-      },
-      "judged_at": "2026-09-20T03:28:01Z",
-      "result": "candidate",
-      "identities": {
-        "A": "Cycle 2 dense overview candidate",
-        "B": "Saved superfile dense overview"
-      },
-      "group": "3944546d03f09676",
-      "orientation": 0,
-      "audit": "Cycle 2: recorded directly by host without a referee agent, by user instruction. Fresh isolated Fable critic, image reads attested.",
-      "counts": true
-    },
-    {
-      "id": "p030aab97c4dfa087",
-      "piece": "overview",
-      "packet": "/judging/design-blind/p030aab97c4dfa087",
-      "status": "judged",
-      "created_at": "2026-09-20T03:26:59Z",
-      "source_fingerprint": "ef614ab10efdb9f8c45b192887cb782c2bc87ea97a068e3ad426baebde2388af",
-      "capture_binary_sha256": "46dcbd35069fda25932c2a7f18ce46128f06b36233916e9850fa386954689110",
-      "captured_at": "2026-09-20T03:26:33.540846+00:00",
-      "submitted_at": "2026-09-20T03:27:39Z",
-      "submitted_verdict": {
-        "choice": "B",
-        "evidence_A": "Nearly every text element (sidebar Home/Downloads/Trash, the six directory rows Caches through Projects, Pinned/Disks headers, Metadata values) sits in the same lavender monospace at the same weight, so there is no visible hierarchy between navigation, content, and detail. The selected row 'Caches' is marked only by a thin '>' chevron at the left margin with no row fill, no color shift, and no border change; the selection is invisible at a glance. The center pane border encloses six rows and then roughly 450px of empty space, while the top-right list 'Browser / Package cache / Thumbnails' floats unframed and unlabeled against the raw background, breaking the panel system every other region uses. The Metadata panel shows a mid-string truncation 'Date Modified 2026-09-19 18...086 -0400 EDT' and an 'Attributes ---------------' placeholder line, and the footer items 'Name | Browser | 1/6' are crowded into the bottom border rule with the pane counter '1/7' colliding with the Metadata frame corner. Left sidebar icons are tiny and uniformly tinted, adding noise rather than differentiation.",
-        "evidence_B": "Hierarchy is layered: letterspaced 'DISK ALLOCATION' title, a dominant '4.2 GiB' figure, medium-weight section rules 'SPACE MAP' and 'LARGEST FIRST', then body rows. Each of the six directories has its own hue in the treemap (teal Caches, slate-blue Games, amber Downloads, green Projects, violet Photos) and the same hue is echoed in the proportional bar under each row of the ranked list, so map and list read as one system. Selection is redundantly emphasized: Caches has a bright teal border in the map, a filled highlight row '01 Caches 1.8 GiB 42.2%' in the list, and a bold status line 'Caches / ssd-story/Caches / folder \u00b7 5 files' with a teal left rule at the bottom. Faults: child labels truncate badly ('archlinux-ol\u2026', 'video-exp\u2026', 'design-as\u2026', '220.0 \u2026'), there are unlabeled slivers (the thin block right of 'Package cache' and the dark strip right of 'Photos'), the Photos tile drops its percentage while its siblings keep it, Documents at 0.4% has no visible map tile at all, and the dim '01'\u2013'06' rank numerals and grey footer keybinds fall to low contrast against the near-black ground.",
-        "loser_reason": "A has effectively no visual hierarchy: everything is the same lavender monospace at the same weight, selection is a lone thin chevron with no row emphasis, and the layout leaves most of the canvas empty while an unframed list floats loose in the top-right, so the eye has nothing to anchor on when scanning dense data."
-      },
-      "critic": "claude-fable-5-1 / 4dd7ed61-bf1e-431b-91f2-204a5bed3885",
-      "verdict": {
-        "choice": "B",
-        "evidence": "A: Nearly every text element (sidebar Home/Downloads/Trash, the six directory rows Caches through Projects, Pinned/Disks headers, Metadata values) sits in the same lavender monospace at the same weight, so there is no visible hierarchy between navigation, content, and detail. The selected row 'Caches' is marked only by a thin '>' chevron at the left margin with no row fill, no color shift, and no border change; the selection is invisible at a glance. The center pane border encloses six rows and then roughly 450px of empty space, while the top-right list 'Browser / Package cache / Thumbnails' floats unframed and unlabeled against the raw background, breaking the panel system every other region uses. The Metadata panel shows a mid-string truncation 'Date Modified 2026-09-19 18...086 -0400 EDT' and an 'Attributes ---------------' placeholder line, and the footer items 'Name | Browser | 1/6' are crowded into the bottom border rule with the pane counter '1/7' colliding with the Metadata frame corner. Left sidebar icons are tiny and uniformly tinted, adding noise rather than differentiation.\n\nB: Hierarchy is layered: letterspaced 'DISK ALLOCATION' title, a dominant '4.2 GiB' figure, medium-weight section rules 'SPACE MAP' and 'LARGEST FIRST', then body rows. Each of the six directories has its own hue in the treemap (teal Caches, slate-blue Games, amber Downloads, green Projects, violet Photos) and the same hue is echoed in the proportional bar under each row of the ranked list, so map and list read as one system. Selection is redundantly emphasized: Caches has a bright teal border in the map, a filled highlight row '01 Caches 1.8 GiB 42.2%' in the list, and a bold status line 'Caches / ssd-story/Caches / folder \u00b7 5 files' with a teal left rule at the bottom. Faults: child labels truncate badly ('archlinux-ol\u2026', 'video-exp\u2026', 'design-as\u2026', '220.0 \u2026'), there are unlabeled slivers (the thin block right of 'Package cache' and the dark strip right of 'Photos'), the Photos tile drops its percentage while its siblings keep it, Documents at 0.4% has no visible map tile at all, and the dim '01'\u2013'06' rank numerals and grey footer keybinds fall to low contrast against the near-black ground.",
-        "loser_reason": "A has effectively no visual hierarchy: everything is the same lavender monospace at the same weight, selection is a lone thin chevron with no row emphasis, and the layout leaves most of the canvas empty while an unframed list floats loose in the top-right, so the eye has nothing to anchor on when scanning dense data."
-      },
-      "judged_at": "2026-09-20T03:28:01Z",
-      "result": "candidate",
-      "identities": {
-        "A": "Saved superfile sparse overview",
-        "B": "Cycle 2 sparse overview candidate"
-      },
-      "group": "030aab97c4dfa087",
-      "orientation": 0,
-      "audit": "Cycle 2: recorded directly by host without a referee agent, by user instruction. Fresh isolated Fable critic, image reads attested.",
-      "counts": true
-    },
-    {
-      "id": "p57cefa7b26cff0c1",
-      "piece": "navigation",
-      "packet": "/judging/design-blind/p57cefa7b26cff0c1",
-      "status": "judged",
-      "created_at": "2026-09-20T03:26:59Z",
-      "source_fingerprint": "b121d59ff59f1ae90378f130519f945abd31eddcc7f03c2c791ce1a51849beae",
-      "capture_binary_sha256": "46dcbd35069fda25932c2a7f18ce46128f06b36233916e9850fa386954689110",
-      "captured_at": "2026-09-20T03:26:33.539473+00:00",
-      "submitted_at": "2026-09-20T03:27:29Z",
-      "submitted_verdict": {
-        "choice": "A",
-        "evidence_A": "Location reads at three levels: header breadcrumb \"ssd-story / Caches\" with counts \"5 files \u00b7 6 folders \u00b7 3 here\", the Browser block in the space map drawn with a brighter teal border and lighter fill than the unselected Package cache and Thumbnails blocks, and a bottom status bar repeating \"Browser / ssd-story/Caches/Browser / folder \u00b7 2 files\" with size \"1.0 GiB \u00b7 57.2%\". The right \"LARGEST FIRST\" list mirrors the selection with \"01 Browser\" in brighter text plus a filled progress rule. A full keybinding footer (choose, open, back, Space collect, c review, t Trash, d delete, r rescan, ? help, q quit) sits on its own row with even spacing. Weaknesses: the oversized \"1.8 GiB\" numeral is heavier than anything else and competes with the breadcrumb; child names truncate (\"toolchain-old.pkg\u2026\", \"linux-headers\u2026\"); the tall blocks are mostly empty fill; dim grey secondary labels (\"area = allocated bytes\", \"COLLECTOR\") sit near the contrast floor.",
-        "evidence_B": "Center pane titled \"ssd-story/Caches\" lists Browser, Package cache, Thumbnails; the selected Browser row is marked only by a thin \">\" chevron with no fill or color change, so it barely differs from its siblings. The preview column at top right shows \"Code Cache / Media Cache\" flush against the screen edge with no border, no heading, and no size data, reading as an unfinished panel. The center pane's bottom border is overprinted by \"Name | Browser | 1/3\" tabs that collide with the frame line. Roughly two thirds of the center pane and the entire right column are empty. Metadata pane truncates the date to \"2026-09-19 18...967 -0400 EDT\" and shows Attributes as a dashed placeholder. Left sidebar's \"Pinned\" section is an empty header. Panel titles (\"Processes\", \"Metadata\", \"Clipboard\") are in a faint lavender that nearly vanishes against the dark background. Bottom \"1/7\" pager floats outside the metadata frame.",
-        "loser_reason": "B's selection emphasis is a lone chevron with no fill or tonal shift, and its composition is unbalanced: an unframed, unlabeled preview column, a pane that is mostly void, and overprinted borders make the current location and focus hard to read at a glance."
-      },
-      "critic": "claude-fable-5-1 / 8c77e918-7baf-450c-a9ff-4df93c2fdfce",
-      "verdict": {
-        "choice": "A",
-        "evidence": "A: Location reads at three levels: header breadcrumb \"ssd-story / Caches\" with counts \"5 files \u00b7 6 folders \u00b7 3 here\", the Browser block in the space map drawn with a brighter teal border and lighter fill than the unselected Package cache and Thumbnails blocks, and a bottom status bar repeating \"Browser / ssd-story/Caches/Browser / folder \u00b7 2 files\" with size \"1.0 GiB \u00b7 57.2%\". The right \"LARGEST FIRST\" list mirrors the selection with \"01 Browser\" in brighter text plus a filled progress rule. A full keybinding footer (choose, open, back, Space collect, c review, t Trash, d delete, r rescan, ? help, q quit) sits on its own row with even spacing. Weaknesses: the oversized \"1.8 GiB\" numeral is heavier than anything else and competes with the breadcrumb; child names truncate (\"toolchain-old.pkg\u2026\", \"linux-headers\u2026\"); the tall blocks are mostly empty fill; dim grey secondary labels (\"area = allocated bytes\", \"COLLECTOR\") sit near the contrast floor.\n\nB: Center pane titled \"ssd-story/Caches\" lists Browser, Package cache, Thumbnails; the selected Browser row is marked only by a thin \">\" chevron with no fill or color change, so it barely differs from its siblings. The preview column at top right shows \"Code Cache / Media Cache\" flush against the screen edge with no border, no heading, and no size data, reading as an unfinished panel. The center pane's bottom border is overprinted by \"Name | Browser | 1/3\" tabs that collide with the frame line. Roughly two thirds of the center pane and the entire right column are empty. Metadata pane truncates the date to \"2026-09-19 18...967 -0400 EDT\" and shows Attributes as a dashed placeholder. Left sidebar's \"Pinned\" section is an empty header. Panel titles (\"Processes\", \"Metadata\", \"Clipboard\") are in a faint lavender that nearly vanishes against the dark background. Bottom \"1/7\" pager floats outside the metadata frame.",
-        "loser_reason": "B's selection emphasis is a lone chevron with no fill or tonal shift, and its composition is unbalanced: an unframed, unlabeled preview column, a pane that is mostly void, and overprinted borders make the current location and focus hard to read at a glance."
-      },
-      "judged_at": "2026-09-20T03:28:01Z",
-      "result": "candidate",
-      "identities": {
-        "A": "Cycle 2 navigation candidate",
-        "B": "Saved superfile navigation"
-      },
-      "group": "57cefa7b26cff0c1",
-      "orientation": 0,
-      "audit": "Cycle 2: recorded directly by host without a referee agent, by user instruction. Fresh isolated Fable critic, image reads attested.",
-      "counts": true
-    },
-    {
-      "id": "pc2a6080c89fab607",
-      "piece": "collector",
-      "packet": "/judging/design-blind/pc2a6080c89fab607",
-      "status": "judged",
-      "created_at": "2026-09-20T03:26:59Z",
-      "source_fingerprint": "07e4b8cf1a9b672dc71fb89cc73cd992f190b186e6682a3174033f3a6d8f413a",
-      "capture_binary_sha256": "46dcbd35069fda25932c2a7f18ce46128f06b36233916e9850fa386954689110",
-      "frames": [
-        "Two selected items",
-        "Confirm cleanup"
-      ],
-      "blocked_by": [],
-      "submitted_at": "2026-09-20T03:27:49Z",
-      "submitted_verdict": {
-        "choice": "A",
-        "evidence_A": "A-1: three-tier type hierarchy is visible at a glance: letterspaced muted section labels (DISK ALLOCATION, SPACE MAP, LARGEST FIRST), bright white item names, dim gray metadata, and a single green accent reserved for selection/action (diamond glyphs on Orbit, \"2 collected \u00b7 1.9 GiB\", right-aligned sizes \"1.0 GiB\"/\"940.0 MiB\"). The collector panel groups the two selected folders under a \"SELECTED ITEMS / ON DISK\" column header, and the focused row (Browser) gets a left accent bar plus a slightly lighter row fill, so focus and selection read differently. The space map behind the panel is dimmed to a clear second plane. A-2: the confirm dialog stacks as a third plane with a further dim, keeps a green question title, a bold key figure \"1.9 GiB allocated when scanned\", a typed-confirmation field with a live cursor, and splits actions left \"Esc cancel\" / right \"Enter move to Trash\" in the accent. Weaknesses: dimmed text from the collector still bleeds around the dialog edges (\"ON DISK\", \"1.0 GiB\", \"940.0 MiB\" remain legible), the panel's path line changes from \"ssd-story/Caches/Browser\" in A-1 to \"/home/diggle/W\" in A-2, the selection marker in the underlying map is only a tiny diamond, and the top-right \"1.1\" figure is so heavy it competes with the panel.",
-        "evidence_B": "B-1: selection is explicit via filled vs empty checkbox squares on Caches and Documents, both rendered in a brighter blue than unselected rows, with a \">\" caret marking focus on Caches and a \"Select (2)\" counter in the pane footer; Metadata panel correctly shows Caches. However the whole screen is one weight of monospaced text in two colors (periwinkle and gray): pane titles, folder names, sidebar entries and metadata labels all share the same size and weight, so there is no hierarchy beyond color. Roughly 70% of the center pane and the entire right preview column are empty; the three bottom panes (Processes, Metadata, Clipboard) use tab-style titles inconsistent with the framed center pane. B-2: the dialog appears with no backdrop dimming; the center pane's vertical border lines run straight into the dialog's top and bottom edges. Inside, the title \"Are you sure you want to completely delete\" and the body warning are identical gray, same weight, no key figure, no item names or count. The irreversible \"(enter) Confirm\" button is filled with the same cyan used for ordinary folder names, while \"(q) Cancel\" is filled pink, so the danger emphasis is inverted and the primary action does not read as destructive.",
-        "loser_reason": "B's confirmation state has flat, inverted emphasis: a same-weight gray title and warning with no count or figure, the destructive Confirm button in the everyday cyan accent while Cancel is pink, on an undimmed background with pane borders colliding into the dialog frame, so the most critical screen carries the least visual hierarchy."
-      },
-      "critic": "claude-fable-5-1 / 03ac6683-443e-48d4-beee-44a0f4405b63",
-      "verdict": {
-        "choice": "A",
-        "evidence": "A: A-1: three-tier type hierarchy is visible at a glance: letterspaced muted section labels (DISK ALLOCATION, SPACE MAP, LARGEST FIRST), bright white item names, dim gray metadata, and a single green accent reserved for selection/action (diamond glyphs on Orbit, \"2 collected \u00b7 1.9 GiB\", right-aligned sizes \"1.0 GiB\"/\"940.0 MiB\"). The collector panel groups the two selected folders under a \"SELECTED ITEMS / ON DISK\" column header, and the focused row (Browser) gets a left accent bar plus a slightly lighter row fill, so focus and selection read differently. The space map behind the panel is dimmed to a clear second plane. A-2: the confirm dialog stacks as a third plane with a further dim, keeps a green question title, a bold key figure \"1.9 GiB allocated when scanned\", a typed-confirmation field with a live cursor, and splits actions left \"Esc cancel\" / right \"Enter move to Trash\" in the accent. Weaknesses: dimmed text from the collector still bleeds around the dialog edges (\"ON DISK\", \"1.0 GiB\", \"940.0 MiB\" remain legible), the panel's path line changes from \"ssd-story/Caches/Browser\" in A-1 to \"/home/diggle/W\" in A-2, the selection marker in the underlying map is only a tiny diamond, and the top-right \"1.1\" figure is so heavy it competes with the panel.\n\nB: B-1: selection is explicit via filled vs empty checkbox squares on Caches and Documents, both rendered in a brighter blue than unselected rows, with a \">\" caret marking focus on Caches and a \"Select (2)\" counter in the pane footer; Metadata panel correctly shows Caches. However the whole screen is one weight of monospaced text in two colors (periwinkle and gray): pane titles, folder names, sidebar entries and metadata labels all share the same size and weight, so there is no hierarchy beyond color. Roughly 70% of the center pane and the entire right preview column are empty; the three bottom panes (Processes, Metadata, Clipboard) use tab-style titles inconsistent with the framed center pane. B-2: the dialog appears with no backdrop dimming; the center pane's vertical border lines run straight into the dialog's top and bottom edges. Inside, the title \"Are you sure you want to completely delete\" and the body warning are identical gray, same weight, no key figure, no item names or count. The irreversible \"(enter) Confirm\" button is filled with the same cyan used for ordinary folder names, while \"(q) Cancel\" is filled pink, so the danger emphasis is inverted and the primary action does not read as destructive.",
-        "loser_reason": "B's confirmation state has flat, inverted emphasis: a same-weight gray title and warning with no count or figure, the destructive Confirm button in the everyday cyan accent while Cancel is pink, on an undimmed background with pane borders colliding into the dialog frame, so the most critical screen carries the least visual hierarchy."
-      },
-      "judged_at": "2026-09-20T03:28:01Z",
-      "result": "candidate",
-      "identities": {
-        "A": "Current design candidate",
-        "B": "Saved polished terminal file manager"
-      },
-      "group": "pc2a6080c89fab607",
-      "orientation": 0,
-      "audit": "Cycle 2: recorded directly by host without a referee agent, by user instruction. Fresh isolated Fable critic, image reads attested.",
-      "counts": true
-    },
-    {
-      "id": "p6d7be1866fe352ff",
-      "piece": "whole",
-      "packet": "/judging/design-blind/p6d7be1866fe352ff",
-      "status": "judged",
-      "created_at": "2026-09-20T03:28:12Z",
-      "source_fingerprint": "3f4c95a5fea1389622263e816d6490ee4b10e681e97ac8992de4a9cb2e12f827",
-      "capture_binary_sha256": "46dcbd35069fda25932c2a7f18ce46128f06b36233916e9850fa386954689110",
-      "frames": [
-        "Sparse overview",
-        "Dense overview",
-        "Inside a directory",
-        "Two selected items",
-        "Confirm cleanup"
-      ],
-      "blocked_by": [],
-      "submitted_at": "2026-09-20T03:29:00Z",
-      "submitted_verdict": {
-        "choice": "B",
-        "evidence_A": "Entire interface is one lavender hue for borders, labels, icons, body text and selection, so hierarchy relies almost entirely on position. Sparse state (A-1, A-3) leaves the framed center pane roughly 80% empty while three bottom panes read 'No processes running' and 'No content in clipboard' in equal weight to real data. Dense state (A-2) has the unframed right-hand preview column run all the way to the bottom edge, with 'package-32' landing on the same line as the 'Name | Browser | 1/64' tab strip, and the tab strip itself sits on the pane's bottom border with the pipe separators reading as broken frame lines. Selection in A-4 is a chevron plus a small filled checkbox and bold text in the same lavender as unselected rows, so the two checked items barely separate from the four unchecked ones at a glance. Metadata pane truncates 'Date Modified 2026-09-19 18...086 -0400 EDT' in the middle and fills Attributes with a dash string. The confirm dialog in A-5 floats over an undimmed screen, cuts the center pane's border in two, names no target items or count, and pairs a cyan 'Confirm' chip with a pink 'Cancel' chip that are the only saturated elements in the whole system.",
-        "evidence_B": "A clear three-tier header (letterspaced section labels, a bold path, a muted count line, a large display-size total) sets hierarchy in every state and dims consistently when a modal opens. Sparse state (B-1, B-3) fills the space map with proportionally sized blocks, each with a title, size and percent, and the selected block carries a bright mint border while unselected blocks use muted category tints. The right 'Largest first' list uses numbered rows, colored size text and thin bar indicators, with the focused row given a filled background. Dense state (B-2) packs 64 cells into a five-column grid with two-line labels that stay legible, mirrors the swatch color into the list column, and adds a '1-28 of 64 \u00b7 scroll' footer so overflow is explicit rather than clipped. B-4 dims the background and opens a framed collector panel with a header row, a highlighted current item with a left accent bar, a detail strip and a hint line, all in the same type scale. B-5 stacks a second dialog with a type-to-confirm input and applies a deeper dim to everything behind it. Weaknesses: the dense grid's randomly assigned red, orange, purple and teal labels get noisy, the nested B-5 modals leave a truncated '/home/diggle/W' peeking out beneath, and the treemap cells in B-1 like 'archlinux-ol\u2026' and 'video-exp\u2026' truncate names.",
-        "loser_reason": "A's single-hue palette and unbalanced layout give it no working hierarchy: sparse states are mostly empty frames, the dense state lets an unframed column collide with the tab strip, and selection is only bold text in the same lavender, so nothing is emphasized when it matters."
-      },
-      "critic": "claude-fable-5-1 / 17c3f066-659e-412f-8291-dfd632cf7797",
-      "verdict": {
-        "choice": "B",
-        "evidence": "A: Entire interface is one lavender hue for borders, labels, icons, body text and selection, so hierarchy relies almost entirely on position. Sparse state (A-1, A-3) leaves the framed center pane roughly 80% empty while three bottom panes read 'No processes running' and 'No content in clipboard' in equal weight to real data. Dense state (A-2) has the unframed right-hand preview column run all the way to the bottom edge, with 'package-32' landing on the same line as the 'Name | Browser | 1/64' tab strip, and the tab strip itself sits on the pane's bottom border with the pipe separators reading as broken frame lines. Selection in A-4 is a chevron plus a small filled checkbox and bold text in the same lavender as unselected rows, so the two checked items barely separate from the four unchecked ones at a glance. Metadata pane truncates 'Date Modified 2026-09-19 18...086 -0400 EDT' in the middle and fills Attributes with a dash string. The confirm dialog in A-5 floats over an undimmed screen, cuts the center pane's border in two, names no target items or count, and pairs a cyan 'Confirm' chip with a pink 'Cancel' chip that are the only saturated elements in the whole system.\n\nB: A clear three-tier header (letterspaced section labels, a bold path, a muted count line, a large display-size total) sets hierarchy in every state and dims consistently when a modal opens. Sparse state (B-1, B-3) fills the space map with proportionally sized blocks, each with a title, size and percent, and the selected block carries a bright mint border while unselected blocks use muted category tints. The right 'Largest first' list uses numbered rows, colored size text and thin bar indicators, with the focused row given a filled background. Dense state (B-2) packs 64 cells into a five-column grid with two-line labels that stay legible, mirrors the swatch color into the list column, and adds a '1-28 of 64 \u00b7 scroll' footer so overflow is explicit rather than clipped. B-4 dims the background and opens a framed collector panel with a header row, a highlighted current item with a left accent bar, a detail strip and a hint line, all in the same type scale. B-5 stacks a second dialog with a type-to-confirm input and applies a deeper dim to everything behind it. Weaknesses: the dense grid's randomly assigned red, orange, purple and teal labels get noisy, the nested B-5 modals leave a truncated '/home/diggle/W' peeking out beneath, and the treemap cells in B-1 like 'archlinux-ol\u2026' and 'video-exp\u2026' truncate names.",
-        "loser_reason": "A's single-hue palette and unbalanced layout give it no working hierarchy: sparse states are mostly empty frames, the dense state lets an unframed column collide with the tab strip, and selection is only bold text in the same lavender, so nothing is emphasized when it matters."
-      },
-      "judged_at": "2026-09-20T03:29:06Z",
-      "result": "candidate",
-      "identities": {
-        "A": "Saved polished terminal file manager",
-        "B": "Current design candidate"
-      },
-      "group": "p6d7be1866fe352ff",
-      "orientation": 0,
-      "audit": "Cycle 2: recorded directly by host without a referee agent, by user instruction. Fresh isolated Fable critic, all ten panel reads attested.",
-      "counts": true
+      "counts": true,
+      "validated_at": "2026-09-20T02:42:42Z"
     }
   ],
   "events": [
@@ -1059,73 +869,9 @@
     {
       "time": "2026-09-20T02:43:41.198603+00:00",
       "message": "Current Fable batch completed and audited. User stop honored immediately:4/6product design pieces won; dense overview lost; whole unjudged and therefore lost. Both provider calibrations passed2/2swapped. All historical votes preserved. Source/release capture integrity rechecked; no new round or revision started. This is an early user stop, not a timeout win."
-    },
-    {
-      "time": "2026-09-20T03:19:33Z",
-      "message": "Cycle 2 opened at explicit user request. Cycle 1 state archived unchanged. Referee and calibration agents dropped by user instruction; existing four wins stand while their source fingerprints hold."
-    },
-    {
-      "time": "2026-09-20T03:26:45Z",
-      "message": "overview win invalidated: source fingerprint changed after judging."
-    },
-    {
-      "time": "2026-09-20T03:26:45Z",
-      "message": "navigation win invalidated: source fingerprint changed after judging."
-    },
-    {
-      "time": "2026-09-20T03:26:45Z",
-      "message": "collector win invalidated: source fingerprint changed after judging."
-    },
-    {
-      "time": "2026-09-20T03:27:29Z",
-      "message": "navigation: blind verdict A landed from claude-fable-5-1 / 8c77e918-7baf-450c-a9ff-4df93c2fdfce. Identity and acceptance remain pending independent referee review."
-    },
-    {
-      "time": "2026-09-20T03:27:30Z",
-      "message": "dense_overview: blind verdict A landed from claude-fable-5-1 / aba594f0-f060-4805-b6ba-e65607f75342. Identity and acceptance remain pending independent referee review."
-    },
-    {
-      "time": "2026-09-20T03:27:39Z",
-      "message": "overview: blind verdict B landed from claude-fable-5-1 / 4dd7ed61-bf1e-431b-91f2-204a5bed3885. Identity and acceptance remain pending independent referee review."
-    },
-    {
-      "time": "2026-09-20T03:27:49Z",
-      "message": "collector: blind verdict A landed from claude-fable-5-1 / 03ac6683-443e-48d4-beee-44a0f4405b63. Identity and acceptance remain pending independent referee review."
-    },
-    {
-      "time": "2026-09-20T03:28:01Z",
-      "message": "dense_overview: claude-fable-5-1 / aba594f0-f060-4805-b6ba-e65607f75342 chose A (Cycle 2 dense overview candidate). Counted."
-    },
-    {
-      "time": "2026-09-20T03:28:01Z",
-      "message": "overview: claude-fable-5-1 / 4dd7ed61-bf1e-431b-91f2-204a5bed3885 chose B (Cycle 2 sparse overview candidate). Counted."
-    },
-    {
-      "time": "2026-09-20T03:28:01Z",
-      "message": "navigation: claude-fable-5-1 / 8c77e918-7baf-450c-a9ff-4df93c2fdfce chose A (Cycle 2 navigation candidate). Counted."
-    },
-    {
-      "time": "2026-09-20T03:28:01Z",
-      "message": "collector: claude-fable-5-1 / 03ac6683-443e-48d4-beee-44a0f4405b63 chose A (Current design candidate). Counted."
-    },
-    {
-      "time": "2026-09-20T03:29:00Z",
-      "message": "whole: blind verdict B landed from claude-fable-5-1 / 17c3f066-659e-412f-8291-dfd632cf7797. Identity and acceptance remain pending independent referee review."
-    },
-    {
-      "time": "2026-09-20T03:29:06Z",
-      "message": "whole: claude-fable-5-1 / 17c3f066-659e-412f-8291-dfd632cf7797 chose B (Current design candidate). Counted."
-    },
-    {
-      "time": "2026-09-20T03:30:27Z",
-      "message": "Design gauntlet completed by winning before deadline. No performance claim is made for this release."
-    },
-    {
-      "time": "2026-09-20T03:30:48+00:00",
-      "message": "Cycle 2 closed: 6 of 6 pieces won; 83 of 83 Linux checks pass; native macOS CI not rerun."
     }
   ],
-  "updated_at": "2026-09-20T03:30:27Z",
+  "updated_at": "2026-09-20T02:43:41.198603+00:00",
   "build_model": "Astra for subsequent changes; prior mixed Astra/Fable authorship preserved",
   "critic_model": "Fable for new critics after model override; prior Astra votes preserved",
   "validation": {
@@ -1145,7 +891,8 @@
       "ci_log": "validation/design-ci.log"
     }
   },
-  "stop_after_current_round": false,
+  "stop_after_current_round": true,
+  "stop_requested_at": "2026-09-20T02:40:50.705497+00:00",
   "current_final_batch": [
     "p6ade2a9d9f045c5c",
     "pd69d4e5a13c0bd51",
@@ -1153,15 +900,14 @@
     "pae8380643ff3ef8f",
     "p20d4a79edd336ec8"
   ],
-  "stop_by_user": false,
-  "release_sha256": "46dcbd35069fda25932c2a7f18ce46128f06b36233916e9850fa386954689110",
-  "cycle": 2,
-  "cycle_rules": "User-directed cycle 2: no independent referee agent and no calibration rounds. Host prepares shuffled anonymous packets with the existing tooling and records every fresh Fable verdict directly. Astra builds.",
-  "completed_at": "2026-09-20T03:30:27Z",
+  "frozen_at": "2026-09-20T02:43:41.198603+00:00",
+  "stop_by_user": true,
+  "stop_reason": "User requested ending after the current Fable rejudging batch; batch complete and audited.",
+  "release_sha256": "eebe549a97665f4d2795f65a75ce7efcf6af06e5c2ca9112b7c105c50915b527",
   "final_score": {
-    "won": 6,
-    "lost": 0,
+    "won": 4,
+    "lost": 2,
     "total": 6,
-    "whole_judged": true
+    "whole_judged": false
   }
 }

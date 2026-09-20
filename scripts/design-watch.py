@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import datetime as dt,fcntl,importlib.util,json,os,pathlib,time
-ROOT=pathlib.Path(__file__).resolve().parents[1];STATE=ROOT/'progress/state.json';deadline=dt.datetime(2026,9,20,2,45,54,tzinfo=dt.timezone.utc)
+ROOT=pathlib.Path(__file__).resolve().parents[1];STATE=ROOT/'progress/state.json';deadline=dt.datetime.fromisoformat(json.loads(STATE.read_text())['deadline'].replace('Z','+00:00'))
 def fingerprint(piece):
  import hashlib
  names=['src/theme.rs','src/ui/foundation.rs']
@@ -23,7 +23,7 @@ while True:
      if r['piece']==name and r.get('counts'):r.update(counts=False,invalidated_reason='Source edited after judging')
     s['events'].append({'time':now.isoformat(),'message':name+' win invalidated after source edit.'});changed=True
   if now>=deadline:
-   (ROOT/'.runtime/DESIGN-FROZEN').write_text(deadline.isoformat());s.update(frozen=True,frozen_at=deadline.isoformat(),phase='Design deadline reached. Every piece without its required wins is lost.')
+   (ROOT/'.runtime/DESIGN-FROZEN-2').write_text(deadline.isoformat());s.update(frozen=True,frozen_at=deadline.isoformat(),phase='Design deadline reached. Every piece without its required wins is lost.')
    for p in s['pieces'].values():
     if p['valid_wins']<p['required_wins']:p['status']='lost'
    s['events'].append({'time':deadline.isoformat(),'message':'Work frozen at user deadline; timeout does not create a win.'});changed=True

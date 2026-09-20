@@ -7,6 +7,7 @@ use super::{
 use crate::{collector::Mark, theme::*};
 use ratatui::{
     Frame,
+    buffer::Buffer,
     layout::Rect,
     style::{Color, Style},
     widgets::{Block, Borders, Clear, Paragraph, Widget},
@@ -37,7 +38,21 @@ pub fn draw(f: &mut Frame, app: &App) {
     let node = app.current();
     let total = size(node.bytes);
     let wide = w >= 110;
-    let side = if wide { 34 } else { 24 };
+    let spacious_row_height = if h >= 34 {
+        4
+    } else if h >= 25 {
+        3
+    } else {
+        2
+    };
+    let compact = node.children.len() > ((h - 16) / spacious_row_height).max(1) as usize;
+    let side = if compact {
+        (w / 2 + 6).min(46)
+    } else if wide {
+        34
+    } else {
+        24
+    };
     let list_x = w - side - 2;
     let header_width = if wide { w - 73 } else { w - 31 };
     text(
@@ -68,6 +83,8 @@ pub fn draw(f: &mut Frame, app: &App) {
     text(b, 2, 5, header_width, stats, MUTED, BG, false);
     if wide {
         let mx = w - 66;
+        let list_x = w - 36;
+        let side = 34;
         let (number, unit) = total.split_once(' ').unwrap_or((&total, ""));
         text(b, mx, 1, 27, "ALLOCATED IN THIS VIEW", MUTED, BG, false);
         metric(b, mx, 3, number, FG);
@@ -150,7 +167,12 @@ pub fn draw(f: &mut Frame, app: &App) {
         );
     }
     text(b, list_x, 7, side, " LARGEST FIRST ", FG, BG, true);
-    let entries = map_entries(node);
+    let dense_map = node.children.iter().filter(|n| n.bytes > 0).count() > 12;
+    let entries = if dense_map {
+        sibling_entries(node)
+    } else {
+        map_entries(node)
+    };
     let weights = entries.iter().map(|n| n.bytes).collect::<Vec<_>>();
     if weights.is_empty() {
         text(
@@ -164,7 +186,16 @@ pub fn draw(f: &mut Frame, app: &App) {
             false,
         )
     }
-    for tile in tiles(&weights, map) {
+    let map_tiles = if dense_map {
+        mosaic_tiles(&weights, map)
+    } else {
+        tiles(&weights, map)
+    };
+    for tile in map_tiles {
+        if dense_map {
+            draw_mosaic_tile(b, tile.rect, &entries[tile.idx], app);
+            continue;
+        }
         let entry = &entries[tile.idx];
         let selected = entry.index == Some(app.selected)
             || (entry.index.is_none()
@@ -198,13 +229,7 @@ pub fn draw(f: &mut Frame, app: &App) {
             }
         }
     }
-    let row_height = if h >= 34 {
-        4
-    } else if h >= 25 {
-        3
-    } else {
-        2
-    };
+    let row_height = if compact { 1 } else { spacious_row_height };
     let max_rows = (map.height / row_height).max(1) as usize;
     let start = if app.selected >= max_rows {
         app.selected - max_rows + 1
@@ -213,6 +238,10 @@ pub fn draw(f: &mut Frame, app: &App) {
     };
     for (i, n) in node.children.iter().enumerate().skip(start).take(max_rows) {
         let y = map.y + ((i - start) * row_height as usize) as u16;
+        if compact {
+            draw_compact_row(b, Rect::new(list_x, y, side, 1), app, i);
+            continue;
+        }
         let selected = i == app.selected;
         let bg = if selected { SURFACE } else { BG };
         fill(
@@ -410,6 +439,226 @@ pub fn draw(f: &mut Frame, app: &App) {
         f.render_widget(Paragraph::new("↑ / ↓ or j / k    Select an entry\nEnter / →         Open directory\nBackspace / ←     Parent directory\nSpace             Collect / uncollect entry for Trash\nc                 Review collector, t moves it to Trash\nt                 Move selected entry to system Trash\nd                 Delete selected entry permanently\nr                 Rescan root (Esc cancels)\n?                 Toggle this help\nq / Esc           Quit (or close dialog)\n\nSizes include allocated file and directory blocks.\nSymlinks stay separate. Hard links count once.").style(Style::default().fg(FG).bg(PANEL)),Rect::new(r.x+2,r.y+2,r.width-4,r.height-4));
     }
 }
+/// Dense maps retain sibling identities rather than folding them into a large remainder.
+fn sibling_entries(node: &crate::scan::Node) -> Vec<MapEntry<'_>> {
+    let mut entries: Vec<_> = node
+        .children
+        .iter()
+        .enumerate()
+        .filter(|(_, n)| n.bytes > 0)
+        .map(|(i, n)| MapEntry {
+            node: Some(n),
+            index: Some(i),
+            bytes: n.bytes,
+            label: n.name.clone(),
+        })
+        .collect();
+    let metadata = node
+        .bytes
+        .saturating_sub(entries.iter().map(|n| n.bytes).sum());
+    if metadata > 0 {
+        entries.push(MapEntry {
+            node: None,
+            index: None,
+            bytes: metadata,
+            label: "Metadata".into(),
+        });
+    }
+    entries
+}
+
+/// Horizontal strips favor names over square tiles. Both strip heights and tile
+/// widths follow byte weights, with cumulative rounding to avoid gaps or overlap.
+fn mosaic_tiles(weights: &[u64], r: Rect) -> Vec<Tile> {
+    // Prefer name-plus-size tiles, but add columns until every strip can be two
+    // cells tall, so labels sit on a regular grid instead of ragged single rows.
+    let two_tall = (r.height / 2).max(1) as usize;
+    let columns = ((r.width / 26).max(1) as usize)
+        .max(weights.len().div_ceil(two_tall))
+        .min((r.width / 14).max(1) as usize);
+    let total = weights.iter().map(|&n| n as f64).sum::<f64>();
+    if total == 0.0 {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    let mut before = 0.0;
+    let mut y = r.y;
+    let rows = weights.len().div_ceil(columns);
+    for row in 0..rows {
+        let start = row * columns;
+        let end = ((row + 1) * columns).min(weights.len());
+        let group = &weights[start..end];
+        let sum = group.iter().map(|&n| n as f64).sum::<f64>();
+        before += sum;
+        let bottom = r.y + (r.height as f64 * before / total).round() as u16;
+        let mut prefix = 0.0;
+        let mut x = r.x;
+        for (col, &weight) in group.iter().enumerate() {
+            prefix += weight as f64;
+            let scale = sum * columns as f64 / group.len() as f64;
+            let right = r.x + (r.width as f64 * prefix / scale).round() as u16;
+            if right > x && bottom > y {
+                out.push(Tile {
+                    idx: start + col,
+                    rect: Rect::new(x, y, right - x, bottom - y),
+                });
+            }
+            x = right;
+        }
+        y = bottom;
+    }
+    out
+}
+
+/// Never send an overflowing map label to the ellipsizing foundation helper.
+/// A whole suffix component is a deliberate short form; otherwise omit text.
+fn map_label(name: &str, width: u16) -> Option<&str> {
+    if name.width() <= width as usize {
+        return Some(name);
+    }
+    name.char_indices()
+        .filter(|(_, c)| matches!(c, '-' | '_' | '.' | ' '))
+        .map(|(i, c)| &name[i + c.len_utf8()..])
+        .find(|s| !s.is_empty() && s.width() <= width as usize)
+}
+
+fn draw_mosaic_tile(b: &mut Buffer, r: Rect, entry: &MapEntry<'_>, app: &App) {
+    let selected = entry.index == Some(app.selected);
+    let color = entry.index.map(|i| color_for(app, i)).unwrap_or(MUTED);
+    let bg = if selected { SURFACE } else { tint(color, 0.14) };
+    fill(b, r, bg);
+    // A colored edge identifies even a tile too small for text, without grey holes.
+    for y in r.y..r.bottom() {
+        text(
+            b,
+            r.x,
+            y,
+            1,
+            if selected { "▌" } else { "▏" },
+            color,
+            bg,
+            selected,
+        );
+    }
+    let width = r.width.saturating_sub(2);
+    if width == 0 {
+        return;
+    }
+    let bytes = size(entry.bytes);
+    let combined = format!("{}  {}", entry.label, bytes);
+    let y = r.y;
+    if r.height < 2 && combined.width() <= width as usize {
+        text(
+            b,
+            r.x + 1,
+            y,
+            width,
+            combined,
+            if selected { FG } else { color },
+            bg,
+            true,
+        );
+    } else if let Some(label) = map_label(&entry.label, width) {
+        text(
+            b,
+            r.x + 1,
+            y,
+            width,
+            label,
+            if selected { FG } else { color },
+            bg,
+            true,
+        );
+        if y + 1 < r.bottom() && bytes.width() <= width as usize {
+            text(b, r.x + 1, y + 1, width, bytes, color, bg, false);
+        }
+    }
+    if r.height >= 3 {
+        if let Some((glyph, fg)) = entry.node.and_then(|n| collected_glyph(app, n)) {
+            text(b, r.right() - 2, r.y, 1, glyph, fg, bg, true);
+        }
+    }
+}
+
+fn draw_compact_row(b: &mut Buffer, r: Rect, app: &App, i: usize) {
+    let node = app.current();
+    let n = &node.children[i];
+    let selected = i == app.selected;
+    let color = color_for(app, i);
+    let bg = if selected { SURFACE } else { BG };
+    fill(b, r, bg);
+    let rank = format!("{:02}", i + 1);
+    let rank_width = rank.width() as u16;
+    let bar_width = if r.width >= 42 { 4 } else { 2 };
+    let bar_x = r.right() - bar_width;
+    let pct_x = bar_x - 7;
+    let size_x = pct_x - 9;
+    let name_x = r.x + rank_width + 1;
+    text(
+        b,
+        r.x,
+        r.y,
+        rank_width,
+        rank,
+        if selected { color } else { MUTED },
+        bg,
+        true,
+    );
+    let glyph = collected_glyph(app, n);
+    let name_width = size_x.saturating_sub(name_x + 1 + if glyph.is_some() { 2 } else { 0 });
+    text(
+        b,
+        name_x,
+        r.y,
+        name_width,
+        &n.name,
+        if selected { FG } else { MUTED },
+        bg,
+        selected,
+    );
+    if let Some((glyph, fg)) = glyph {
+        text(b, size_x - 2, r.y, 1, glyph, fg, bg, true);
+    }
+    text(
+        b,
+        size_x,
+        r.y,
+        8,
+        format!("{:>8}", size(n.bytes)),
+        color,
+        bg,
+        selected,
+    );
+    text(
+        b,
+        pct_x,
+        r.y,
+        6,
+        format!("{:>6}", percent(n.bytes, node.bytes)),
+        MUTED,
+        bg,
+        false,
+    );
+    // Eighth-cell bars measure each row against the largest sibling.
+    let largest = node.children.iter().map(|c| c.bytes).max().unwrap_or(1).max(1);
+    let units = (bar_width as f64 * 8.0 * n.bytes as f64 / largest as f64).round() as u16;
+    let units = if n.bytes > 0 { units.max(1) } else { 0 };
+    const BARS: [&str; 9] = [" ", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"];
+    for x in 0..bar_width {
+        let part = units.saturating_sub(x * 8).min(8);
+        text(
+            b,
+            bar_x + x,
+            r.y,
+            1,
+            BARS[part as usize],
+            if part > 0 { color } else { DIM },
+            bg,
+            false,
+        );
+    }
+}
+
 /// Marker for entries in the collector: collected, needing attention, or
 /// already included by a collected parent folder.
 fn collected_glyph(app: &App, node: &crate::scan::Node) -> Option<(&'static str, Color)> {
@@ -512,5 +761,123 @@ pub fn draw_wireframe(f: &mut Frame, app: &App) {
             Color::Black,
             false,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scan::Node;
+    use ratatui::{Terminal, backend::TestBackend};
+
+    fn dense_app() -> App {
+        let mut root = Node {
+            name: "root".into(),
+            path: "/fixture".into(),
+            bytes: 64 * 20_480_000,
+            apparent: 0,
+            files: 64,
+            directories: 64,
+            errors: 0,
+            is_dir: true,
+            is_symlink: false,
+            shared: false,
+            identity: (0, 0),
+            children: vec![],
+        };
+        root.children = (1..=64)
+            .map(|i| Node {
+                name: format!("workspace-{i:02}"),
+                path: format!("/fixture/workspace-{i:02}").into(),
+                bytes: 20_480_000,
+                children: vec![],
+                ..root.clone()
+            })
+            .collect();
+        App::new(root, 0.0)
+    }
+
+    fn render(app: &App, w: u16, h: u16) -> Buffer {
+        let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
+        terminal.draw(|f| draw(f, app)).unwrap();
+        terminal.backend().buffer().clone()
+    }
+
+    fn contents(b: &Buffer, r: Rect) -> String {
+        (r.y..r.bottom())
+            .map(|y| {
+                (r.x..r.right())
+                    .map(|x| b[(x, y)].symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn dense_map_names_every_sibling_and_list_shows_28_rows() {
+        let app = dense_app();
+        let b = render(&app, 140, 44);
+        let map = contents(&b, Rect::new(2, 9, 88, 28));
+        assert!(!map.contains('…'));
+        for child in &app.root.children {
+            assert!(map.contains(&child.name), "{}", child.name);
+        }
+        let list = contents(&b, Rect::new(92, 9, 46, 28));
+        assert_eq!(list.matches("workspace-").count(), 28);
+        assert!(contents(&b, b.area).contains("1–28 of 64"));
+    }
+
+    #[test]
+    fn scrolling_highlights_the_actual_last_sibling_in_both_views() {
+        let mut app = dense_app();
+        app.selected = 63;
+        let b = render(&app, 140, 44);
+        assert!(contents(&b, b.area).contains("37–64 of 64"));
+        assert!(contents(&b, Rect::new(92, 36, 46, 1)).contains("workspace-64"));
+        assert_eq!(b[(92, 36)].bg, SURFACE);
+        let entries = sibling_entries(app.current());
+        let weights = entries.iter().map(|e| e.bytes).collect::<Vec<_>>();
+        let tile = mosaic_tiles(&weights, Rect::new(2, 9, 88, 28))
+            .into_iter()
+            .find(|t| t.idx == 63)
+            .unwrap();
+        assert_eq!(b[(tile.rect.x, tile.rect.y)].symbol(), "▌");
+        assert_eq!(b[(tile.rect.x, tile.rect.y)].bg, SURFACE);
+    }
+
+    #[test]
+    fn mosaic_covers_canvas_and_uses_real_byte_proportions() {
+        let weights = [6, 3, 3, 4, 4, 4];
+        let r = Rect::new(0, 0, 78, 24);
+        let mut occupied = vec![false; 78 * 24];
+        for tile in mosaic_tiles(&weights, r) {
+            let expected = (78 * 24) as f64 * weights[tile.idx] as f64 / 24.0;
+            assert!((tile.rect.area() as f64 - expected).abs() <= 12.0);
+            for y in tile.rect.y..tile.rect.bottom() {
+                for x in tile.rect.x..tile.rect.right() {
+                    let cell = &mut occupied[(y * 78 + x) as usize];
+                    assert!(!*cell);
+                    *cell = true;
+                }
+            }
+        }
+        assert!(occupied.into_iter().all(|cell| cell));
+    }
+
+    #[test]
+    fn minimum_terminal_and_short_map_labels_are_safe() {
+        let mut app = dense_app();
+        for selected in [0, 27, 63] {
+            app.selected = selected;
+            for (w, h) in [(60, 20), (80, 24), (110, 34), (140, 44)] {
+                render(&app, w, h);
+            }
+        }
+        assert_eq!(map_label("workspace-02", 12), Some("workspace-02"));
+        assert_eq!(map_label("workspace-02", 4), Some("02"));
+        assert_eq!(map_label("workspace-02", 1), None);
+        assert_eq!(map_label("長い名前-資料", 4), Some("資料"));
+        assert_eq!(map_label("unbrokenlongname", 4), None);
     }
 }

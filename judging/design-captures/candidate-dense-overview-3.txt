@@ -1,0 +1,44 @@
+
+  D I S K   A L L O C A T I O N                                           ALLOCATED IN THIS VIEW     │  COLLECTOR
+                                                                                                     │
+  benchmark-tree                                                           ▄█   ▀▀█                  │  ◇ 0 items · 0 B
+                                                                            █   █▀▀                  │
+  160000 files  ·  7105 folders  ·  64 here                                 ▀ ▪ ▀▀▀  GiB             │  Space  Add the selected item
+
+   SPACE MAP  ───area = allocated bytes───────────────────────────────────────────────────── LARGEST FIRST ───────────────────────────────
+
+  ▌workspace-02     ▏workspace-05    ▏workspace-08     ▏workspace-11    ▏workspace-14       01 workspace-02           19.5 MiB   1.6% ████
+  ▌19.5 MiB         ▏19.5 MiB        ▏19.5 MiB         ▏19.5 MiB        ▏19.5 MiB           02 workspace-05           19.5 MiB   1.6% ████
+  ▏workspace-17     ▏workspace-20    ▏workspace-23     ▏workspace-26    ▏workspace-29       03 workspace-08           19.5 MiB   1.6% ████
+  ▏19.5 MiB         ▏19.5 MiB        ▏19.5 MiB         ▏19.5 MiB        ▏19.5 MiB           04 workspace-11           19.5 MiB   1.6% ████
+  ▏workspace-32     ▏workspace-35    ▏workspace-38     ▏workspace-41    ▏workspace-44       05 workspace-14           19.5 MiB   1.6% ████
+  ▏19.5 MiB         ▏19.5 MiB        ▏19.5 MiB         ▏19.5 MiB        ▏19.5 MiB           06 workspace-17           19.5 MiB   1.6% ████
+  ▏                 ▏                ▏                 ▏                ▏                   07 workspace-20           19.5 MiB   1.6% ████
+  ▏workspace-47     ▏workspace-50    ▏workspace-53     ▏workspace-56    ▏workspace-59       08 workspace-23           19.5 MiB   1.6% ████
+  ▏19.5 MiB         ▏19.5 MiB        ▏19.5 MiB         ▏19.5 MiB        ▏19.5 MiB           09 workspace-26           19.5 MiB   1.6% ████
+  ▏workspace-62     ▏workspace-01    ▏workspace-04     ▏workspace-07    ▏workspace-10       10 workspace-29           19.5 MiB   1.6% ████
+  ▏19.5 MiB         ▏19.5 MiB        ▏19.5 MiB         ▏19.5 MiB        ▏19.5 MiB           11 workspace-32           19.5 MiB   1.6% ████
+  ▏workspace-13     ▏workspace-16    ▏workspace-19     ▏workspace-22    ▏workspace-25       12 workspace-35           19.5 MiB   1.6% ████
+  ▏19.5 MiB         ▏19.5 MiB        ▏19.5 MiB         ▏19.5 MiB        ▏19.5 MiB           13 workspace-38           19.5 MiB   1.6% ████
+  ▏workspace-28     ▏workspace-31    ▏workspace-34     ▏workspace-37    ▏workspace-40       14 workspace-41           19.5 MiB   1.6% ████
+  ▏19.5 MiB         ▏19.5 MiB        ▏19.5 MiB         ▏19.5 MiB        ▏19.5 MiB           15 workspace-44           19.5 MiB   1.6% ████
+  ▏workspace-43     ▏workspace-46    ▏workspace-49     ▏workspace-52    ▏workspace-55       16 workspace-47           19.5 MiB   1.6% ████
+  ▏19.5 MiB         ▏19.5 MiB        ▏19.5 MiB         ▏19.5 MiB        ▏19.5 MiB           17 workspace-50           19.5 MiB   1.6% ████
+  ▏                 ▏                ▏                 ▏                ▏                   18 workspace-53           19.5 MiB   1.6% ████
+  ▏workspace-58     ▏workspace-61    ▏workspace-00     ▏workspace-03    ▏workspace-06       19 workspace-56           19.5 MiB   1.6% ████
+  ▏19.5 MiB         ▏19.5 MiB        ▏19.5 MiB         ▏19.5 MiB        ▏19.5 MiB           20 workspace-59           19.5 MiB   1.6% ████
+  ▏workspace-09     ▏workspace-12    ▏workspace-15     ▏workspace-18    ▏workspace-21       21 workspace-62           19.5 MiB   1.6% ████
+  ▏19.5 MiB         ▏19.5 MiB        ▏19.5 MiB         ▏19.5 MiB        ▏19.5 MiB           22 workspace-01           19.5 MiB   1.6% ████
+  ▏workspace-24     ▏workspace-27    ▏workspace-30     ▏workspace-33    ▏workspace-36       23 workspace-04           19.5 MiB   1.6% ████
+  ▏19.5 MiB         ▏19.5 MiB        ▏19.5 MiB         ▏19.5 MiB        ▏19.5 MiB           24 workspace-07           19.5 MiB   1.6% ████
+  ▏workspace-39     ▏workspace-42    ▏workspace-45     ▏workspace-48    ▏workspace-51       25 workspace-10           19.5 MiB   1.6% ████
+  ▏19.5 MiB         ▏19.5 MiB        ▏19.5 MiB         ▏19.5 MiB        ▏19.5 MiB           26 workspace-13           19.5 MiB   1.6% ████
+  ▏workspace-54     ▏workspace-57    ▏workspace-60     ▏workspace-63                        27 workspace-16           19.5 MiB   1.6% ████
+  ▏19.5 MiB         ▏19.5 MiB        ▏19.5 MiB         ▏19.5 MiB                            28 workspace-19           19.5 MiB   1.6% ████
+                                                                                            1–28 of 64  ·  ↑↓ scroll
+   ▎ workspace-02                                                                                                      19.5 MiB  ·  1.6%
+     /home/diggle/Work/tui-disk/fixtures/benchmark-tree/workspace-02
+     folder  ·  2500 files  ·  Enter open  ·  t move to Trash
+
+  ↑↓ choose   ↵ open   ⌫ back   Space collect   c review   t Trash   d delete   r rescan   ? help   q quit
+
