@@ -9,5 +9,6 @@ __pycache__/
 # Local continuation notes; intentionally never published.
 /HANDOFF.md
 
-# Claude Code local state and agent worktrees.
-/.claude/
+# Claude Code local state and agent worktrees; .claude/settings.json is shared.
+/.claude/worktrees/
+/.claude/settings.local.json

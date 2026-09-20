@@ -573,10 +573,10 @@ fn draw_mosaic_tile(b: &mut Buffer, r: Rect, entry: &MapEntry<'_>, app: &App) {
             text(b, r.x + 1, y + 1, width, bytes, color, bg, false);
         }
     }
-    if r.height >= 3 {
-        if let Some((glyph, fg)) = entry.node.and_then(|n| collected_glyph(app, n)) {
-            text(b, r.right() - 2, r.y, 1, glyph, fg, bg, true);
-        }
+    if r.height >= 3
+        && let Some((glyph, fg)) = entry.node.and_then(|n| collected_glyph(app, n))
+    {
+        text(b, r.right() - 2, r.y, 1, glyph, fg, bg, true);
     }
 }
 
@@ -640,7 +640,13 @@ fn draw_compact_row(b: &mut Buffer, r: Rect, app: &App, i: usize) {
         false,
     );
     // Eighth-cell bars measure each row against the largest sibling.
-    let largest = node.children.iter().map(|c| c.bytes).max().unwrap_or(1).max(1);
+    let largest = node
+        .children
+        .iter()
+        .map(|c| c.bytes)
+        .max()
+        .unwrap_or(1)
+        .max(1);
     let units = (bar_width as f64 * 8.0 * n.bytes as f64 / largest as f64).round() as u16;
     let units = if n.bytes > 0 { units.max(1) } else { 0 };
     const BARS: [&str; 9] = [" ", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"];

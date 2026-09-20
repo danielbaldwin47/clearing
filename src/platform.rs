@@ -3,6 +3,7 @@
 compile_error!("spacemap currently supports Linux and macOS");
 use std::path::PathBuf;
 
+#[allow(clippy::unnecessary_cast)] // st_dev is i32 on macOS; u64 only on Linux
 pub fn identity(stat: &libc::stat) -> (u64, u64) {
     (stat.st_dev as u64, stat.st_ino as u64)
 }

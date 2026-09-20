@@ -523,16 +523,13 @@ fn trash_frame(
             area,
         );
     })?;
-    if event::poll(Duration::from_millis(40))? {
-        if let Event::Key(k) = event::read()? {
-            if k.kind != KeyEventKind::Release
-                && (k.code == KeyCode::Esc
-                    || (k.modifiers.contains(KeyModifiers::CONTROL)
-                        && k.code == KeyCode::Char('c')))
-            {
-                cancel.store(true, Ordering::SeqCst);
-            }
-        }
+    if event::poll(Duration::from_millis(40))?
+        && let Event::Key(k) = event::read()?
+        && k.kind != KeyEventKind::Release
+        && (k.code == KeyCode::Esc
+            || (k.modifiers.contains(KeyModifiers::CONTROL) && k.code == KeyCode::Char('c')))
+    {
+        cancel.store(true, Ordering::SeqCst);
     }
     Ok(())
 }
@@ -571,15 +568,13 @@ fn scan_in_terminal(
                 area,
             );
         })?;
-        if event::poll(Duration::from_millis(40))? {
-            if let Event::Key(k) = event::read()? {
-                if matches!(k.code, KeyCode::Esc | KeyCode::Char('q'))
-                    || (k.modifiers.contains(KeyModifiers::CONTROL) && k.code == KeyCode::Char('c'))
-                {
-                    cancel.store(true, Ordering::Relaxed);
-                    return Ok(None);
-                }
-            }
+        if event::poll(Duration::from_millis(40))?
+            && let Event::Key(k) = event::read()?
+            && (matches!(k.code, KeyCode::Esc | KeyCode::Char('q'))
+                || (k.modifiers.contains(KeyModifiers::CONTROL) && k.code == KeyCode::Char('c')))
+        {
+            cancel.store(true, Ordering::Relaxed);
+            return Ok(None);
         }
     }
 }
@@ -674,16 +669,13 @@ fn delete_frame(
             area,
         );
     })?;
-    if event::poll(Duration::from_millis(40))? {
-        if let Event::Key(k) = event::read()? {
-            if k.kind != KeyEventKind::Release
-                && (k.code == KeyCode::Esc
-                    || (k.modifiers.contains(KeyModifiers::CONTROL)
-                        && k.code == KeyCode::Char('c')))
-            {
-                cancel.store(true, Ordering::SeqCst);
-            }
-        }
+    if event::poll(Duration::from_millis(40))?
+        && let Event::Key(k) = event::read()?
+        && k.kind != KeyEventKind::Release
+        && (k.code == KeyCode::Esc
+            || (k.modifiers.contains(KeyModifiers::CONTROL) && k.code == KeyCode::Char('c')))
+    {
+        cancel.store(true, Ordering::SeqCst);
     }
     Ok(())
 }
