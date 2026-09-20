@@ -1,0 +1,44 @@
+╭─┐¹cpu┌──┐menu┌┐preset *┌────────────────────────────────────────┐22:20:34┌────────────────────────────┐BAT▲ 15% ■■■■■■■■■■┌─┐- 2000ms +┌─╮
+│                                                                                                                                          │
+│                                                                             ╭─┐13th Gen i5-13600K┌─────────────────────────────┐5.1 GHz┌╮│
+│                                                                             │CPU ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■   2% ⣀⣀⢠⣀⣀  41°C 28.0W││
+│                                                                             │C0  ⣀⣀⢀⣀⣀  2%  39°C│C7  ⣀⣀⣀⣀⣀  0%  40°C│C14 ⣀⣀⣀⣀⣀  1%  40°C││
+│                                                                             │C1  ⣀⣀⣀⣀⣀  4%  39°C│C8  ⣀⣀⢸⣀⣀  3%  39°C│C15 ⣀⣀⢀⣀⣀  1%  40°C││
+│                                                                             │C2  ⣀⣀⣀⣀⡀  3%  39°C│C9  ⣀⣀⣀⣀⣀  0%  39°C│C16 ⣀⣀⢀⣀⣀  1%  40°C││
+│                                                                          ⣰⣀⣀│C3  ⣀⣀⣀⣀⣀  0%  39°C│C10 ⣀⣀⣀⡀⡀  4%  39°C│C17 ⣀⣀⣀⣀⣀  1%  40°C││
+├───────────────────────────total─▲▼─gpu-totals───────────────────────────────┤C4  ⣀⣀⢀⢀⡀  3%  38°C│C11 ⣀⣀⣀⣀⣀  0%  39°C│C18 ⣀⣀⢀⣀⣀  2%  40°C││
+│                                   ⣿⠉⠉│                                   ⠉⠉⠉│C5  ⣀⣀⣀⣀⣀  0%  38°C│C12 ⣀⣀⣀⣀⣀  1%  40°C│C19 ⣀⣀⣀⣀⣀  1%  40°C││
+│                                   ⣿  │                                      │C6  ⣀⣀⣀⣀⡀  3%  40°C│C13 ⣀⣀⣀⣀⣀  1%  40°C│                   ││
+│                                   ⣿  │                                      │                                   Load avg: 1.24 0.63 0.32││
+│ GPU0                              ⠿  │ GPU1                                 │GPU0 ■■■■■■■■■■■■■■■■■  2% ⣀⣀⣀⣀⣀ 1.5G/16G  ⣀⣀⣀⣀⣀ 44°C 49.1W││
+│                                      │                                      │GPU1 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■  0% 0.00W││
+│                                      │                                      ╰───────────────────────────────────────────────────────────╯│
+│ up 00:09:41                          │                                                                                                   │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─┐²mem┌──────────────────────┬─┐disks┌──────────────────┐io┌─╮╭─┐⁴proc┌┐filter┌────────────┐pause┌┐per-core┌┐reverse┌┐tree┌┐← cpu lazy →┌─╮
+│ Total:             31.0 GiB ├─root───────▲4.0K──────275─GiB─┤│    Pid: Program:         Command:   Threads: User:       MemB       Cpu% ↑│
+├─Used:──────────────6.60─GiB─┤ IO% ⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀ ││   21651 kitty            kitty -c NONE     2 diggle      114M ⣀⣀⣀⣀⣀  0.0 █│
+│                     ⣀⣀⣀ 21% │ Used: 69% ■■■■■■■■■■  190 GiB ││    3731 herdr            /usr/bin/herdr   37 diggle       45M ⣀⣀⣀⣀⣀  0.2  │
+├─Available:─────────24.4─GiB─├─swap─────────────────62.0─GiB─┤│   21356 kitty            kitty -c NONE     2 diggle      112M ⣀⣀⣀⡀⣀  0.0  │
+│                     ⣶⣶⣶ 79% │ Used:  0% ■■■■■■■■■■   0 Byte ││    4943 codex            codex resume 0   49 diggle      652M ⣀⣀⣀⢀⣀  0.1  │
+├─Cached:────────────7.66─GiB─├─media──────────────────0─Byte─┤│    1492 Hyprland         Hyprland --wat    8 diggle      253M ⣀⣀⣀⣀⣀  0.0  │
+│                     ⣀⣀⣀ 25% │ Used:  0% ■■■■■■■■■■   0 Byte ││   21647 spf              spf fixtures/s   17 diggle       32M ⣀⣀⣀⣀⣀  0.0  │
+├─Free:──────────────18.1─GiB─├─production─────────────0─Byte─┤│    3707 herdr            herdr             7 diggle       18M ⣀⣀⣀⣀⣀  0.0  │
+│                     ⣶⣶⣶ 58% │ Used:  0% ■■■■■■■■■■   0 Byte ││    4982 claude           claude --resum   24 diggle      310M ⣀⣀⣀⣀⣀  0.0  │
+├─────────────────────────────├─stuff──────────────────0─Byte─┤│   21641 Xvfb             Xvfb :735 -scr    1 diggle       84M ⣀⣀⣀⣀⣀  0.0  │
+│                             │ Used:  0% ■■■■■■■■■■   0 Byte ││   21635 python3          python3 script    1 diggle       21M ⣀⣀⣀⣀⣀  0.0  │
+│                             ├─log────────▲4.0K──────275─GiB─┤│    1567 quickshell       quickshell -n    14 diggle      476M ⣀⣀⣀⣀⣀  0.0  │
+╰─────────────────────────────┴───────────────────────────────╯│    4956 claude           claude --resum   32 diggle      285M ⣀⣀⣀⣀⣀  0.0  │
+╭─┐³net┌┐192.168.1.155┌─────────┐sync┌┐auto┌┐zero┌┐←b eno1 n→┌╮│   21352 btop             btop -c .runti    6 diggle       32M ⣀⣀⣀⣀⣀  0.0  │
+│10K                             ⣿⣿                           ││   21346 Xvfb             Xvfb :445 -scr    1 diggle       83M ⣀⣀⣀⣀⣀  0.0  │
+│                                ⣿⣿╭─┐download┌──────────────╮││    3230 foot             foot --working    1 diggle       52M ⣀⣀⣀⣀⣀  0.0  │
+│                                ⣿⣿│▼ 20.7 KiB/s  (165 Kibps)│││    4868 codex            codex resume 0   41 diggle      641M ⣀⣀⣀⣀⣀  0.0  │
+│                                ⣿⣿│▼ Top:       (3.25 Mibps)│││    2153 voxtype-osd-gtk  /usr/lib/voxty   12 diggle      125M ⣀⣀⣀⣀⣀  0.0  │
+│                               ⣀⣿⣿│▼ Total:          123 MiB│││   21672 kitten           /usr/bin/kitte   13 diggle       31M ⣀⣀⣀⣀⣀  0.0  │
+│                               ⠉⣿⣿│                         │││    3647 hermes           /usr/bin/herme   25 diggle      289M ⣀⣀⣀⣀⣀  0.0  │
+│                                ⣿⣿│▲ 13.5 KiB/s  (108 Kibps)│││   21345 python3          python3 script    1 diggle       21M ⣀⣀⣀⣀⣀  0.0  │
+│                                ⣿⣿│▲ Top:       (2.42 Mibps)│││   16578 codex            /opt/codex exe   36 diggle      385M ⣀⣀⣀⣀⣀  0.0  │
+│                                ⣿⢿│▲ Total:         16.8 MiB│││   20710 kworker/u81:19-b                   1 root          0B ⣀⣀⣀⣀⣀  0.0  │
+│                                ⣿⢸╰─┘upload└────────────────╯││   20707 kworker/u81:14-k                   1 root          0B ⣀⣀⣀⣀⣀  0.0  │
+│10K                             ⣿⢸                           ││       1 systemd          /sbin/init spl    1 root         14M ⣀⣀⣀⣀⣀  0.0 ↓│
+╰─────────────────────────────────────────────────────────────╯╰┘↑ select ↓└┘info ↵└┘terminate└┘kill└┘signals└┘Nice└┘Follow└────────┘0/527└╯

@@ -1,0 +1,33 @@
+{
+  "terminal": {
+    "columns": 140,
+    "rows": 44,
+    "font_requested": "DejaVu Sans Mono",
+    "font_resolved": "JetBrainsMono Nerd Font,JetBrainsMono NF",
+    "font_size": 11
+  },
+  "keys": "Enter",
+  "command": [
+    "target/release/tui-disk",
+    "fixtures/ssd-story"
+  ],
+  "geometry": "WINDOW=2097166\nX=0\nY=0\nWIDTH=1261\nHEIGHT=881\nSCREEN=0\n",
+  "headless": true,
+  "captured_at": "2026-09-20T02:21:58.076514+00:00",
+  "binary_path": "/home/diggle/Work/tui-disk/target/release/tui-disk",
+  "binary_sha256": "084383275c6bdc80b8326593860e98e7cc167eed59bcf18fe79fdc59e46aeeaf",
+  "source_files": {
+    "src/collector.rs": "e6e5ff9037e780b2bd8fae5b5fd857c19f0403a0eef93c64f44be5b8c5409f0a",
+    "src/delete.rs": "314bf6a75430ec09ef21fe29488cf275fa72ae73e96b52f6fe6b1014af1decb2",
+    "src/main.rs": "547afad890cab747c803aaf63c18573daa27eabd05ab36ffada1ff45339ecf49",
+    "src/platform.rs": "84eacbd30a41311b760a6769567b64847a6b1378dba97aaa8c20c26f2f205c35",
+    "src/scan.rs": "85f6562bde42dd6471df09db20c53fcf8ac0af81b2a01e4aff946ab39d215358",
+    "src/theme.rs": "75c7c239a45edad4236a813300be97f1182935c35d1f65ec5866355a093dc921",
+    "src/trash.rs": "7d38d6f2c8abaefa9aa4d537430446b8df9d34b627e3f62be4218f8c76f5d6c6",
+    "src/ui/confirm.rs": "4deea9f5b38f30fa03dba0ab854080b2f3aa79e4e7b54c63b335d416d74ea18b",
+    "src/ui/foundation.rs": "d837ac87885719375f7ce6e3cc2df7574cb5fb403a4ec58f0ac8d594189d6c28",
+    "src/ui/review.rs": "877326b080be739c160c0858a265d497f60f012995c38f6ea46ec5fe3459f1d5",
+    "src/ui/view.rs": "5433bdf45e46a44bdcfbb14aecb9bff8fac6365a56fab6dbf94826fdf78a42ff",
+    "src/ui.rs": "80f5b973df5eaf8703de0d09d1340ce2863c86700584a52ff30c9654729f6a8d"
+  }
+}

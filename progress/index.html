@@ -11,12 +11,13 @@ const human=x=>String(x??'').replaceAll('_',' ');
 let state;
 function clock(){
   if(!state)return;
+  if(state.scope==='design-gauntlet'&&state.frozen){el('clock-label').textContent='Stopped by user';el('timer').textContent=`${state.final_score.won} / ${state.final_score.total} WON`;return;}
   if(state.competition_active===false){
     el('clock-label').textContent='Current follow-up';
     el('timer').textContent=human(state.follow_up?.status||'in progress').toUpperCase();
     return;
   }
-  el('clock-label').textContent='Original contest clock';
+  el('clock-label').textContent='Design deadline · 02:45:54 UTC';
   const n=Math.max(0,Date.parse(state.deadline)-Date.now());
   el('timer').textContent=state.completed?'ALL PIECES WON':state.frozen?'FROZEN':`${String(Math.floor(n/3600000)).padStart(2,'0')}:${String(Math.floor(n/60000)%60).padStart(2,'0')}:${String(Math.floor(n/1000)%60).padStart(2,'0')}`;
 }
@@ -29,9 +30,9 @@ function roundHtml(r){
 async function update(){
   try{
     state=await(await fetch('/progress/state.json?'+Date.now())).json();
-    const followup=state.competition_active===false;
+    const followup=state.competition_active===false&&state.scope!=='design-gauntlet';
     el('phase').textContent=state.phase;
-    el('scope').innerHTML=state.baseline?`<div class="scope"><h2>${esc(state.follow_up.title)} — ${esc(human(state.follow_up.status))}</h2><p>${esc(state.follow_up.note)}</p><p>Current acceptance: <b>${esc(human(state.follow_up.acceptance))}</b>. No timed contest is active and no visual rejudging has been requested. <span id="acceptance-link">Functional acceptance evidence is pending.</span></p><p class="sub"><b>Archived baseline ${esc(state.baseline.commit)}:</b> ${state.baseline.product_pieces_won} of ${state.baseline.product_pieces_total} original pieces won; ${state.baseline.verdicts_retained} verdicts retained. These are historical results for release ${esc(state.baseline.release_sha256.slice(0,8))}. <a href="${esc(state.baseline.state)}">Exact archived state</a> · <a href="/judging/FOLLOW-UP.md">Follow-up evidence scope</a></p></div>`:'';
+    el('scope').innerHTML=state.archives?`<div class="scope"><h2>Design judging · Astra build, Fable critique</h2><p>Six design pieces. One fresh critic win per piece after independent fairness audit. Every unfinished piece is lost at the deadline. Original build and collector results are archived separately; this round makes no performance claim.</p><p>${state.archives.map(a=>`<a href="${esc(a.path)}">${esc(a.title)}</a>`).join(' · ')}</p></div>`:state.baseline?`<div class="scope"><h2>${esc(state.follow_up.title)} — ${esc(human(state.follow_up.status))}</h2><p>${esc(state.follow_up.note)}</p><p>Current acceptance: <b>${esc(human(state.follow_up.acceptance))}</b>. No timed contest is active and no visual rejudging has been requested. <span id="acceptance-link">Functional acceptance evidence is pending.</span></p><p class="sub"><b>Archived baseline ${esc(state.baseline.commit)}:</b> ${state.baseline.product_pieces_won} of ${state.baseline.product_pieces_total} original pieces won; ${state.baseline.verdicts_retained} verdicts retained. These are historical results for release ${esc(state.baseline.release_sha256.slice(0,8))}. <a href="${esc(state.baseline.state)}">Exact archived state</a> · <a href="/judging/FOLLOW-UP.md">Follow-up evidence scope</a></p></div>`:'';
     const current=state.follow_up;
     el('collector-gallery').innerHTML=followup&&current?.screenshots?.length?`<section class="scope"><h2>Current collector — ${esc(current.tests.total_passed)} of ${esc(current.tests.total)} checks pass</h2><p>${Object.entries(current.tests).filter(([k,v])=>v&&typeof v==='object').map(([k,v])=>`<a href="/${esc(v.evidence)}">${esc(v.passed)} / ${esc(v.total)} ${esc(human(k))}</a>`).join(' · ')} · <a href="${esc(current.acceptance_evidence)}">Full acceptance record</a></p><p class="sub">Headless functional review of release ${esc(current.release_sha256.slice(0,8))}. These screenshots are not new blind visual verdicts; this release has not been benchmarked.</p><div class="pair">${current.screenshots.map(s=>`<div><a href="${esc(s.path)}" target="_blank"><img loading="lazy" src="${esc(s.path)}" alt="${esc(s.title)}"></a><p class="caption"><a href="${esc(s.path)}" target="_blank">${esc(s.title)} — full resolution</a></p></div>`).join('')}</div></section>`:'';
     el('pieces-heading').textContent=followup?'Current release: no inherited judging wins':'Judging pieces';
@@ -40,7 +41,7 @@ async function update(){
     el('rounds-context').textContent=state.baseline?'The side-by-sides and verdicts below belong to the completed baseline. They have not judged the collector feature.':'';
     el('rounds').innerHTML=[...state.rounds].reverse().map(roundHtml).join('');
     el('events').innerHTML=[...state.events].reverse().map(e=>`<div class="event"><span class="caption">${esc(e.time)}${e.scope?' · '+esc(human(e.scope)):''}</span> · ${esc(e.message)}</div>`).join('');
-    el('protocol-context').innerHTML=followup?'The original timed judging is archived. Collector work uses functional acceptance and review; there is no new contest deadline. <a href="/judging/PROTOCOL.md">Historical baseline protocol</a> · <a href="/progress/state.json">Current state</a>':'One fresh critic win is required after fairness audit. Source edits cancel current wins. <a href="/judging/PROTOCOL.md">Judging protocol</a> · <a href="/progress/state.json">Raw state</a>';
+    el('protocol-context').innerHTML=followup?'The original timed judging is archived. Collector work uses functional acceptance and review; there is no new contest deadline. <a href="/judging/PROTOCOL.md">Historical baseline protocol</a> · <a href="/progress/state.json">Current state</a>':'One fresh critic win is required after fairness audit. Source edits cancel current wins. <a href="/judging/DESIGN-PROTOCOL.md">Design judging protocol</a> · <a href="/progress/state.json">Raw state</a>';
     clock();
     if(followup&&state.follow_up.acceptance_evidence){
       const path=state.follow_up.acceptance_evidence;

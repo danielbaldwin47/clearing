@@ -1,0 +1,25 @@
+Release SHA-256: eebe549a97665f4d2795f65a75ce7efcf6af06e5c2ca9112b7c105c50915b527
+test_cancel_and_wrong_confirmation_leave_everything_in_place (__main__.CollectorAcceptance.test_cancel_and_wrong_confirmation_leave_everything_in_place) ... ok
+test_cancel_between_moves_retains_unprocessed_items (__main__.CollectorAcceptance.test_cancel_between_moves_retains_unprocessed_items) ... ok
+test_covered_child_cannot_add_a_duplicate_trash_operation (__main__.CollectorAcceptance.test_covered_child_cannot_add_a_duplicate_trash_operation) ... ok
+test_cross_directory_collection_trashes_both_with_restore_metadata (__main__.CollectorAcceptance.test_cross_directory_collection_trashes_both_with_restore_metadata) ... ok
+test_direct_trash_moves_only_the_highlighted_item (__main__.CollectorAcceptance.test_direct_trash_moves_only_the_highlighted_item) ... ok
+test_direct_trash_of_a_symlink_keeps_its_target (__main__.CollectorAcceptance.test_direct_trash_of_a_symlink_keeps_its_target) ... ok
+test_direct_trash_preserves_an_unrelated_collection (__main__.CollectorAcceptance.test_direct_trash_preserves_an_unrelated_collection) ... ok
+test_direct_trash_rejects_a_replacement_after_confirmation_opens (__main__.CollectorAcceptance.test_direct_trash_rejects_a_replacement_after_confirmation_opens) ... ok
+test_direct_trash_requires_exact_confirmation_and_can_cancel (__main__.CollectorAcceptance.test_direct_trash_requires_exact_confirmation_and_can_cancel) ... ok
+test_failed_item_does_not_erase_other_collection_entries (__main__.CollectorAcceptance.test_failed_item_does_not_erase_other_collection_entries) ... ok
+test_manual_rescan_preserves_collection (__main__.CollectorAcceptance.test_manual_rescan_preserves_collection) ... ok
+test_missing_trash_backend_never_falls_back_to_permanent_delete (__main__.CollectorAcceptance.test_missing_trash_backend_never_falls_back_to_permanent_delete) ... ok
+test_non_utf8_and_control_filename_is_trashed_by_original_bytes (__main__.CollectorAcceptance.test_non_utf8_and_control_filename_is_trashed_by_original_bytes) ... ok
+test_permanent_deletion_of_another_item_preserves_collection (__main__.CollectorAcceptance.test_permanent_deletion_of_another_item_preserves_collection) ... ok
+test_removing_from_review_does_not_trash_it (__main__.CollectorAcceptance.test_removing_from_review_does_not_trash_it) ... ok
+test_rescan_never_authorizes_a_replaced_collected_file (__main__.CollectorAcceptance.test_rescan_never_authorizes_a_replaced_collected_file) ... ok
+test_selected_parent_absorbs_collected_child (__main__.CollectorAcceptance.test_selected_parent_absorbs_collected_child) ... ok
+test_swapped_parent_symlink_cannot_trash_an_outside_file (__main__.CollectorAcceptance.test_swapped_parent_symlink_cannot_trash_an_outside_file) ... ok
+test_trashing_a_symlink_preserves_its_target (__main__.CollectorAcceptance.test_trashing_a_symlink_preserves_its_target) ... ok
+
+----------------------------------------------------------------------
+Ran 19 tests in 56.353s
+
+OK

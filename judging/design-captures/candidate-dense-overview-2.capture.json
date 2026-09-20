@@ -1,0 +1,33 @@
+{
+  "terminal": {
+    "columns": 140,
+    "rows": 44,
+    "font_requested": "DejaVu Sans Mono",
+    "font_resolved": "JetBrainsMono Nerd Font,JetBrainsMono NF",
+    "font_size": 11
+  },
+  "keys": "",
+  "command": [
+    "target/release/tui-disk",
+    "fixtures/benchmark-tree"
+  ],
+  "geometry": "WINDOW=2097166\nX=0\nY=0\nWIDTH=1261\nHEIGHT=881\nSCREEN=0\n",
+  "headless": true,
+  "captured_at": "2026-09-20T02:29:07.160173+00:00",
+  "binary_path": "/home/diggle/Work/tui-disk/target/release/tui-disk",
+  "binary_sha256": "eebe549a97665f4d2795f65a75ce7efcf6af06e5c2ca9112b7c105c50915b527",
+  "source_files": {
+    "src/collector.rs": "e6e5ff9037e780b2bd8fae5b5fd857c19f0403a0eef93c64f44be5b8c5409f0a",
+    "src/delete.rs": "314bf6a75430ec09ef21fe29488cf275fa72ae73e96b52f6fe6b1014af1decb2",
+    "src/main.rs": "8eda4480f4d7fbccc26193527f897ccb00d9643c6530512c5c5263c444f7f1b5",
+    "src/platform.rs": "84eacbd30a41311b760a6769567b64847a6b1378dba97aaa8c20c26f2f205c35",
+    "src/scan.rs": "d9625a95577d41f86fe28638f23636eac2e8ad3ee972ddd0929ebe249da13613",
+    "src/theme.rs": "75c7c239a45edad4236a813300be97f1182935c35d1f65ec5866355a093dc921",
+    "src/trash.rs": "7d38d6f2c8abaefa9aa4d537430446b8df9d34b627e3f62be4218f8c76f5d6c6",
+    "src/ui/confirm.rs": "4094551fea95b995c35cd8ed1d0a30a82d6d4004a601a028d9a2f2f3280b1b8b",
+    "src/ui/foundation.rs": "d837ac87885719375f7ce6e3cc2df7574cb5fb403a4ec58f0ac8d594189d6c28",
+    "src/ui/review.rs": "ab3ad47d22adab2bf82b067c9daf81d0df4049023a7f3c5525065324fe5cef15",
+    "src/ui/view.rs": "758126c1c687349a1f17792e2da52874d27fc1256ce2f36159124de7a250a9df",
+    "src/ui.rs": "bd3fdf8608ff05de1a6042daab290329a248a35da071a4abba93a49fff46253f"
+  }
+}

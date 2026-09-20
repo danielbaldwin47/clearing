@@ -1,0 +1,44 @@
+╭────────────────────╮╭─────────────────────────────────────────────────────────╮ Browser
+│  superfile        ││  /home/diggle/Work/tui-disk/fixtures/ssd-story         │ Package cache
+│                    │├─────────────────────────────────────────────────────────┤ Thumbnails
+│  󰋜 Home            ││  (/) Type something                                    │
+│  󰏔 Downloads       ││  Caches                                               │
+│  󰈙 Documents       ││   Documents                                            │
+│  󰋩 Pictures        ││   Downloads                                            │
+│  󰎁 Videos          ││   Games                                                │
+│  ♬ Music           ││   Photos                                               │
+│   Trash           ││   Projects                                             │
+│                    ││                                                         │
+│󰐃 Pinned ───────────││                                                         │
+│                    ││                                                         │
+│                    ││                                                         │
+│󱇰 Disks ────────────││                                                         │
+│                    ││                                                         │
+│  6200-72BA         ││                                                         │
+│                    ││                                                         │
+│                    ││                                                         │
+│                    ││                 ╭──────────────────────────────────────────────────────────╮
+│                    ││                 │        Are you sure you want to completely delete        │
+│                    ││                 │                                                          │
+│                    ││                 │  This operation cannot be undone and your data will be   │
+│                    ││                 │                     completely lost.                     │
+│                    ││                 │                                                          │
+│                    ││                 │          (enter) Confirm             (q) Cancel          │
+│                    ││                 ╰──────────────────────────────────────────────────────────╯
+│                    ││                                                         │
+│                    ││                                                         │
+│                    ││                                                         │
+│                    ││                                                         │
+│                    ││                                                         │
+╰────────────────────╯╰──────────────────────────────┤ Name├─┤󰈈 Browser├─┤1/6├─╯
+╭─┤ Processes ├──────────────────────────────╮╭─┤ Metadata ├───────────────────────────────╮╭─┤ Clipboard ├────────────────────────────────╮
+│                                            ││Name          Caches                        ││                                              │
+│  No processes running                     ││Size          60 B                          ││   No content in clipboard			│
+│                                            ││Date Modified 2026-09-19 18...086 -0400 EDT ││                                              │
+│                                            ││Permissions   drwxr-xr-x                    ││                                              │
+│                                            ││Owner         diggle                        ││                                              │
+│                                            ││Group         diggle                        ││                                              │
+│                                            ││Attributes    ----------------------        ││                                              │
+│                                            ││                                            ││                                              │
+│                                            ││                                            ││                                              │
+╰────────────────────────────────────────────╯╰──────────────────────────────────────┤1/7├─╯╰──────────────────────────────────────────────╯

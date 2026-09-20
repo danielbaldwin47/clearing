@@ -1,0 +1,5 @@
+Two interface entries are provided as A.png and B.png. Inspect only these images and this brief. Do not inspect other files, browse, infer authorship, or identify products.
+
+Both entries show the same six-directory fixture. Judge overview visual hierarchy, balanced spacing, readable labels and selected-state emphasis. Do not reward having a map rather than a list, extra metadata fields, or a particular task feature. Judge how effectively each design composes its own information and uses the available space.
+
+Which of these two visual systems would you rather spend time using for dense terminal data? Judge visual hierarchy, legibility, color, spacing, selection clarity, and composed detail. Do not penalize differences in task domain or available features. Choose exactly A or B. Cite concrete visible evidence in each entry. Give the single biggest reason the loser lost. Be harsh; praise is not useful. Return JSON with choice, evidence_A, evidence_B, and loser_reason.

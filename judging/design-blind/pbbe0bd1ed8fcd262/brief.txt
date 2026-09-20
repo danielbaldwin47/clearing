@@ -1,0 +1,5 @@
+Two interface entries are provided as A.png and B.png. Inspect only these images and this brief. Do not inspect other files, browse, infer authorship, or identify products.
+
+Both entries show the same sixty-four-directory fixture. Judge dense-state overview composition: whether labels and selected focus stay readable, quantitative or textual marks remain useful, hierarchy survives and space is deliberately organized. Do not reward a map over a list, extra metadata fields or a particular task feature. Do not assume hidden interactions; choose on the visible dense state only.
+
+Which of these two visual systems would you rather spend time using for dense terminal data? Judge visual hierarchy, legibility, color, spacing, selection clarity, and composed detail. Do not penalize differences in task domain or available features. Choose exactly A or B. Cite concrete visible evidence in each entry. Give the single biggest reason the loser lost. Be harsh; praise is not useful. Return JSON with choice, evidence_A, evidence_B, and loser_reason.

@@ -1,0 +1,5 @@
+Two interface entries are provided as A.png and B.png. Inspect only these images and this brief. Do not inspect other files, browse, infer authorship, or identify products.
+
+Both are overview dashboards. Compare the visual treatment of dense terminal data: meaningful color, text hierarchy, spacing, quantitative cues and reading comfort. Different data and features are expected; do not prefer either task domain or penalize a missing feature. Judge the visual system as rendered.
+
+Which of these two visual systems would you rather spend time using for dense terminal data? Judge visual hierarchy, legibility, color, spacing, selection clarity, and composed detail. Do not penalize differences in task domain or available features. Choose exactly A or B. Cite concrete visible evidence in each entry. Give the single biggest reason the loser lost. Be harsh; praise is not useful. Return JSON with choice, evidence_A, evidence_B, and loser_reason.

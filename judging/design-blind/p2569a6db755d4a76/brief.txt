@@ -1,0 +1,5 @@
+Two interface entries are provided as A.png and B.png. Inspect only these images and this brief. Do not inspect other files, browse, infer authorship, or identify products.
+
+Judge ONLY the shared visual foundation: palette, foreground/background contrast, typographic emphasis, numeric legibility and quantitative visual encoding. Both are real terminal dashboards at identical font and cell size. Their data volume and domain differ; do not judge absent features, which task is more useful, or which dataset is busier. Overview layout, navigation and action flow are not under judgment yet. Choose which visual foundation you would rather use for sustained dense-data work.
+
+Which of these two visual systems would you rather spend time using for dense terminal data? Judge visual hierarchy, legibility, color, spacing, selection clarity, and composed detail. Do not penalize differences in task domain or available features. Choose exactly A or B. Cite concrete visible evidence in each entry. Give the single biggest reason the loser lost. Be harsh; praise is not useful. Return JSON with choice, evidence_A, evidence_B, and loser_reason.

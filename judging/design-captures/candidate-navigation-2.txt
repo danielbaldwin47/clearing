@@ -1,0 +1,44 @@
+
+  D I S K   A L L O C A T I O N                                           ALLOCATED IN THIS VIEW     │  COLLECTOR
+                                                                                                     │
+  ssd-story  /  Caches                                                     ▄█   █▀█                  │  ◇ 0 items · 0 B
+                                                                            █   █▀█                  │
+  5 files  ·  6 folders  ·  3 here                                          ▀ ▪ ▀▀▀  GiB             │  Space  Add the selected item
+
+   SPACE MAP  ───area = allocated bytes───────────────────────────────────────────────────────────────── LARGEST FIRST ───────────────────
+
+  ╭──────────────────────────────────────────────────────╮ ╭────────────────────────────────────────╮   01  Browser
+  │ Browser                                              │ │ Package cache                          │       1.0 GiB                 57.2%
+  │ 1.0 GiB  ·  57.2%                                    │ │ 590.0 MiB  ·  32.8%                    │       ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+  │                                                      │ │                                        │
+  │                                                      │ │                                        │   02  Package cache
+  │  Media Cache                    Code Cache           │ │  toolchain-old.pkg…   linux-headers…   │       590.0 MiB               32.8%
+  │  610.0 MiB                      420.0 MiB            │ │  330.0 MiB            260.0 MiB        │       ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+  │                                                      │ │                                        │
+  │                                                      │ │                                        │   03  Thumbnails
+  │                                                      │ │                                        │       180.0 MiB               10.0%
+  │                                                      │ │                                        │       ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+  │                                                      │ │                                        │
+  │                                                      │ │                                        │
+  │                                                      │ │                                        │
+  │                                                      │ │                                        │
+  │                                                      │ │                                        │
+  │                                                      │ │                                        │
+  │                                                      │ │                                        │
+  │                                                      │ │                                        │
+  │                                                      │ ╰────────────────────────────────────────╯
+  │                                                      │
+  │                                                      │ ╭────────────────────────────────────────╮
+  │                                                      │ │ Thumbnails                             │
+  │                                                      │ │ 180.0 MiB  ·  10.0%                    │
+  │                                                      │ │                                        │
+  │                                                      │ │                                        │
+  ╰──────────────────────────────────────────────────────╯ ╰────────────────────────────────────────╯
+
+
+   ▎ Browser                                                                                                           1.0 GiB  ·  57.2%
+     /home/diggle/Work/tui-disk/fixtures/ssd-story/Caches/Browser
+     folder  ·  2 files  ·  Enter open  ·  t move to Trash
+
+  ↑↓ choose   ↵ open   ⌫ back   Space collect   c review   t Trash   d delete   r rescan   ? help   q quit
+

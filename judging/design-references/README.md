@@ -1,0 +1,5 @@
+# Saved design references
+
+Captured installed btop and superfile headlessly, once per recorded configuration/state. Product reference suite uses btop official default configuration and superfile built-in catppuccin-mocha theme, copied isolated configuration; originals with existing gruvbox theme are preserved, including calibration. Startup onboarding and an exited screen are preserved as rejected captures, never judging entries. Four coherent superfile states use the same fixture, terminal, theme and keys recorded in adjacent capture manifests. No delete action was confirmed.
+
+Project sources: https://github.com/aristocratos/btop and https://github.com/yorukot/superfile ; https://superfile.dev/ . These are live installed applications, not marketing screenshots. All comparisons use saved PNGs, not descriptions. Identity labels alone are stripped by the referee; controls and in-app borders remain part of the design. Fonts resolve via fontconfig; manifests include both requested and resolved families.

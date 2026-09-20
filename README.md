@@ -39,7 +39,7 @@ Sizes count allocated blocks, including directory blocks, rather than apparent f
 
 A true-color terminal with at least 60 columns and 20 rows is required; 120 × 40 or larger is recommended. It runs directly in terminals under Hyprland, with no graphical window or display-server dependency. Startup scans run in the background and can be cancelled. Raw mode and the alternate screen are restored on ordinary exit and errors.
 
-On a Mac with a current Rust toolchain and Xcode Command Line Tools installed, use the same `cargo build --release --locked` command. Both Apple Silicon and Intel targets are supported by the build configuration. macOS privacy permissions still apply to protected folders. The GitHub Actions workflow builds and tests Linux and both Mac architectures; local checks made from Linux cannot prove interactive terminal or native Trash behavior on a Mac.
+On a Mac with a current Rust toolchain and Xcode Command Line Tools installed, use the same `cargo build --release --locked` command. Both Apple Silicon and Intel targets are supported by the build configuration. macOS privacy permissions still apply to protected folders. The [GitHub Actions workflow](https://github.com/danielbaldwin47/tui-disk/actions) builds Linux and both Mac architectures and uploads their binaries. Native Mac tests cover scanning, deletion guards, actual Trash moves and restoration, and preserving symlink targets. Visual captures are made headlessly on Linux.
 
 To scan without a terminal:
 

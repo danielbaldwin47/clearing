@@ -1,0 +1,11 @@
+# Design judging record
+
+The design round is stopped at the user-requested boundary after the final Fable rejudging batch. **Four of six product pieces won:** foundation, sparse overview, navigation and collector. **Dense overview lost. Whole was not judged and is lost.** No further round or revision is authorized.
+
+The round began 2026-09-20 02:15:54 UTC with a hard upper limit 02:45:54 UTC. Each product piece required one fresh critic preference plus independent referee fairness audit. Both judge providers separately passed real-wireframe calibration with order swapped. First-round wins did not count automatically: reference-theme and 65-second-history challenges, a separate dense fixture, and corrected selected-item focus addressed easy-test risks. Source changes invalidate affected wins.
+
+Astra authored the initial shared design; subsequent feature work briefly used Fable; the final requested build model was Astra. Critic provider changed from Astra to Fable, then the user explicitly required all previous product wins rejudged by Fable. Their Astra counts were reset before new votes while raw verdicts and earlier acceptance remained in history. Current accepted product wins are Fable-only. The final dense loss cannot inherit its earlier Astra preference.
+
+The independent referee prepared all random-order pairs and kept encrypted origins outside the repository. Critics were fresh isolated sessions with only anonymous packet images and a design brief. Saved btop and superfile references, actual runnable wireframe and candidate captures share 140 × 44 terminal geometry and resolved monospace font, without window chrome. Identity prefixes and branding are stripped; real task labels, controls and application borders remain. Domain or feature differences are excluded from visual-quality preference. Dense and sparse overviews were separate required pieces.
+
+Original baseline 176da86 and 72-check collector acceptance remain archived separately. This design round makes no new performance claim. Final functional verification is separate in validation/design.json. All public votes, rejected/uncounted evidence, candidate flaws and source hashes remain preserved in progress/state.json and the saved packets.

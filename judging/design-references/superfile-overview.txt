@@ -1,0 +1,44 @@
+╭────────────────────╮╭─────────────────────────────────────────────────────────╮ Browser
+│  superfile        ││  /home/diggle/Work/tui-disk/fixtures/ssd-story         │ Package cache
+│                    │├─────────────────────────────────────────────────────────┤ Thumbnails
+│  󰋜 Home            ││  (/) Type something                                    │
+│  󰏔 Downloads       ││  Caches                                               │
+│  󰈙 Documents       ││   Documents                                            │
+│  󰋩 Pictures        ││   Downloads                                            │
+│  󰎁 Videos          ││  ╭────────────────────────────────────────────────────────────────────────────────────────╮
+│  ♬ Music           ││  │                                                                                        │
+│   Trash           ││  │                                                                                        │
+│                    ││  │                                                                                        │
+│󰐃 Pinned ───────────││  │ Thanks for using superfile!!                                                           │
+│                    ││  │ You can read the following information before starting to use it!                      │
+│                    ││  │                                                                                        │
+│󱇰 Disks ────────────││  │  ** Very importantly ** If you are a Vim/Nvim user, go to:                             │
+│                    ││  │  https://superfile.dev/configure/custom-hotkeys/ to change your hotkey settings!       │
+│  6200-72BA         ││  │                                                                                        │
+│                    ││  │  (1) If this is your first time, make sure you read:                                   │
+│                    ││  │      https://superfile.dev/getting-started/tutorial/                                   │
+│                    ││  │                                                                                        │
+│                    ││  │  (2) If you forget the relevant keys during use,                                       │
+│                    ││  │      you can press "?" (shift+/) at any time to query the keys!                        │
+│                    ││  │                                                                                        │
+│                    ││  │  (3) For more customization you can refer to:                                          │
+│                    ││  │      https://superfile.dev/                                                            │
+│                    ││  │                                                                                        │
+│                    ││  │  (4) Thank you again for using superfile.                                              │
+│                    ││  │      If you have any questions, please feel free to ask at:                            │
+│                    ││  │      https://github.com/yorukot/superfile                                              │
+│                    ││  │      Of course, you can always open a new issue to share your idea                     │
+│                    ││  │      or report a bug!                                                                  │
+│                    ││  │                                                                                        │
+╰────────────────────╯╰──│                                                                                        │
+╭─┤ Processes ├──────────│                                                                                        │────────────────────────╮
+│                        │                                                                                        │                        │
+│  No processes running │                                                                                        │board			│
+│                        ╰────────────────────────────────────────────────────────────────────────────────────────╯                        │
+│                                            ││Permissions   drwxr-xr-x                    ││                                              │
+│                                            ││Owner         diggle                        ││                                              │
+│                                            ││Group         diggle                        ││                                              │
+│                                            ││Attributes    ----------------------        ││                                              │
+│                                            ││                                            ││                                              │
+│                                            ││                                            ││                                              │
+╰────────────────────────────────────────────╯╰──────────────────────────────────────┤1/7├─╯╰──────────────────────────────────────────────╯

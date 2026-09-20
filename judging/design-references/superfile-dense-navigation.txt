@@ -1,0 +1,44 @@
+╭────────────────────╮╭─────────────────────────────────────────────────────────╮ entry-0004096.dat
+│  superfile        ││  ...Work/tui-disk/fixtures/benchmark-tree/workspace-00 │ entry-0008192.dat
+│                    │├─────────────────────────────────────────────────────────┤ entry-0012288.dat
+│  󰋜 Home            ││  (/) Type something                                    │ entry-0016384.dat
+│  󰏔 Downloads       ││  package-00                                           │ entry-0024576.dat
+│  󰈙 Documents       ││   package-01                                           │ entry-0028672.dat
+│  󰋩 Pictures        ││   package-02                                           │ entry-0032768.dat
+│  󰎁 Videos          ││   package-03                                           │ entry-0036864.dat
+│  ♬ Music           ││   package-04                                           │ entry-0045056.dat
+│   Trash           ││   package-05                                           │ entry-0049152.dat
+│                    ││   package-06                                           │ entry-0053248.dat
+│󰐃 Pinned ───────────││   package-07                                           │ entry-0057344.dat
+│                    ││   package-08                                           │ entry-0065536.dat
+│                    ││   package-09                                           │ entry-0069632.dat
+│󱇰 Disks ────────────││   package-10                                           │ entry-0073728.dat
+│                    ││   package-11                                           │ entry-0077824.dat
+│  6200-72BA         ││   package-12                                           │ entry-0086016.dat
+│                    ││   package-13                                           │ entry-0090112.dat
+│                    ││   package-14                                           │ entry-0094208.dat
+│                    ││   package-15                                           │ entry-0098304.dat
+│                    ││   package-16                                           │ entry-0106496.dat
+│                    ││   package-17                                           │ entry-0110592.dat
+│                    ││   package-18                                           │ entry-0114688.dat
+│                    ││   package-19                                           │ entry-0118784.dat
+│                    ││   package-20                                           │ entry-0126976.dat
+│                    ││   package-21                                           │ entry-0131072.dat
+│                    ││   package-22                                           │ entry-0135168.dat
+│                    ││   package-23                                           │ entry-0139264.dat
+│                    ││   package-24                                           │ entry-0147456.dat
+│                    ││   package-25                                           │ entry-0151552.dat
+│                    ││   package-26                                           │ entry-0155648.dat
+│                    ││   package-27                                           │ entry-0159744.dat
+╰────────────────────╯╰─────────────────────────────┤ Name├─┤󰈈 Browser├─┤1/66├─╯
+╭─┤ Processes ├──────────────────────────────╮╭─┤ Metadata ├───────────────────────────────╮╭─┤ Clipboard ├────────────────────────────────╮
+│                                            ││Name          package-00                    ││                                              │
+│  No processes running                     ││Size          1.06 KiB                      ││   No content in clipboard			│
+│                                            ││Date Modified 2026-09-19 18...033 -0400 EDT ││                                              │
+│                                            ││Permissions   drwxr-xr-x                    ││                                              │
+│                                            ││Owner         diggle                        ││                                              │
+│                                            ││Group         diggle                        ││                                              │
+│                                            ││Attributes    ----------------------        ││                                              │
+│                                            ││                                            ││                                              │
+│                                            ││                                            ││                                              │
+╰────────────────────────────────────────────╯╰──────────────────────────────────────┤1/7├─╯╰──────────────────────────────────────────────╯

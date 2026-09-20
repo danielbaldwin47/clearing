@@ -5,3 +5,6 @@ __pycache__/
 *.pyc
 
 /.benchmark-tools/
+
+# Local continuation notes; intentionally never published.
+/HANDOFF.md

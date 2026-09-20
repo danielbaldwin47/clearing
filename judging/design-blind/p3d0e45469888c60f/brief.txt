@@ -1,0 +1,5 @@
+Two interface entries are provided as A.png and B.png. Inspect only these images and this brief. Do not inspect other files, browse, infer authorship, or identify products.
+
+Both entries are inside the same Caches directory with Browser selected. Judge location hierarchy, selected versus unselected emphasis, readable context, navigational affordances and composed spacing. Compare visible design only; do not reward a map over a list, sizes over metadata, or the presence of a particular command. Ask whether the shown location, focus and surrounding context read clearly as a terminal interface.
+
+Which of these two visual systems would you rather spend time using for dense terminal data? Judge visual hierarchy, legibility, color, spacing, selection clarity, and composed detail. Do not penalize differences in task domain or available features. Choose exactly A or B. Cite concrete visible evidence in each entry. Give the single biggest reason the loser lost. Be harsh; praise is not useful. Return JSON with choice, evidence_A, evidence_B, and loser_reason.

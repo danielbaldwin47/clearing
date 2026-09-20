@@ -1,0 +1,44 @@
+╭────────────────────╮╭─────────────────────────────────────────────────────────╮󰋊 archlinux-old.iso
+│  superfile        ││  /home/diggle/Work/tui-disk/fixtures/ssd-story         │ design-assets.zip
+│                    │├─────────────────────────────────────────────────────────┤ video-export-final.mp4
+│  󰋜 Home            ││  (/) Type something                                    │
+│  󰏔 Downloads       ││  󰡖  Caches                                             │
+│  󰈙 Documents       ││  󰡖  Documents                                          │
+│  󰋩 Pictures        ││ 󰄱  Downloads                                          │
+│  󰎁 Videos          ││  󰄱  Games                                              │
+│  ♬ Music           ││  󰄱  Photos                                             │
+│   Trash           ││  󰄱  Projects                                           │
+│                    ││                                                         │
+│󰐃 Pinned ───────────││                                                         │
+│                    ││                                                         │
+│                    ││                                                         │
+│󱇰 Disks ────────────││                                                         │
+│                    ││                                                         │
+│  6200-72BA         ││                                                         │
+│                    ││                                                         │
+│                    ││                                                         │
+│                    ││                                                         │
+│                    ││                                                         │
+│                    ││                                                         │
+│                    ││                                                         │
+│                    ││                                                         │
+│                    ││                                                         │
+│                    ││                                                         │
+│                    ││                                                         │
+│                    ││                                                         │
+│                    ││                                                         │
+│                    ││                                                         │
+│                    ││                                                         │
+│                    ││                                                         │
+╰────────────────────╯╰───────────────────────────┤ Name├─┤󰆽 Select (2)├─┤3/6├─╯
+╭─┤ Processes ├──────────────────────────────╮╭─┤ Metadata ├───────────────────────────────╮╭─┤ Clipboard ├────────────────────────────────╮
+│                                            ││Name          Downloads                     ││                                              │
+│  No processes running                     ││Size          112 B                         ││   No content in clipboard			│
+│                                            ││Date Modified 2026-09-19 18...756 -0400 EDT ││                                              │
+│                                            ││Permissions   drwxr-xr-x                    ││                                              │
+│                                            ││Owner         diggle                        ││                                              │
+│                                            ││Group         diggle                        ││                                              │
+│                                            ││Attributes    ----------------------        ││                                              │
+│                                            ││                                            ││                                              │
+│                                            ││                                            ││                                              │
+╰────────────────────────────────────────────╯╰──────────────────────────────────────┤1/7├─╯╰──────────────────────────────────────────────╯

@@ -1,0 +1,44 @@
+╭────────────────────╮╭─────────────────────────────────────────────────────────╮ package-00
+│  superfile        ││  /home/diggle/Work/tui-disk/fixtures/benchmark-tree    │ package-01
+│                    │├─────────────────────────────────────────────────────────┤ package-02
+│  󰋜 Home            ││  (/) Type something                                    │ package-03
+│  󰏔 Downloads       ││  workspace-00                                         │ package-04
+│  󰈙 Documents       ││   workspace-01                                         │ package-05
+│  󰋩 Pictures        ││   workspace-02                                         │ package-06
+│  󰎁 Videos          ││   workspace-03                                         │ package-07
+│  ♬ Music           ││   workspace-04                                         │ package-08
+│   Trash           ││   workspace-05                                         │ package-09
+│                    ││   workspace-06                                         │ package-10
+│󰐃 Pinned ───────────││   workspace-07                                         │ package-11
+│                    ││   workspace-08                                         │ package-12
+│                    ││   workspace-09                                         │ package-13
+│󱇰 Disks ────────────││   workspace-10                                         │ package-14
+│                    ││   workspace-11                                         │ package-15
+│  6200-72BA         ││   workspace-12                                         │ package-16
+│                    ││   workspace-13                                         │ package-17
+│                    ││   workspace-14                                         │ package-18
+│                    ││   workspace-15                                         │ package-19
+│                    ││   workspace-16                                         │ package-20
+│                    ││   workspace-17                                         │ package-21
+│                    ││   workspace-18                                         │ package-22
+│                    ││   workspace-19                                         │ package-23
+│                    ││   workspace-20                                         │ package-24
+│                    ││   workspace-21                                         │ package-25
+│                    ││   workspace-22                                         │ package-26
+│                    ││   workspace-23                                         │ package-27
+│                    ││   workspace-24                                         │ package-28
+│                    ││   workspace-25                                         │ package-29
+│                    ││   workspace-26                                         │ package-30
+│                    ││   workspace-27                                         │ package-31
+╰────────────────────╯╰─────────────────────────────┤ Name├─┤󰈈 Browser├─┤1/64├─╯ package-32
+╭─┤ Processes ├──────────────────────────────╮╭─┤ Metadata ├───────────────────────────────╮╭─┤ Clipboard ├────────────────────────────────╮
+│                                            ││Name          workspace-00                  ││                                              │
+│  No processes running                     ││Size          1.29 KiB                      ││   No content in clipboard			│
+│                                            ││Date Modified 2026-09-19 18...789 -0400 EDT ││                                              │
+│                                            ││Permissions   drwxr-xr-x                    ││                                              │
+│                                            ││Owner         diggle                        ││                                              │
+│                                            ││Group         diggle                        ││                                              │
+│                                            ││Attributes    ----------------------        ││                                              │
+│                                            ││                                            ││                                              │
+│                                            ││                                            ││                                              │
+╰────────────────────────────────────────────╯╰──────────────────────────────────────┤1/7├─╯╰──────────────────────────────────────────────╯

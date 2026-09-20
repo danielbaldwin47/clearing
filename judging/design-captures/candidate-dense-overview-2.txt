@@ -1,0 +1,44 @@
+
+  D I S K   A L L O C A T I O N                                           ALLOCATED IN THIS VIEW     │  COLLECTOR
+                                                                                                     │
+  benchmark-tree                                                           ▄█   ▀▀█                  │  ◇ 0 items · 0 B
+                                                                            █   █▀▀                  │
+  160000 files  ·  7105 folders  ·  64 here                                 ▀ ▪ ▀▀▀  GiB             │  Space  Add the selected item
+
+   SPACE MAP  ───area = allocated bytes───────────────────────────────────────────────────────────────── LARGEST FIRST ───────────────────
+
+  ╭────╮ ╭────╮ ╭───────────────────────────────────────────────────────────────────────────────────╮   01  workspace-02
+  │wor…│ │wor…│ │ 55 smaller items                                                                  │       19.5 MiB                 1.6%
+  │19.…│ │19.…│ │ 1.0 GiB  ·  85.9%                                                                 │       ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+  │    │ │    │ │                                                                                   │
+  ╰────╯ ╰────╯ │                                                                                   │   02  workspace-05
+                │                                                                                   │       19.5 MiB                 1.6%
+  ╭────╮ ╭────╮ │                                                                                   │       ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+  │wor…│ │wor…│ │                                                                                   │
+  │19.…│ │19.…│ │                                                                                   │   03  workspace-08
+  │    │ │    │ │                                                                                   │       19.5 MiB                 1.6%
+  ╰────╯ ╰────╯ │                                                                                   │       ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+                │                                                                                   │
+  ╭────╮ ╭────╮ │                                                                                   │   04  workspace-11
+  │wor…│ │wor…│ │                                                                                   │       19.5 MiB                 1.6%
+  │19.…│ │19.…│ │                                                                                   │       ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+  │    │ │    │ │                                                                                   │
+  ╰────╯ ╰────╯ │                                                                                   │   05  workspace-14
+                │                                                                                   │       19.5 MiB                 1.6%
+                │                                                                                   │       ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+                │                                                                                   │
+                │                                                                                   │   06  workspace-17
+  ╭───────────╮ │                                                                                   │       19.5 MiB                 1.6%
+  │workspace-…│ │                                                                                   │       ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+  ╰───────────╯ │                                                                                   │
+                │                                                                                   │   07  workspace-20
+                │                                                                                   │       19.5 MiB                 1.6%
+                ╰───────────────────────────────────────────────────────────────────────────────────╯       ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+
+                                                                                                        1–7 of 64  ·  ↑↓ scroll
+   ▎ workspace-02                                                                                                      19.5 MiB  ·  1.6%
+     /home/diggle/Work/tui-disk/fixtures/benchmark-tree/workspace-02
+     folder  ·  2500 files  ·  Enter open  ·  t move to Trash
+
+  ↑↓ choose   ↵ open   ⌫ back   Space collect   c review   t Trash   d delete   r rescan   ? help   q quit
+

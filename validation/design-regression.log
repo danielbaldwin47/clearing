@@ -1,0 +1,23 @@
+Release SHA-256: eebe549a97665f4d2795f65a75ce7efcf6af06e5c2ca9112b7c105c50915b527
+test_allocated_bytes_and_counts (__main__.ScanAcceptance.test_allocated_bytes_and_counts) ... ok
+test_empty_directory (__main__.ScanAcceptance.test_empty_directory) ... ok
+test_hardlinks_count_once_across_directories (__main__.ScanAcceptance.test_hardlinks_count_once_across_directories) ... ok
+test_missing_path_fails_cleanly (__main__.ScanAcceptance.test_missing_path_fails_cleanly) ... ok
+test_non_utf8_root_and_child_paths (__main__.ScanAcceptance.test_non_utf8_root_and_child_paths) ... ok
+test_nonterminal_requires_scan_mode (__main__.ScanAcceptance.test_nonterminal_requires_scan_mode) ... ok
+test_permission_error_is_reported (__main__.ScanAcceptance.test_permission_error_is_reported) ... ok
+test_small_terminal_sizes_do_not_panic (__main__.ScanAcceptance.test_small_terminal_sizes_do_not_panic) ... ok
+test_sparse_file_uses_allocated_blocks (__main__.ScanAcceptance.test_sparse_file_uses_allocated_blocks) ... ok
+test_symlink_targets_and_cycles_are_not_walked (__main__.ScanAcceptance.test_symlink_targets_and_cycles_are_not_walked) ... ok
+test_unicode_and_control_filenames (__main__.ScanAcceptance.test_unicode_and_control_filenames) ... ok
+test_cancel_and_wrong_confirmation_preserve_data (__main__.InteractionAcceptance.test_cancel_and_wrong_confirmation_preserve_data) ... ok
+test_confirmed_file_delete (__main__.InteractionAcceptance.test_confirmed_file_delete) ... ok
+test_drill_back_and_delete_directory_without_following_symlink (__main__.InteractionAcceptance.test_drill_back_and_delete_directory_without_following_symlink) ... ok
+test_confirmed_recursive_delete_can_be_stopped (__main__.InteractionAcceptance.test_confirmed_recursive_delete_can_be_stopped) ... ok
+test_replaced_selection_is_refused (__main__.InteractionAcceptance.test_replaced_selection_is_refused) ... ok
+test_replaced_parent_symlink_is_refused (__main__.InteractionAcceptance.test_replaced_parent_symlink_is_refused) ... ok
+
+----------------------------------------------------------------------
+Ran 17 tests in 13.068s
+
+OK

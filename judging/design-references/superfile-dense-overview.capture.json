@@ -1,0 +1,38 @@
+{
+  "terminal": {
+    "columns": 140,
+    "rows": 44,
+    "font_requested": "DejaVu Sans Mono",
+    "font_resolved": "JetBrainsMono Nerd Font,JetBrainsMono NF",
+    "font_size": 11
+  },
+  "keys": "",
+  "command": [
+    "env",
+    "XDG_CONFIG_HOME=/home/diggle/Work/tui-disk/.runtime/design-xdg/config",
+    "XDG_DATA_HOME=/home/diggle/Work/tui-disk/.runtime/design-xdg/data",
+    "XDG_CACHE_HOME=/home/diggle/Work/tui-disk/.runtime/design-xdg/cache",
+    "XDG_STATE_HOME=/home/diggle/Work/tui-disk/.runtime/design-xdg/state",
+    "spf",
+    "fixtures/benchmark-tree"
+  ],
+  "geometry": "WINDOW=2097166\nX=0\nY=0\nWIDTH=1261\nHEIGHT=881\nSCREEN=0\n",
+  "headless": true,
+  "captured_at": "2026-09-20T02:24:58.554560+00:00",
+  "binary_path": "/usr/bin/env",
+  "binary_sha256": "08392d72874da4f88c619ee717f2b4a5f28ba0534ff8cf1083fb2edc37d6475f",
+  "source_files": {
+    "src/collector.rs": "e6e5ff9037e780b2bd8fae5b5fd857c19f0403a0eef93c64f44be5b8c5409f0a",
+    "src/delete.rs": "314bf6a75430ec09ef21fe29488cf275fa72ae73e96b52f6fe6b1014af1decb2",
+    "src/main.rs": "0399bc9ba93535921e1af151e76fe8bbc38e6c1ce5810afb592227e375894639",
+    "src/platform.rs": "84eacbd30a41311b760a6769567b64847a6b1378dba97aaa8c20c26f2f205c35",
+    "src/scan.rs": "85f6562bde42dd6471df09db20c53fcf8ac0af81b2a01e4aff946ab39d215358",
+    "src/theme.rs": "75c7c239a45edad4236a813300be97f1182935c35d1f65ec5866355a093dc921",
+    "src/trash.rs": "7d38d6f2c8abaefa9aa4d537430446b8df9d34b627e3f62be4218f8c76f5d6c6",
+    "src/ui/confirm.rs": "4deea9f5b38f30fa03dba0ab854080b2f3aa79e4e7b54c63b335d416d74ea18b",
+    "src/ui/foundation.rs": "d837ac87885719375f7ce6e3cc2df7574cb5fb403a4ec58f0ac8d594189d6c28",
+    "src/ui/review.rs": "941c4221cc6287029a405c353b0c77afdb4e7a0b0d7c1b30d4bae59b719d95d8",
+    "src/ui/view.rs": "491be27365d07aa3d7fb9bd7e057d96ed911ba1f10e541892f5817e65eeaa25e",
+    "src/ui.rs": "301833e7b4914831cc85dd90c404eb9d49651937dd40592465d0f708081a466b"
+  }
+}
