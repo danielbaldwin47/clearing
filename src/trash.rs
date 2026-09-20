@@ -44,10 +44,10 @@ impl Guard {
         let home_trash = absolute("HOME").map(|p| p.join(".Trash"));
         let mut trash_dirs = Vec::new();
         if let Some(configured) = home_trash {
-            if let Ok(resolved) = fs::canonicalize(&configured) {
-                if resolved != configured {
-                    trash_dirs.push(resolved)
-                }
+            if let Ok(resolved) = fs::canonicalize(&configured)
+                && resolved != configured
+            {
+                trash_dirs.push(resolved)
             }
             trash_dirs.push(configured)
         }

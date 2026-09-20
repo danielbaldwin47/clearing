@@ -198,7 +198,7 @@ pub(super) fn draw_review(f: &mut Frame, app: &App) {
             let name = record
                 .path
                 .file_name()
-                .map(|n| display_path(n))
+                .map(display_path)
                 .unwrap_or_default();
             text(
                 b,

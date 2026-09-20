@@ -16,10 +16,10 @@ use std::{
 };
 
 pub fn display_path(name: &std::ffi::OsStr) -> String {
-    if let Some(text) = name.to_str() {
-        if !text.chars().any(|c| c.is_control() || c == '\\') {
-            return text.to_owned();
-        }
+    if let Some(text) = name.to_str()
+        && !text.chars().any(|c| c.is_control() || c == '\\')
+    {
+        return text.to_owned();
     }
     let mut out = String::with_capacity(name.len());
     let mut remaining = name.as_bytes();
@@ -282,13 +282,13 @@ fn visit(parent: &Path, fd: RawFd, entry: &Entry, ctx: &Context) -> Option<Node>
     let path = child_path(parent, name);
     // A known directory can be opened safely first. fstat then describes
     // exactly the inode whose children we will read, avoiding two stats.
-    if entry.is_dir {
-        if let Some(owned) = open_dir(fd, name) {
-            let stat = stat_fd(owned.as_raw_fd()).ok()?;
-            let mut child = node(path, stat, ctx);
-            populate(&mut child, owned, ctx);
-            return Some(child);
-        }
+    if entry.is_dir
+        && let Some(owned) = open_dir(fd, name)
+    {
+        let stat = stat_fd(owned.as_raw_fd()).ok()?;
+        let mut child = node(path, stat, ctx);
+        populate(&mut child, owned, ctx);
+        return Some(child);
     }
     let stat = stat_at(fd, name).ok()?;
     let mut child = node(path, stat, ctx);
@@ -451,11 +451,7 @@ mod tests {
                 + n.children.iter().map(apparent).sum::<u64>()
         }
         assert_eq!(n.apparent, apparent(&n));
-        let named = n
-            .children
-            .iter()
-            .find(|c| c.name == escaped)
-            .unwrap();
+        let named = n.children.iter().find(|c| c.name == escaped).unwrap();
         assert_eq!(
             named.path.as_os_str().as_bytes(),
             p.join(raw).as_os_str().as_bytes()

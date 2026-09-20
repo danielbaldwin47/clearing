@@ -22,6 +22,7 @@ pub fn size(bytes: u64) -> String {
         format!("{:.1} {}", n, U[i])
     }
 }
+#[allow(clippy::too_many_arguments)] // the one drawing primitive; about 100 call sites pass these positionally
 pub(super) fn text(
     b: &mut Buffer,
     x: u16,
@@ -293,64 +294,65 @@ pub(super) fn draw_tile(
             true,
         );
     }
-    if r.width >= 22 && r.height >= 10 {
-        if let Some(node) = entry.node {
-            if !node.children.is_empty() {
-                let child_rect = Rect::new(r.x + pad, r.y + 4, r.width - pad * 2, r.height - 5);
-                let children = map_entries(node);
-                let weights = children.iter().map(|n| n.bytes).collect::<Vec<_>>();
-                for tile in tiles(&weights, child_rect) {
-                    let n = &children[tile.idx];
-                    let rr = tile.rect;
-                    let rr = Rect::new(
-                        rr.x,
-                        rr.y,
-                        rr.width.saturating_sub(1),
-                        rr.height.saturating_sub(1),
+    if r.width >= 22
+        && r.height >= 10
+        && let Some(node) = entry.node
+    {
+        if !node.children.is_empty() {
+            let child_rect = Rect::new(r.x + pad, r.y + 4, r.width - pad * 2, r.height - 5);
+            let children = map_entries(node);
+            let weights = children.iter().map(|n| n.bytes).collect::<Vec<_>>();
+            for tile in tiles(&weights, child_rect) {
+                let n = &children[tile.idx];
+                let rr = tile.rect;
+                let rr = Rect::new(
+                    rr.x,
+                    rr.y,
+                    rr.width.saturating_sub(1),
+                    rr.height.saturating_sub(1),
+                );
+                let cbg = tint(color, 0.27 + (tile.idx % 3) as f32 * 0.075);
+                fill(b, rr, cbg);
+                if rr.width >= 9 && rr.height >= 2 {
+                    text(
+                        b,
+                        rr.x + 1,
+                        rr.y + 1,
+                        rr.width - 2,
+                        &n.label,
+                        FG,
+                        cbg,
+                        false,
                     );
-                    let cbg = tint(color, 0.27 + (tile.idx % 3) as f32 * 0.075);
-                    fill(b, rr, cbg);
-                    if rr.width >= 9 && rr.height >= 2 {
+                    if rr.height >= 4 {
                         text(
                             b,
                             rr.x + 1,
-                            rr.y + 1,
+                            rr.y + 2,
                             rr.width - 2,
-                            &n.label,
+                            size(n.bytes),
                             FG,
                             cbg,
-                            false,
-                        );
-                        if rr.height >= 4 {
-                            text(
-                                b,
-                                rr.x + 1,
-                                rr.y + 2,
-                                rr.width - 2,
-                                size(n.bytes),
-                                FG,
-                                cbg,
-                                true,
-                            )
-                        }
+                            true,
+                        )
                     }
                 }
-            } else if r.height >= 12 {
-                text(
-                    b,
-                    r.x + pad,
-                    r.bottom() - 3,
-                    r.width - pad * 2,
-                    if node.is_symlink {
-                        "SYMBOLIC LINK"
-                    } else {
-                        "FILE"
-                    },
-                    color,
-                    bg,
-                    false,
-                )
             }
+        } else if r.height >= 12 {
+            text(
+                b,
+                r.x + pad,
+                r.bottom() - 3,
+                r.width - pad * 2,
+                if node.is_symlink {
+                    "SYMBOLIC LINK"
+                } else {
+                    "FILE"
+                },
+                color,
+                bg,
+                false,
+            )
         }
     }
 }
