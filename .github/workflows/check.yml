@@ -21,8 +21,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.98.0
         with:
           components: clippy, rustfmt
-      - run: cargo test --locked
-      - run: cargo build --release --locked
+      - name: The gate's Commit tier (docs/agents/gate.md)
+        if: runner.os == 'Linux'
+        run: scripts/gate check
+      - name: The commit was formatted before it was pushed
+        if: runner.os == 'Linux'
+        run: git diff --exit-code
+      - if: runner.os == 'macOS'
+        run: cargo test --locked
+      - if: runner.os == 'macOS'
+        run: cargo build --release --locked
       - name: Scan a disposable tree without a terminal
         shell: bash
         run: |

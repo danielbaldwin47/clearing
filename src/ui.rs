@@ -1,3 +1,4 @@
+//! `App`: selection, route, collector and dialog state, and the key handling that moves between them.
 use crate::{
     collector::{Collector, Record, Toggle},
     scan::{Node, display_path},

@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+"""The gate: what must pass before work lands. docs/agents/gate.md names the tiers.
+
+  scripts/gate check                      the Commit tier, ending in one pass or FAIL line
+  scripts/gate snapshot STATE [--width N] [--height N]
+                                          a screen as plain text, for a ticket's evidence
+
+Each check step's output waits in target/gate/<step>.log and is printed only
+for the step that fails. Exit codes: 0 pass, 1 a step failed, 2 usage,
+3 the story fixture is missing.
+"""
+import argparse
+import re
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+LOGS = ROOT / "target/gate"
+BINARY = ROOT / "target/release/spacemap"
+# The acceptance scripts run the release binary, so the build precedes them.
+STEPS = [
+    ("fmt", ["cargo", "fmt"]),
+    ("clippy", ["cargo", "clippy", "--all-targets", "--locked", "--", "-D", "warnings"]),
+    ("test", ["cargo", "test", "--locked"]),
+    ("build", ["cargo", "build", "--release", "--locked"]),
+    ("acceptance", [sys.executable, "scripts/acceptance.py"]),
+    ("collector", [sys.executable, "scripts/collector_acceptance.py"]),
+]
+STEP_TIMEOUT_S = 900
+
+
+def changed_files():
+    out = subprocess.run(
+        ["git", "diff", "--name-only"], cwd=ROOT, capture_output=True, text=True
+    )
+    return set(out.stdout.split())
+
+
+def check():
+    LOGS.mkdir(parents=True, exist_ok=True)
+    began = time.monotonic()
+    for name, command in STEPS:
+        before = changed_files() if name == "fmt" else set()
+        started = time.monotonic()
+        log = LOGS / f"{name}.log"
+        try:
+            with log.open("w") as out:
+                code = subprocess.run(
+                    command, cwd=ROOT, stdout=out, stderr=subprocess.STDOUT,
+                    timeout=STEP_TIMEOUT_S,
+                ).returncode
+        except subprocess.TimeoutExpired:
+            code = f"timed out after {STEP_TIMEOUT_S} s"
+        seconds = time.monotonic() - started
+        if code != 0:
+            print(log.read_text(), end="")
+            print(f"gate: FAIL at {name} ({code}); the output above is {log.relative_to(ROOT)}")
+            return 1
+        note = ""
+        if name == "fmt":
+            formatted = sorted(changed_files() - before)
+            if formatted:
+                note = "  formatted: " + " ".join(formatted)
+        print(f"gate: {name} ok {seconds:.1f}s{note}")
+    print(f"gate: pass ({len(STEPS)} steps, {time.monotonic() - began:.0f}s)")
+    return 0
+
+
+def story_fixture():
+    """The story tree of this checkout, or of the main checkout a worktree hangs off."""
+    common = subprocess.run(
+        ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+        cwd=ROOT, capture_output=True, text=True,
+    ).stdout.strip()
+    roots = [ROOT] + ([Path(common).parent] if common else [])
+    for root in roots:
+        if (root / "fixtures/ssd-story").is_dir():
+            return root / "fixtures/ssd-story"
+    return None
+
+
+def plain(ansi, height):
+    """Rows of text from a frame drawn with absolute cursor moves."""
+    rows = [""] * height
+    for row, text in re.findall(r"\x1b\[(\d+);1H([^\x1b]*(?:\x1b\[[0-9;]*m[^\x1b]*)*)", ansi):
+        if 1 <= int(row) <= height:
+            rows[int(row) - 1] = re.sub(r"\x1b\[[0-9;]*m", "", text).rstrip()
+    return "\n".join(rows) + "\n"
+
+
+def snapshot(state, width, height):
+    fixture = story_fixture()
+    if fixture is None:
+        print("gate: no fixtures/ssd-story; make it with: python3 scripts/create_fixture.py story")
+        return 3
+    build = subprocess.run(
+        ["cargo", "build", "--release", "--locked", "-q"], cwd=ROOT
+    )
+    if build.returncode != 0:
+        return 1
+    shot = subprocess.run(
+        [str(BINARY), "--snapshot", state, "--width", str(width), "--height", str(height), str(fixture)],
+        capture_output=True, text=True,
+    )
+    if shot.returncode != 0:
+        print(shot.stderr, end="")
+        return 1
+    text = plain(shot.stdout, height)
+    LOGS.mkdir(parents=True, exist_ok=True)
+    path = LOGS / f"snapshot-{state}-{width}x{height}.txt"
+    path.write_text(text)
+    print(text, end="")
+    print(f"gate: snapshot {state} {width}x{height} -> {path.relative_to(ROOT)}")
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="scripts/gate", description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("check")
+    shot = commands.add_parser("snapshot")
+    shot.add_argument("state", help="a --snapshot state; spacemap --help lists them")
+    shot.add_argument("--width", type=int, default=140)
+    shot.add_argument("--height", type=int, default=44)
+    args = parser.parse_args()
+    if args.command == "check":
+        return check()
+    return snapshot(args.state, args.width, args.height)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

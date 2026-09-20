@@ -1,3 +1,4 @@
+//! The scanner: a descriptor-relative parallel walk into a `Node` tree of allocated sizes, hard links counted once.
 use rayon::prelude::*;
 use serde::Serialize;
 use std::{

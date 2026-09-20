@@ -1,3 +1,4 @@
+//! The permanent-delete confirmation dialog.
 use super::{App, foundation::*, review::dim_backdrop};
 use crate::theme::*;
 use ratatui::{
