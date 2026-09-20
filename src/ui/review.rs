@@ -1,3 +1,4 @@
+//! The collector's screens: its status line, the review list and the Trash confirmation.
 use super::{App, foundation::*};
 use crate::{collector::Record, scan::display_path, theme::*};
 use ratatui::{

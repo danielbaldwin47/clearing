@@ -1,3 +1,4 @@
+//! Drawing primitives shared by every screen: `text`, fills, sizes and percents, the treemap partition and one Tile.
 use super::App;
 use crate::{scan::Node, theme::*};
 use ratatui::{

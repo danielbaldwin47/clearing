@@ -1,0 +1,283 @@
+#!/usr/bin/env python3
+"""The ticket and its parent spec, fetched once, to two files; and a spec's children on one screen.
+
+Owner: an `/implement` or `/implement-spec` session. `gh issue view` re-fetches a 10 KB spec on
+every question about it; this fetches once (CLAUDE.md § An `/implement` session, step 1). The files
+it writes are read afterwards by `sed -n '<a>,<b>p'` over the line numbers printed here, so a later
+question about the spec costs a range rather than a fetch. Carried over from quill's tools/ticket.
+
+  scripts/ticket <N>
+  scripts/ticket --graph <M> [--json]
+  scripts/ticket --graph --from <file>
+
+`scripts/ticket <N>` writes ticket N and its comments to ticket-<N>.md, and the spec it names under
+`## Parent` to spec-<M>.md beside it — both under $CLAUDE_JOB_DIR/tmp when that directory exists,
+else under target/. The ticket file's last line is `Parent: spec-<M>.md`. Prints the ticket path,
+the ticket's body, one `<line>: <heading>` per Markdown heading in the ticket file (the ticket's,
+then its comments' — where the agent brief lives), then the spec's path with the spec's headings
+under it, numbered from the spec file's first line, then the ticket path once more. Nothing else;
+a second run overwrites both files.
+
+`scripts/ticket --graph <M>` writes nothing: it prints spec M's children in the order GitHub's
+sub-issue list gives them — `#<n> <state>  <title>`, then `blocked by:` naming each blocker and its
+state, then the body's Size, Reading and Hand test lines — a `**Size:**` line or the paragraph under a
+`## Size` heading, with the bold stripped (`—` where a child carries none) — and a last line `<M>: <open> open of <total>; frontier: #a, #b`, the frontier being the
+open children with no open blocker. `--json` prints the graph it read instead, in the shape
+`--from <file>` reads in place of `gh`, so a captured graph can be replayed without the network.
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+
+HEADING = re.compile(r"^#{1,6} \S")
+ISSUE_REF = re.compile(r"#(\d+)")
+ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+USAGE = "usage: scripts/ticket <N> | scripts/ticket --graph <M> [--json] | scripts/ticket --graph --from <file>\n"
+# The fields `--graph` asks the sub-issue list for; a child's blockers come from a second call.
+CHILD_FIELDS = "{number, title, state, body, issue_dependencies_summary}"
+
+
+def die(n, reason):
+    """The one failure shape: `ticket <N>: <reason>` on stderr, non-zero out."""
+    sys.stderr.write(f"ticket {n}: {reason}\n")
+    sys.exit(1)
+
+
+def gh(args):
+    """One `gh` call from the repo root, as (stdout, None) or (None, reason)."""
+    run = subprocess.run(["gh", *args], capture_output=True, text=True, cwd=ROOT)
+    if run.returncode != 0:
+        err = run.stderr.strip().splitlines()
+        return None, err[-1] if err else f"gh exited {run.returncode}"
+    return run.stdout, None
+
+
+def fetch(n):
+    """Issue N as `gh` gives it, or (None, reason) — a missing issue looks like any gh failure."""
+    out, reason = gh(["issue", "view", str(n), "--json", "title,body,comments"])
+    if out is None:
+        return None, reason
+    try:
+        return json.loads(out), None
+    except json.JSONDecodeError as exc:
+        return None, f"gh returned no readable JSON ({exc})"
+
+
+def api_rows(endpoint, jq):
+    """Every object `gh api --paginate <endpoint> --jq <jq>` prints, one per line, as a list."""
+    out, reason = gh(["api", "--paginate", endpoint, "--jq", jq])
+    if out is None:
+        return None, reason
+    try:
+        return [json.loads(line) for line in out.splitlines() if line.strip()], None
+    except json.JSONDecodeError as exc:
+        return None, f"gh returned no readable JSON ({exc})"
+
+
+def body_lines(text):
+    """A GitHub body as file lines: CRLF gone, trailing blanks gone."""
+    return (text or "").replace("\r\n", "\n").rstrip().split("\n")
+
+
+def render(n, issue):
+    """One issue as the file sees it: a title heading, the body, then a section per comment."""
+    lines = [f"# #{n} — {issue['title']}", ""] + body_lines(issue["body"])
+    for comment in issue.get("comments") or []:
+        who = (comment.get("author") or {}).get("login") or "unknown"
+        when = (comment.get("createdAt") or "")[:10]
+        lines += ["", f"## Comment by {who}, {when}", ""] + body_lines(comment.get("body"))
+    return lines
+
+
+def parent_of(body):
+    """The issue number the `## Parent` section names, or None.
+
+    The shape `/to-tickets` writes: a `## Parent` heading, then a first non-empty line naming the
+    spec as `#<M>`. Anything else in that place, a heading or prose naming no issue, is a body that
+    names no parent; `native_parent` is then asked.
+    """
+    lines = body_lines(body)
+    for i, line in enumerate(lines):
+        if line.strip().lower() != "## parent":
+            continue
+        for rest in lines[i + 1:]:
+            if not rest.strip():
+                continue
+            if HEADING.match(rest):
+                return None
+            hit = ISSUE_REF.search(rest)
+            return int(hit.group(1)) if hit else None
+        return None
+    return None
+
+
+def native_parent(n):
+    """The issue N is a GitHub sub-issue of, or None: how a wayfinder child or a bug batched under a
+    parent names its spec without a `## Parent` section."""
+    out, _ = gh(["api", f"repos/{{owner}}/{{repo}}/issues/{n}/parent", "--jq", ".number"])
+    return int(out) if out and out.strip().isdigit() else None
+
+
+def headings(lines):
+    """Every Markdown heading outside a fenced block, as (line number in the file, text).
+
+    The numbers are the ones `sed -n` wants over the file `lines` makes, and one file is one
+    rendered issue, so a fence left open in the ticket hides nothing of the spec's.
+    """
+    found = []
+    fenced = False
+    for i, line in enumerate(lines):
+        if line.lstrip().startswith("```"):
+            fenced = not fenced
+            continue
+        if not fenced and HEADING.match(line):
+            found.append((i + 1, line.strip()))
+    return found
+
+
+def out_path(name):
+    """Where a file goes: the job's tmp directory when a session has one, else the repo's target/."""
+    job = os.environ.get("CLAUDE_JOB_DIR")
+    if job:
+        tmp = os.path.join(job, "tmp")
+        if os.path.isdir(tmp):
+            return os.path.join(tmp, name)
+    return os.path.join(ROOT, "target", name)
+
+
+def write(path, lines):
+    """The file, whole, one line per entry."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
+
+def labelled(body, label):
+    """The body's `<label>: <text>`, or `<label>: —` when it carries none.
+
+    The line is `**Size:** <text>` as docs/agents/tickets.md writes it, `**Size**: <text>`, or a
+    `## Size` heading over one paragraph. Each reads as the same line here.
+    """
+    mark = re.compile(rf"^\s*[-*]?\s*\**{re.escape(label)}\**\s*:\**\s*", re.IGNORECASE)
+    lines = body_lines(body)
+    for i, line in enumerate(lines):
+        hit = mark.match(line)
+        if hit:
+            return f"{label}: {line[hit.end():].strip()}"
+        if HEADING.match(line) and line.lstrip("#").strip().lower() == label.lower():
+            text = next((rest.strip() for rest in lines[i + 1:] if rest.strip()), None)
+            if text is not None and not HEADING.match(text):
+                return f"{label}: {text}"
+    return f"{label}: —"
+
+
+def graph_of(m):
+    """Spec M's children in the shape `--from` reads, or (None, reason).
+
+    One call lists the children with their dependency summary; a child whose summary counts no
+    blocker at all (`total_blocked_by`, closed ones included) costs no second call, and each of
+    the rest costs one for its blockers' numbers and states.
+    """
+    rows, reason = api_rows(f"repos/{{owner}}/{{repo}}/issues/{m}/sub_issues?per_page=100", f".[] | {CHILD_FIELDS}")
+    if rows is None:
+        return None, reason
+    children = []
+    for row in rows:
+        n = row["number"]
+        summary = row.get("issue_dependencies_summary") or {}
+        blockers = []
+        if summary.get("total_blocked_by") != 0:
+            blockers, reason = api_rows(f"repos/{{owner}}/{{repo}}/issues/{n}/dependencies/blocked_by", ".[] | {number, state}")
+            if blockers is None:
+                return None, f"#{n} blocked_by: {reason}"
+        children.append({"number": n, "title": row["title"], "state": row["state"], "body": row["body"], "blocked_by": blockers})
+    return {"spec": {"number": m}, "children": children}, None
+
+
+def print_graph(graph):
+    """The children as the docstring says, then the one summary line."""
+    children = graph["children"]
+    for child in children:
+        print(f"#{child['number']} {child['state']}  {child['title']}")
+        if child["blocked_by"]:
+            print("  blocked by: " + ", ".join(f"#{b['number']} ({b['state']})" for b in child["blocked_by"]))
+        for label in ("Size", "Reading", "Hand test"):
+            print(f"  {labelled(child['body'], label)}")
+    open_children = [c for c in children if c["state"] == "open"]
+    frontier = [c for c in open_children if not any(b["state"] == "open" for b in c["blocked_by"])]
+    named = ", ".join(f"#{c['number']}" for c in frontier) or "none"
+    print(f"{graph['spec']['number']}: {len(open_children)} open of {len(children)}; frontier: {named}")
+
+
+def graph_main(argv):
+    as_json = "--json" in argv
+    rest = [a for a in argv if a != "--json"]
+    if len(rest) == 2 and rest[0] == "--from":
+        try:
+            with open(rest[1], encoding="utf-8") as f:
+                graph = json.load(f)
+        except (OSError, json.JSONDecodeError) as exc:
+            die(f"--graph --from {rest[1]}", str(exc))
+    elif len(rest) == 1 and rest[0].isdigit():
+        graph, reason = graph_of(int(rest[0]))
+        if graph is None:
+            die(f"--graph {rest[0]}", reason)
+    else:
+        sys.stderr.write(USAGE)
+        return 2
+    if as_json:
+        print(json.dumps(graph, indent=2, ensure_ascii=False))
+    else:
+        print_graph(graph)
+    return 0
+
+
+def main(argv):
+    if argv and argv[0] == "--graph":
+        return graph_main(argv[1:])
+    if len(argv) != 1 or not argv[0].isdigit():
+        sys.stderr.write(USAGE)
+        return 2
+    n = int(argv[0])
+
+    issue, reason = fetch(n)
+    if issue is None:
+        die(n, reason)
+    ticket = render(n, issue)
+
+    spec_path = None
+    spec_lines = []
+    spec_n = parent_of(issue["body"]) or native_parent(n)
+    if spec_n is not None:
+        spec, reason = fetch(spec_n)
+        if spec is None:
+            die(n, f"parent #{spec_n}: {reason}")
+        spec_lines = render(spec_n, spec)
+        spec_path = out_path(f"spec-{spec_n}.md")
+        write(spec_path, spec_lines)
+        ticket += ["", f"Parent: {os.path.basename(spec_path)}"]
+
+    path = out_path(f"ticket-{n}.md")
+    write(path, ticket)
+
+    print(path)
+    print()
+    print("\n".join(body_lines(issue["body"])))
+    print()
+    for line_no, text in headings(ticket):
+        print(f"{line_no}: {text}")
+    if spec_path is not None:
+        print(spec_path)
+        for line_no, text in headings(spec_lines):
+            print(f"  {line_no}: {text}")
+    # The path once more, last: a session reads this through `| tail`, and four
+    # of them spent a call finding the file whose path was on the first line.
+    print()
+    print(path)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -112,10 +112,10 @@ spacemap --scan --json "$HOME"
 ## Development
 
 ```sh
-cargo test
-python scripts/acceptance.py
-python scripts/collector_acceptance.py
+scripts/gate check
 ```
+
+That is `cargo fmt`, clippy at `-D warnings`, the unit tests, the release build and both acceptance scripts, ending in one `pass` line; `scripts/gate snapshot <state>` prints a screen as plain text.
 
 `--snapshot overview|drilled|delete|trash|collector` renders a deterministic ANSI frame for inspection, and `--wireframe` runs the minimal prototype used to calibrate the original visual comparisons. CI builds and tests Linux and both Mac architectures, including real Trash moves and restores on macOS.
 

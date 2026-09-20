@@ -1,3 +1,4 @@
+//! Command line, the --scan and --snapshot exits, and the terminal loop: browse, scan-time and delete-confirm keys, and the scan, delete and Trash workers.
 mod collector;
 mod delete;
 mod platform;

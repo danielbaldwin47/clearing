@@ -1,3 +1,4 @@
+//! The main screen: header, the Map (sparse treemap or dense mosaic of Tiles), the List, the detail strip, the Legend, the help overlay and the `--wireframe` prototype.
 use super::{
     App,
     confirm::draw_confirm,

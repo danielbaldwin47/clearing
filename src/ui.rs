@@ -1,3 +1,4 @@
+//! `App`: selection, route, collector and dialog state, and the keys of the collector review and the Trash dialogs.
 use crate::{
     collector::{Collector, Record, Toggle},
     scan::{Node, display_path},

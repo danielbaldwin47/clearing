@@ -1,5 +1,6 @@
-//! Descriptor-relative deletion. Every traversed directory is opened without
-//! following symlinks, and every removed entry must retain its scanned identity.
+//! Descriptor-relative permanent deletion.
+//!
+//! Every traversed directory is opened without following symlinks, and every removed entry must retain its scanned identity.
 use crate::scan::Node;
 use std::{
     ffi::{CString, OsStr},

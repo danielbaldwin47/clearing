@@ -1,3 +1,4 @@
+//! The palette: every colour constant, and `tint` and `shade` to derive from them.
 use ratatui::style::Color;
 pub const BG: Color = Color::Rgb(16, 20, 26);
 pub const PANEL: Color = Color::Rgb(25, 31, 39);
