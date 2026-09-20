@@ -144,7 +144,7 @@ fn stat_at(fd: RawFd, name: &CStr) -> io::Result<libc::stat> {
 fn node(path: PathBuf, meta: libc::stat, ctx: &Context) -> Node {
     let is_dir = meta.st_mode & libc::S_IFMT == libc::S_IFDIR;
     let is_symlink = meta.st_mode & libc::S_IFMT == libc::S_IFLNK;
-    let identity = (meta.st_dev, meta.st_ino);
+    let identity = crate::platform::identity(&meta);
     let shared = !is_dir && meta.st_nlink > 1 && !ctx.links.lock().unwrap().insert(identity);
     Node {
         name: display_path(
@@ -190,7 +190,7 @@ fn names(fd: RawFd) -> io::Result<Vec<Entry>> {
     let mut names = Vec::new();
     let mut error = None;
     loop {
-        unsafe { *libc::__errno_location() = 0 };
+        crate::platform::clear_errno();
         let entry = unsafe { libc::readdir(dir) };
         if entry.is_null() {
             let e = io::Error::last_os_error();
@@ -296,7 +296,9 @@ fn visit(parent: &Path, fd: RawFd, entry: &Entry, ctx: &Context) -> Option<Node>
         match open_dir(fd, name) {
             None => child.errors += 1,
             Some(owned) => match stat_fd(owned.as_raw_fd()) {
-                Ok(s) if (s.st_dev, s.st_ino) == child.identity => populate(&mut child, owned, ctx),
+                Ok(s) if crate::platform::identity(&s) == child.identity => {
+                    populate(&mut child, owned, ctx)
+                }
                 _ => child.errors += 1,
             },
         }
@@ -378,7 +380,16 @@ mod tests {
                 .as_nanos()
         ));
         fs::create_dir_all(&p).unwrap();
-        p
+        fs::canonicalize(p).unwrap()
+    }
+    #[test]
+    fn display_path_escapes_invalid_bytes_controls_and_backslashes() {
+        let plain = std::ffi::OsStr::from_bytes("plain \u{2603}".as_bytes());
+        assert_eq!(display_path(plain), "plain \u{2603}");
+        let raw = std::ffi::OsStr::from_bytes(b"bad\xFFname\n");
+        assert_eq!(display_path(raw), "bad\\xFFname\\n");
+        let mixed = std::ffi::OsStr::from_bytes(b"a\\b\tc\xC3(\xE2\x98\x83\x80");
+        assert_eq!(display_path(mixed), "a\\\\b\\tc\\xC3(\u{2603}\\x80");
     }
     #[test]
     fn counts_sparse_hardlinks_and_does_not_follow_symlinks() {
@@ -418,7 +429,18 @@ mod tests {
         fs::create_dir_all(&deep).unwrap();
         fs::write(deep.join("leaf"), b"leaf").unwrap();
         symlink(&wide, deep.join("loop")).unwrap();
-        let raw = std::ffi::OsStr::from_bytes(b"bad\xFFname\n");
+        // APFS rejects names that are not valid UTF-8, so macOS keeps only the
+        // control character and a non-ASCII scalar with no decomposition.
+        #[cfg(not(target_os = "macos"))]
+        let (raw, escaped) = (
+            std::ffi::OsStr::from_bytes(b"bad\xFFname\n"),
+            "bad\\xFFname\\n",
+        );
+        #[cfg(target_os = "macos")]
+        let (raw, escaped) = (
+            std::ffi::OsStr::from_bytes("bad\u{2603}name\n".as_bytes()),
+            "bad\u{2603}name\\n",
+        );
         fs::write(p.join(raw), b"raw").unwrap();
         let n = scan(&p, Arc::new(AtomicU64::new(0))).unwrap();
         assert_eq!(n.files, FILE_CHUNK as u64 * 2 + 37 + 3);
@@ -432,7 +454,7 @@ mod tests {
         let named = n
             .children
             .iter()
-            .find(|c| c.name == "bad\\xFFname\\n")
+            .find(|c| c.name == escaped)
             .unwrap();
         assert_eq!(
             named.path.as_os_str().as_bytes(),

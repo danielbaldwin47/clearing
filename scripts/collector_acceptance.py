@@ -237,6 +237,63 @@ class CollectorAcceptance(unittest.TestCase):
         self.assertFalse(any(p.exists() for p in paths), 'unprocessed items were lost from the collection')
         self.assertEqual(len(self.trash_records()), 3)
 
+    def test_direct_trash_moves_only_the_highlighted_item(self):
+        chosen = self.file('chosen.bin', 32768)
+        kept = self.file('keep.bin', 16384)
+        session = self.session()
+        session.send(b't')
+        session.send(b'trash\r', 1.0)
+        self.assertFalse(chosen.exists())
+        self.assertTrue(kept.exists())
+        self.assertEqual(set(self.trash_records()), {str(chosen)})
+
+    def test_direct_trash_preserves_an_unrelated_collection(self):
+        collected = self.file('collected.bin', 32768)
+        chosen = self.file('single.bin', 16384)
+        session = self.session()
+        session.send(b' jt')
+        session.send(b'trash\r', 1.0)
+        self.assertFalse(chosen.exists())
+        self.assertTrue(collected.exists(), 'direct Trash included an unrelated collected item')
+        self.assertEqual(set(self.trash_records()), {str(chosen)})
+        self.commit(session)
+        self.assertFalse(collected.exists(), 'direct Trash erased the existing collection')
+        self.assertEqual(set(self.trash_records()), {str(chosen), str(collected)})
+
+    def test_direct_trash_requires_exact_confirmation_and_can_cancel(self):
+        chosen = self.file('keep.bin')
+        session = self.session()
+        session.send(b't\rwrong\r')
+        self.assertTrue(chosen.exists())
+        self.assertEqual(self.trash_records(), {})
+        session.send(b'\x1b')
+        self.assertTrue(chosen.exists())
+        session.send(b'ttrash\x1b')
+        self.assertTrue(chosen.exists())
+        self.assertEqual(self.trash_records(), {})
+
+    def test_direct_trash_rejects_a_replacement_after_confirmation_opens(self):
+        chosen = self.file('chosen.bin')
+        session = self.session()
+        session.send(b't')
+        chosen.rename(self.base / 'original')
+        chosen.write_bytes(b'replacement')
+        session.send(b'trash\r', 1.0)
+        self.assertEqual(chosen.read_bytes(), b'replacement')
+        self.assertEqual(self.trash_records(), {})
+
+    def test_direct_trash_of_a_symlink_keeps_its_target(self):
+        outside = self.base / 'target'
+        outside.write_bytes(b'outside')
+        link = self.tree / 'link'
+        link.symlink_to(outside)
+        session = self.session()
+        session.send(b't')
+        session.send(b'trash\r', 1.0)
+        self.assertFalse(link.is_symlink())
+        self.assertEqual(outside.read_bytes(), b'outside')
+        self.assertTrue(self.trash_records()[str(link)].is_symlink())
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

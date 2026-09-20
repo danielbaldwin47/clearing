@@ -4,7 +4,7 @@ use ratatui::{
     buffer::Buffer,
     layout::Rect,
     style::{Color, Modifier, Style},
-    widgets::{Block, Borders, Widget},
+    widgets::{Block, BorderType, Borders, Widget},
 };
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
@@ -75,6 +75,42 @@ pub(super) fn fill(b: &mut Buffer, r: Rect, color: Color) {
 pub(super) fn hline(b: &mut Buffer, x: u16, y: u16, w: u16, c: Color) {
     for xx in x..x + w {
         text(b, xx, y, 1, "─", c, BG, false)
+    }
+}
+/// A compact three-cell-high instrument readout. Units remain normal text.
+pub(super) fn metric(b: &mut Buffer, x: u16, y: u16, value: &str, fg: Color) {
+    const DIGITS: [[&str; 3]; 10] = [
+        ["█▀█", "█ █", "▀▀▀"],
+        [" ▄█", "  █", "  ▀"],
+        ["▀▀█", "█▀▀", "▀▀▀"],
+        ["▀▀█", " ▀█", "▀▀▀"],
+        ["█ █", "▀▀█", "  ▀"],
+        ["█▀▀", "▀▀█", "▀▀▀"],
+        ["█▀▀", "█▀█", "▀▀▀"],
+        ["▀▀█", "  █", "  ▀"],
+        ["█▀█", "█▀█", "▀▀▀"],
+        ["█▀█", "▀▀█", "▀▀▀"],
+    ];
+    let mut at = x;
+    for c in value.chars() {
+        if let Some(d) = c.to_digit(10) {
+            for line in 0..3 {
+                text(
+                    b,
+                    at,
+                    y + line,
+                    3,
+                    DIGITS[d as usize][line as usize],
+                    fg,
+                    BG,
+                    false,
+                );
+            }
+            at += 4;
+        } else if c == '.' {
+            text(b, at, y + 2, 1, "▪", fg, BG, true);
+            at += 2;
+        }
     }
 }
 #[derive(Clone, Copy)]
@@ -213,7 +249,7 @@ pub(super) fn draw_tile(
     if r.width == 0 || r.height == 0 {
         return;
     }
-    let bg = shade(color, 0.34);
+    let bg = tint(color, if selected { 0.14 } else { 0.075 });
     fill(b, r, bg);
     if r.width < 5 || r.height < 3 {
         if selected {
@@ -221,9 +257,10 @@ pub(super) fn draw_tile(
         }
         return;
     }
-    let border = if selected { ACCENT } else { shade(color, 0.65) };
+    let border = if selected { color } else { tint(color, 0.38) };
     Block::default()
         .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(border).bg(bg))
         .render(r, b);
     let pad = if r.width > 20 { 2 } else { 1 };
@@ -233,7 +270,7 @@ pub(super) fn draw_tile(
         r.y + 1,
         r.width - pad * 2,
         &entry.label,
-        FG,
+        if selected { FG } else { color },
         bg,
         true,
     );
@@ -271,7 +308,7 @@ pub(super) fn draw_tile(
                         rr.width.saturating_sub(1),
                         rr.height.saturating_sub(1),
                     );
-                    let cbg = shade(color, 0.43 + (tile.idx % 3) as f32 * 0.09);
+                    let cbg = tint(color, 0.27 + (tile.idx % 3) as f32 * 0.075);
                     fill(b, rr, cbg);
                     if rr.width >= 9 && rr.height >= 2 {
                         text(

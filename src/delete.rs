@@ -48,7 +48,7 @@ fn identity_fd(fd: RawFd) -> io::Result<(u64, u64)> {
         return Err(io::Error::last_os_error());
     }
     let s = unsafe { stat.assume_init() };
-    Ok((s.st_dev, s.st_ino))
+    Ok(crate::platform::identity(&s))
 }
 fn identity_at(parent: RawFd, name: &OsStr) -> io::Result<(u64, u64)> {
     let name = cstr(name)?;
@@ -65,7 +65,7 @@ fn identity_at(parent: RawFd, name: &OsStr) -> io::Result<(u64, u64)> {
         return Err(io::Error::last_os_error());
     }
     let s = unsafe { stat.assume_init() };
-    Ok((s.st_dev, s.st_ino))
+    Ok(crate::platform::identity(&s))
 }
 fn changed() -> io::Error {
     io::Error::other("entry changed since the scan; rescan before deleting")

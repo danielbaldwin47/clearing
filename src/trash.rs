@@ -1,20 +1,23 @@
-//! Moving collected items to the desktop Trash through `gio trash`.
+//! Moving collected items to the desktop Trash through the platform service.
 //!
 //! Every item is re-verified against the identities recorded when it was
-//! collected immediately before `gio` runs. That check and the external move are
+//! collected immediately before the Trash service runs. That check and the external move are
 //! separate steps, so a concurrent writer can still swap a path in between: this
 //! is strong best-effort validation, not an atomic guarantee. No failure path in
 //! this module deletes anything.
 use crate::collector::{Kind, Record};
+#[cfg(any(target_os = "linux", test))]
+use std::process::{Command, Stdio};
+#[cfg(any(target_os = "linux", test))]
+use std::{ffi::OsString, os::unix::ffi::OsStringExt};
 use std::{
-    ffi::{CString, OsStr, OsString},
+    ffi::{CString, OsStr},
     fs, io,
     os::{
         fd::{AsRawFd, FromRawFd, OwnedFd, RawFd},
-        unix::ffi::{OsStrExt, OsStringExt},
+        unix::ffi::OsStrExt,
     },
     path::{Component, Path, PathBuf},
-    process::{Command, Stdio},
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
@@ -33,9 +36,12 @@ impl Guard {
                 .map(PathBuf::from)
                 .filter(|p| p.is_absolute())
         };
+        #[cfg(target_os = "linux")]
         let home_trash = absolute("XDG_DATA_HOME")
             .map(|p| p.join("Trash"))
             .or_else(|| absolute("HOME").map(|p| p.join(".local/share/Trash")));
+        #[cfg(target_os = "macos")]
+        let home_trash = absolute("HOME").map(|p| p.join(".Trash"));
         let mut trash_dirs = Vec::new();
         if let Some(configured) = home_trash {
             if let Ok(resolved) = fs::canonicalize(&configured) {
@@ -45,9 +51,7 @@ impl Guard {
             }
             trash_dirs.push(configured)
         }
-        let mounts = fs::read("/proc/self/mountinfo")
-            .map(|bytes| parse_mountinfo(&bytes))
-            .unwrap_or_default();
+        let mounts = crate::platform::mounts().unwrap_or_default();
         Self { trash_dirs, mounts }
     }
     /// Why `path` may not be trashed, judged from its location alone.
@@ -81,14 +85,15 @@ impl Guard {
 /// freedesktop.org Trash specification.
 pub fn is_volume_trash_name(name: &OsStr) -> bool {
     let bytes = name.as_bytes();
-    if bytes == b".Trash" {
+    if bytes == b".Trash" || bytes == b".Trashes" {
         return true;
     }
     bytes
         .strip_prefix(b".Trash-")
         .is_some_and(|uid| !uid.is_empty() && uid.iter().all(u8::is_ascii_digit))
 }
-fn parse_mountinfo(bytes: &[u8]) -> Vec<PathBuf> {
+#[cfg(any(target_os = "linux", test))]
+pub(crate) fn parse_mountinfo(bytes: &[u8]) -> Vec<PathBuf> {
     bytes
         .split(|b| *b == b'\n')
         .filter_map(|line| line.split(|b| *b == b' ').nth(4))
@@ -96,6 +101,7 @@ fn parse_mountinfo(bytes: &[u8]) -> Vec<PathBuf> {
         .filter(|p| p.is_absolute())
         .collect()
 }
+#[cfg(any(target_os = "linux", test))]
 fn unescape_octal(field: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(field.len());
     let mut i = 0;
@@ -121,7 +127,7 @@ fn cstring(name: &OsStr) -> Result<CString, String> {
 }
 fn open_path(dir: Option<RawFd>, name: &OsStr) -> Result<OwnedFd, io::Error> {
     let name = CString::new(name.as_bytes()).map_err(|_| io::Error::other("NUL in path"))?;
-    let flags = libc::O_PATH | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+    let flags = crate::platform::PATH_OPEN | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
     let raw = unsafe {
         match dir {
             Some(fd) => libc::openat(fd, name.as_ptr(), flags),
@@ -163,7 +169,7 @@ fn identity_of(fd: RawFd) -> io::Result<(u64, u64)> {
         return Err(io::Error::last_os_error());
     }
     let s = unsafe { s.assume_init() };
-    Ok((s.st_dev, s.st_ino))
+    Ok(crate::platform::identity(&s))
 }
 fn not_a_directory(e: &io::Error) -> bool {
     matches!(e.raw_os_error(), Some(libc::ENOTDIR) | Some(libc::ELOOP))
@@ -173,7 +179,7 @@ fn not_a_directory(e: &io::Error) -> bool {
 /// every ancestor directory and the target keep their recorded device+inode,
 /// no ancestor is a symlink, and the target is not a protected location.
 ///
-/// This narrows, but cannot close, the window before `gio` acts on the path.
+/// This narrows, but cannot close, the window before the Trash service acts on the path.
 pub fn preflight(record: &Record, guard: &Guard) -> Result<(), String> {
     let path = &record.path;
     if !path.is_absolute() {
@@ -234,7 +240,7 @@ pub fn preflight(record: &Record, guard: &Guard) -> Result<(), String> {
         return Err(format!("item is gone: {}", io::Error::last_os_error()));
     }
     let s = unsafe { s.assume_init() };
-    if (s.st_dev, s.st_ino) != record.identity {
+    if crate::platform::identity(&s) != record.identity {
         return Err("path now names a different item than the one collected".into());
     }
     if Kind::of_mode(s.st_mode) != record.kind {
@@ -242,7 +248,11 @@ pub fn preflight(record: &Record, guard: &Guard) -> Result<(), String> {
     }
     if record.kind == Kind::Dir {
         let uid = unsafe { libc::geteuid() };
-        for trash in [".Trash".to_string(), format!(".Trash-{uid}")] {
+        for trash in [
+            ".Trash".to_string(),
+            ".Trashes".to_string(),
+            format!(".Trash-{uid}"),
+        ] {
             if fs::symlink_metadata(path.join(&trash)).is_ok() {
                 return Err(format!("contains a volume Trash directory ({trash})"));
             }
@@ -256,6 +266,7 @@ pub trait Executor: Sync {
     fn trash(&self, path: &Path) -> Result<(), String>;
 }
 /// Exactly `gio trash -- ABSOLUTE_PATH`, built from raw arguments with no shell.
+#[cfg(any(target_os = "linux", test))]
 pub fn gio_command(path: &Path) -> Result<Command, String> {
     if !path.is_absolute() {
         return Err("refusing to trash a relative path".into());
@@ -268,8 +279,9 @@ pub fn gio_command(path: &Path) -> Result<Command, String> {
         .stderr(Stdio::piped());
     Ok(command)
 }
-pub struct Gio;
-impl Executor for Gio {
+pub struct DesktopTrash;
+#[cfg(target_os = "linux")]
+impl Executor for DesktopTrash {
     fn trash(&self, path: &Path) -> Result<(), String> {
         let output = gio_command(path)?.output().map_err(|e| {
             if e.kind() == io::ErrorKind::NotFound {
@@ -287,6 +299,26 @@ impl Executor for Gio {
             Some(code) => format!("gio trash failed ({code}): {}", detail.trim()),
             None => format!("gio trash was killed by a signal: {}", detail.trim()),
         })
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Executor for DesktopTrash {
+    fn trash(&self, path: &Path) -> Result<(), String> {
+        use native_trash::macos::{DeleteMethod, TrashContextExtMacos};
+        if !path.is_absolute() {
+            return Err("refusing to trash a relative path".into());
+        }
+        // The native backend percent-encodes invalid UTF-8. Refuse those names
+        // so it can never address a different, literal percent-encoded file.
+        if path.to_str().is_none() {
+            return Err("macOS Trash requires a UTF-8 path; item left in place".into());
+        }
+        let mut context = native_trash::TrashContext::new();
+        context.set_delete_method(DeleteMethod::NsFileManager);
+        context
+            .delete(path)
+            .map_err(|error| format!("macOS Trash failed: {error}"))
     }
 }
 
@@ -362,7 +394,7 @@ pub fn run_batch(
                     Err(e) => Outcome::Failed(e),
                     Ok(()) => match fs::symlink_metadata(&record.path) {
                         Ok(meta) if identity(&meta) == record.identity => Outcome::Failed(
-                            "gio reported success but the item is still in place".into(),
+                            "Trash service reported success but the item is still in place".into(),
                         ),
                         _ => Outcome::Trashed,
                     },
@@ -593,6 +625,8 @@ mod tests {
             "/home/u",
             "/mnt/usb/.Trash-1000",
             "/mnt/usb/.Trash/1000/files/x",
+            "/Volumes/External/.Trashes/501/files/x",
+            "/Users/test/.Trash/item",
             "/mnt/usb",
             "/mnt",
         ] {
@@ -645,6 +679,13 @@ mod tests {
             assert_eq!(args[2].as_bytes(), raw);
         }
         assert!(gio_command(Path::new("relative/-x")).is_err());
+    }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn native_trash_refuses_paths_it_cannot_address_exactly() {
+        assert!(DesktopTrash.trash(Path::new("relative")).is_err());
+        let invalid = Path::new(OsStr::from_bytes(b"/tmp/non-utf8-\xff"));
+        assert!(DesktopTrash.trash(invalid).unwrap_err().contains("UTF-8"));
     }
     #[test]
     fn batch_keeps_failures_and_never_runs_the_executor_for_refused_items() {

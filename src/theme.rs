@@ -1,21 +1,33 @@
 use ratatui::style::Color;
-pub const BG: Color = Color::Rgb(12, 18, 27);
-pub const PANEL: Color = Color::Rgb(18, 27, 39);
-pub const FG: Color = Color::Rgb(228, 235, 240);
-pub const MUTED: Color = Color::Rgb(121, 140, 156);
-pub const DIM: Color = Color::Rgb(54, 72, 87);
-pub const ACCENT: Color = Color::Rgb(125, 220, 209);
-pub const DANGER: Color = Color::Rgb(248, 126, 109);
+pub const BG: Color = Color::Rgb(16, 20, 26);
+pub const PANEL: Color = Color::Rgb(25, 31, 39);
+pub const SURFACE: Color = Color::Rgb(33, 41, 50);
+pub const FG: Color = Color::Rgb(231, 237, 240);
+pub const MUTED: Color = Color::Rgb(143, 158, 172);
+pub const DIM: Color = Color::Rgb(52, 65, 77);
+pub const ACCENT: Color = Color::Rgb(157, 221, 187);
+pub const DANGER: Color = Color::Rgb(241, 145, 137);
 pub const COLORS: [Color; 8] = [
-    Color::Rgb(92, 196, 207),
-    Color::Rgb(179, 148, 236),
-    Color::Rgb(238, 175, 101),
-    Color::Rgb(104, 199, 160),
-    Color::Rgb(216, 189, 116),
-    Color::Rgb(223, 140, 179),
-    Color::Rgb(126, 167, 228),
-    Color::Rgb(140, 190, 195),
+    Color::Rgb(122, 201, 189),
+    Color::Rgb(165, 170, 226),
+    Color::Rgb(225, 182, 125),
+    Color::Rgb(156, 199, 151),
+    Color::Rgb(201, 178, 207),
+    Color::Rgb(220, 147, 142),
+    Color::Rgb(133, 183, 219),
+    Color::Rgb(179, 194, 176),
 ];
+/// Blend category ink into the common charcoal surface; every tile shares a black point.
+pub fn tint(c: Color, amount: f32) -> Color {
+    match (c, BG) {
+        (Color::Rgb(r, g, b), Color::Rgb(br, bg, bb)) => Color::Rgb(
+            (br as f32 + (r as f32 - br as f32) * amount) as u8,
+            (bg as f32 + (g as f32 - bg as f32) * amount) as u8,
+            (bb as f32 + (b as f32 - bb as f32) * amount) as u8,
+        ),
+        _ => c,
+    }
+}
 pub fn shade(c: Color, factor: f32) -> Color {
     match c {
         Color::Rgb(r, g, b) => Color::Rgb(

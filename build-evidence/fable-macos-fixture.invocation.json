@@ -1,0 +1,28 @@
+{
+  "requested_model": "fable",
+  "args": [
+    "claude",
+    "-p",
+    "--model",
+    "fable",
+    "--effort",
+    "high",
+    "--safe-mode",
+    "--restricted",
+    "--tools",
+    "Read,Edit",
+    "--allowedTools",
+    "Read",
+    "Edit",
+    "--permission-mode",
+    "dontAsk",
+    "--no-session-persistence",
+    "--strict-mcp-config",
+    "--mcp-config",
+    "{\"mcpServers\":{}}",
+    "--output-format",
+    "json"
+  ],
+  "original_sha256": "85f6562bde42dd6471df09db20c53fcf8ac0af81b2a01e4aff946ab39d215358",
+  "started": "2026-09-20T02:28:16.840123+00:00"
+}

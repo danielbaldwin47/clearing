@@ -1,7 +1,7 @@
 use crate::{
-    collector::{Collector, Toggle},
+    collector::{Collector, Record, Toggle},
     scan::{Node, display_path},
-    trash::Guard,
+    trash::{Guard, Outcome},
 };
 use crossterm::event::KeyCode;
 mod confirm;
@@ -25,6 +25,8 @@ pub struct App {
     pub review: bool,
     pub review_selected: usize,
     pub trash_confirm: bool,
+    /// An isolated direct action; never includes the cross-directory collector.
+    pub single_trash: Option<Record>,
 }
 impl App {
     pub fn new(root: Node, seconds: f64) -> Self {
@@ -44,6 +46,7 @@ impl App {
             review: false,
             review_selected: 0,
             trash_confirm: false,
+            single_trash: None,
         }
     }
     /// Replace the scan tree after a rescan, keeping the place in the tree and
@@ -120,6 +123,56 @@ impl App {
             ),
             Toggle::Refused(why) => format!("Cannot collect {name}: {why}"),
         };
+    }
+    pub fn open_single_trash(&mut self) {
+        // The ordinary insertion path supplies the same protected-location and
+        // scanned-ancestor checks, without adding anything to the user's queue.
+        let mut isolated = Collector::new(Guard::from_system());
+        match isolated.toggle(&self.root, &self.route, self.selected) {
+            Toggle::Added { .. } => {
+                self.single_trash = isolated.remove(0);
+                self.typed.clear();
+                self.message.clear();
+            }
+            Toggle::Refused(why) => self.message = format!("Cannot move to Trash: {why}"),
+            _ => {}
+        }
+    }
+    /// Keep the captured record untouched until the exact word is confirmed.
+    pub fn single_trash_key(&mut self, code: KeyCode) -> bool {
+        match code {
+            KeyCode::Esc => {
+                self.single_trash = None;
+                self.typed.clear();
+            }
+            KeyCode::Backspace => {
+                self.typed.pop();
+            }
+            KeyCode::Char(c) if self.typed.len() < 32 => self.typed.push(c),
+            KeyCode::Enter if self.typed == "trash" && self.single_trash.is_some() => {
+                self.typed.clear();
+                return true;
+            }
+            _ => {}
+        }
+        false
+    }
+    /// Settle a finished direct action against the collector. Only a record
+    /// that is the same scanned item (path, identity and ancestor chain) as
+    /// the one just moved is dropped. A failure or refusal of the direct
+    /// action never marks a collected record, and a record that merely shares
+    /// the path keeps its own identity for `reconcile` to judge after rescan.
+    pub fn settle_single_trash(&mut self, moved: &Record, outcome: Option<&Outcome>) {
+        if !matches!(outcome, Some(Outcome::Trashed)) {
+            return;
+        }
+        let exact = self.collector.records().iter().position(|r| {
+            r.path == moved.path && r.identity == moved.identity && r.chain == moved.chain
+        });
+        if let Some(at) = exact {
+            self.collector.remove(at);
+            self.clamp_review();
+        }
     }
     pub fn open_review(&mut self) {
         self.review = true;
@@ -400,6 +453,57 @@ mod tests {
         app.review_key(KeyCode::Char(' '));
         assert_ne!(screen(&app, 140, 44), review);
         screen(&app, 60, 20);
+        fs::remove_dir_all(base).unwrap();
+    }
+    #[test]
+    fn direct_trash_captures_one_item_and_never_touches_other_records() {
+        let base = fixture("single");
+        let mut app = app(&base);
+        select(&mut app, "dir");
+        app.drill();
+        select(&mut app, "inner");
+        app.toggle_collect();
+        app.back();
+        select(&mut app, "file");
+        app.toggle_collect();
+        app.open_single_trash();
+        let captured = app.single_trash.clone().expect("captured record");
+        assert_eq!(captured.path, base.join("file"));
+        assert_eq!(app.collector.len(), 2);
+        for (width, height) in [(60, 20), (80, 24), (140, 44)] {
+            let dialog = screen(&app, width, height);
+            assert!(dialog.contains("system Trash"), "{width}x{height}");
+            assert!(dialog.contains("Trash is emptied"), "{width}x{height}");
+            assert!(dialog.contains(&size(captured.bytes)), "{width}x{height}");
+        }
+        // A wrong word never confirms; Escape drops the captured record.
+        for c in "trash!".chars() {
+            app.single_trash_key(KeyCode::Char(c));
+        }
+        assert!(!app.single_trash_key(KeyCode::Enter));
+        app.single_trash_key(KeyCode::Backspace);
+        assert!(app.single_trash_key(KeyCode::Enter));
+        app.single_trash_key(KeyCode::Esc);
+        assert!(app.single_trash.is_none());
+        // A failed direct action leaves every collected record unmarked.
+        app.settle_single_trash(&captured, Some(&Outcome::Failed("no backend".into())));
+        app.settle_single_trash(&captured, None);
+        assert_eq!(app.collector.len(), 2);
+        assert!(
+            app.collector
+                .records()
+                .iter()
+                .all(|r| r.problem().is_none())
+        );
+        // Same path but another identity is not the moved item.
+        let mut impostor = captured.clone();
+        impostor.identity.1 = impostor.identity.1.wrapping_add(1);
+        app.settle_single_trash(&impostor, Some(&Outcome::Trashed));
+        assert_eq!(app.collector.len(), 2);
+        app.settle_single_trash(&captured, Some(&Outcome::Trashed));
+        let left = app.collector.records();
+        assert_eq!(left.len(), 1);
+        assert_eq!(left[0].path, base.join("dir/inner"));
         fs::remove_dir_all(base).unwrap();
     }
 }

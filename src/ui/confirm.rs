@@ -1,14 +1,15 @@
-use super::{App, foundation::*};
+use super::{App, foundation::*, review::dim_backdrop};
 use crate::theme::*;
 use ratatui::{
     Frame,
     layout::Rect,
     style::Style,
-    widgets::{Block, Borders, Clear},
+    widgets::{Block, BorderType, Borders, Clear},
 };
 
 pub(super) fn draw_confirm(f: &mut Frame, app: &App) {
     let Some(n) = app.selection() else { return };
+    dim_backdrop(f);
     let area = f.area();
     let width = 76.min(area.width - 4);
     let r = Rect::new((area.width - width) / 2, (area.height - 16) / 2, width, 16);
@@ -16,6 +17,7 @@ pub(super) fn draw_confirm(f: &mut Frame, app: &App) {
     f.render_widget(
         Block::default()
             .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(DANGER))
             .style(Style::default().bg(PANEL)),
         r,
@@ -62,22 +64,34 @@ pub(super) fn draw_confirm(f: &mut Frame, app: &App) {
         PANEL,
         false,
     );
+    fill(b, Rect::new(r.x + 3, r.y + 10, r.width - 6, 3), SURFACE);
     text(
         b,
-        r.x + 3,
+        r.x + 5,
         r.y + 11,
         r.width - 6,
         format!("Type delete to confirm: {}▏", app.typed),
         FG,
-        PANEL,
+        SURFACE,
         false,
     );
     text(
         b,
         r.x + 3,
-        r.y + 13,
+        r.y + 1,
         r.width - 6,
-        "Esc cancel                         Enter delete",
+        "PERMANENT DELETE  ·  not recoverable",
+        MUTED,
+        PANEL,
+        false,
+    );
+    text(b, r.x + 3, r.y + 13, 10, "Esc cancel", MUTED, PANEL, true);
+    text(
+        b,
+        r.right() - 3 - 12,
+        r.y + 13,
+        12,
+        "Enter delete",
         DANGER,
         PANEL,
         true,

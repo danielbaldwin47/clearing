@@ -1,5 +1,6 @@
 mod collector;
 mod delete;
+mod platform;
 mod scan;
 mod theme;
 mod trash;
@@ -69,7 +70,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         match a.to_string_lossy().as_ref() {
             "--help" | "-h" => {
                 println!(
-                    "tui-disk — find what ate your disk\n\nUsage: tui-disk [OPTIONS] [PATH]\n\n  --scan             Scan and exit without starting the terminal interface\n  --json, --summary   Print a summary JSON object (with --scan)\n  --snapshot STATE   Render overview, drilled, delete, or collector as ANSI\n                     (also collector-browse, collector-confirm,\n                     collector-errors, collector-empty)\n  --width N          Snapshot columns (default 140)\n  --height N         Snapshot rows (default 44)\n  -h, --help         Show this help\n\nKeys: ↑↓ / jk select · Enter open · Backspace back · d delete\n      Space collect for Trash · c review collector (t moves it to Trash)\n      r rescan · ? help · q quit · Esc cancels a scan or dialog\n\nSizes include allocated file and directory blocks. Symlinks are not followed.\nHard links count once. Deletion is permanent and requires typing delete.\nCollected items are moved with gio trash after typing trash; space is freed\nwhen Trash is emptied. A failed move never falls back to deletion."
+                    "tui-disk — find what ate your disk\n\nUsage: tui-disk [OPTIONS] [PATH]\n\n  --scan             Scan and exit without starting the terminal interface\n  --json, --summary   Print a summary JSON object (with --scan)\n  --snapshot STATE   Render overview, drilled, delete, trash, or collector as ANSI\n                     (also collector-browse, collector-confirm,\n                     collector-errors, collector-empty)\n  --width N          Snapshot columns (default 140)\n  --height N         Snapshot rows (default 44)\n  -h, --help         Show this help\n\nKeys: ↑↓ / jk select · Enter open · Backspace back · t Trash · d delete\n      t move selected item to Trash · Space collect · c review collector\n      r rescan · ? help · q quit · Esc cancels a scan or dialog\n\nSizes include allocated file and directory blocks. Symlinks are not followed.\nHard links count once. Deletion is permanent and requires typing delete.\nCollected items use the desktop Trash after typing trash; space is freed\nwhen Trash is emptied. A failed move never falls back to deletion."
                 );
                 return Ok(());
             }
@@ -133,7 +134,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         let mut app = ui::App::new(root, 0.04);
         let state = snapshot.unwrap();
-        if state == "drilled" {
+        if state == "trash" {
+            app.open_single_trash()
+        } else if state == "drilled" {
             app.drill()
         } else if state == "delete" {
             app.confirm = true
@@ -155,7 +158,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     // how refused and failed items look. Nothing is executed.
                     let outcomes = [
                         trash::Outcome::Failed(
-                            "gio trash failed (1): Trashing on system internal mounts is not supported"
+                            "Trash service failed: Trashing on system internal mounts is not supported"
                                 .into(),
                         ),
                         trash::Outcome::Refused(
@@ -183,7 +186,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
         } else if state != "overview" {
             return Err(
-                "snapshot state must be overview, drilled, delete, or collector[-browse|-confirm|-errors|-empty]"
+                "snapshot state must be overview, drilled, delete, trash, or collector[-browse|-confirm|-errors|-empty]"
                     .into(),
             );
         }
@@ -305,12 +308,65 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
             continue;
         }
+        if app.single_trash.is_some() {
+            if !app.single_trash_key(key.code) {
+                continue;
+            }
+            let record = app
+                .single_trash
+                .take()
+                .expect("confirmed direct Trash record");
+            let root_path = app.root.path.clone();
+            let report = match trash_in_terminal(&mut terminal, std::slice::from_ref(&record)) {
+                Ok(report) => report,
+                Err(e) => {
+                    drop(terminal);
+                    drop(guard);
+                    return Err(e.into());
+                }
+            };
+            // Only the same scanned item leaves the collector, and only when it
+            // moved. Every other record stays authorized by its own identity.
+            let outcome = report.outcomes.first().map(|(_, outcome)| outcome);
+            app.settle_single_trash(&record, outcome);
+            let label = record
+                .path
+                .file_name()
+                .map(scan::display_path)
+                .unwrap_or_default();
+            let summary = match outcome {
+                Some(trash::Outcome::Trashed) => {
+                    format!("Moved {label} to Trash · space is freed when Trash is emptied")
+                }
+                Some(trash::Outcome::Refused(why)) => format!("Trash refused for {label}: {why}"),
+                Some(trash::Outcome::Failed(why)) => format!("Trash failed for {label}: {why}"),
+                _ => format!("Trash cancelled for {label}; item was not processed"),
+            };
+            match rescan_after_delete(&mut terminal, &root_path, &summary) {
+                Ok(Some((root, seconds))) => {
+                    app = app.rebuild(root, seconds);
+                    app.message = summary;
+                }
+                Ok(None) => {
+                    drop(terminal);
+                    drop(guard);
+                    eprintln!("tui-disk: {summary}; exited without a current scan");
+                    return Ok(());
+                }
+                Err(e) => {
+                    drop(terminal);
+                    drop(guard);
+                    return Err(format!("{summary}; terminal error: {e}").into());
+                }
+            }
+            continue;
+        }
         if app.review {
             if !app.review_key(key.code) {
                 continue;
             }
             let root_path = app.root.path.clone();
-            let report = match trash_in_terminal(&mut terminal, &app) {
+            let report = match trash_in_terminal(&mut terminal, app.collector.records()) {
                 Ok(report) => report,
                 Err(e) => {
                     drop(terminal);
@@ -362,6 +418,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 app.confirm = true;
                 app.typed.clear()
             }
+            KeyCode::Char('t') if app.selection().is_some() => app.open_single_trash(),
             KeyCode::Char(' ') => app.toggle_collect(),
             KeyCode::Char('c') => app.open_review(),
             KeyCode::Char('?') => app.help = true,
@@ -400,10 +457,12 @@ fn snapshot_collect(app: &mut ui::App) {
 /// Run the confirmed batch on a worker while this thread keeps drawing. Esc
 /// asks the worker to stop before the next item; a gio process that is already
 /// running is left to finish, and the worker is always joined.
-fn trash_in_terminal(terminal: &mut AppTerminal, app: &ui::App) -> io::Result<trash::Report> {
+fn trash_in_terminal(
+    terminal: &mut AppTerminal,
+    records: &[collector::Record],
+) -> io::Result<trash::Report> {
     let cancel = AtomicBool::new(false);
     let done = AtomicUsize::new(0);
-    let records = app.collector.records();
     // Mounts can change while the user builds the collection. Recheck current
     // protected locations when executing, retaining the collected identities.
     let guard = trash::Guard::from_system();
@@ -411,7 +470,7 @@ fn trash_in_terminal(terminal: &mut AppTerminal, app: &ui::App) -> io::Result<tr
         let worker = std::thread::Builder::new()
             .name("trash".into())
             .spawn_scoped(scope, || {
-                trash::run_batch(records, &guard, &trash::Gio, &cancel, &done)
+                trash::run_batch(records, &guard, &trash::DesktopTrash, &cancel, &done)
             });
         let worker = match worker {
             Ok(worker) => worker,
@@ -457,7 +516,7 @@ fn trash_frame(
         let area = f.area();
         f.render_widget(
             Paragraph::new(format!(
-                "\n  Moving collected items to Trash\n\n  items finished: {finished} of {}\n  {current}\n\n  {hint}",
+                "\n  Moving items to Trash\n\n  items finished: {finished} of {}\n  {current}\n\n  {hint}",
                 records.len()
             ))
             .style(Style::default().fg(theme::FG).bg(theme::BG)),
