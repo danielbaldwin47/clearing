@@ -1,6 +1,6 @@
 # tui-disk
 
-A Linux terminal disk explorer: see where the space went, open a folder, and delete an item with an explicit confirmation.
+A Linux terminal disk explorer: see where the space went, open a folder, and collect items across directories for one confirmed move to Trash.
 
 ```sh
 cargo build --release
@@ -16,11 +16,19 @@ The screen combines a treemap with a list ordered by disk usage. Rectangle area 
 | Backspace / Left | Return to its parent |
 | Home / End | Select the first / last entry |
 | Page Up / Page Down | Move eight entries |
+| Space | Add or remove the selected item from the collector |
+| `c` | Review the collector |
 | `d` | Open the permanent deletion confirmation |
 | `r` | Rescan, preserving the current directory when possible |
 | `?` | Show help |
-| Escape | Cancel a dialog or scan; stop an active deletion; otherwise quit |
+| Escape | Close a dialog or collector; cancel a scan or stop a running operation; otherwise quit |
 | `q`, Control-C | Quit |
+
+Press Space on files or folders as you explore, then `c` to review the collection. The collection stays available across directory changes and rescans for the current session. Collecting a folder replaces collected descendants, so its contents are not counted or submitted twice. Items already covered by a collected folder are marked accordingly.
+
+In the collector, use Up/Down or `j`/`k` to select a row, Space or Backspace to remove it, and Escape to return to browsing. Press `t`, type `trash`, and press Enter to move the collection to the desktop Trash. Escape cancels the confirmation. During a batch, Escape or Control-C stops after the current item; successful moves leave the collection, while failed and unprocessed items stay available. Rescanning does not authorize a replacement file at an old collected path.
+
+Recoverable trashing uses `gio trash` from Arch's `glib2` package. Missing tools and unsupported filesystems produce errors, never a fallback to permanent deletion. Trashed items can be restored through a desktop file manager. **Moving items to Trash does not free their disk space; empty Trash when you are ready.** This follows the [Freedesktop Trash specification](https://specifications.freedesktop.org/trash/latest/). The collector does not empty Trash.
 
 Deletion requires typing `delete` and pressing Enter. Escape cancels the confirmation. During deletion, a live count shows entries actually removed; Escape or Control-C stops before the next removal. Entries already removed stay removed. The selected item and its descendants are checked against their scanned device and inode numbers. Deletion uses directory file descriptors without following symlinks, refuses incomplete directory scans and filesystem crossings, and never exposes deletion of the current view itself. A changed entry stops deletion; already removed children cannot be restored. Every deletion attempt rescans the tree.
 
@@ -36,9 +44,10 @@ To scan without a terminal:
 
 The summary includes `path`, `bytes`, `apparent_bytes`, `files`, `directories`, `errors`, and `elapsed_seconds`. `--summary` aliases `--json`; both use the same full in-memory scan as the interactive app. The root counts as a directory. Paths starting with a hyphen can follow `--`. In displayed names and the summary path, control characters, backslashes, and invalid UTF-8 bytes use explicit escapes; filesystem operations always retain the original path bytes.
 
-The independent judging and benchmarking evidence lives in `judging/`, `progress/`, and `benchmarks/`. `--snapshot overview|drilled|delete` renders deterministic ANSI for inspection; the official visual comparisons use actual terminal captures. The separate `--wireframe` renderer is a runnable minimal prototype for calibrating the visual comparisons.
+The original release's independent judging and benchmarking evidence lives in `judging/`, `progress/`, and `benchmarks/`; those results belong to commit `176da86`, before the collector addition. `--snapshot overview|drilled|delete|collector` renders deterministic ANSI for inspection; the official visual comparisons use actual terminal captures. The separate `--wireframe` renderer is a runnable minimal prototype for calibrating the original visual comparisons.
 
 ```sh
 cargo test
 python scripts/acceptance.py
+python scripts/collector_acceptance.py
 ```

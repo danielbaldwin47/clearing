@@ -1,0 +1,44 @@
+
+  DISK ALLOCATION                                                                                                 1.1 GiB
+            ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐ used
+  ssd-story │  TRASH COLLECTOR                                                                              2 items · 1.9 GiB  │
+            │  Space is freed when Trash is emptied, not now.                                                                  │· 1.9 GiB
+  3 files   │  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────  │Trash
+            │  ▸    1.0 GiB  folder   /home/diggle/Work/tui-disk/fixtures/ssd-story/Caches/Browser                             │
+  ──────────│     940.0 MiB  folder   /home/diggle/Work/tui-disk/fixtures/ssd-story/Games/Orbit                                │──────────
+  SPACE MAP │                                                                                                                  │
+            │                                                                                                                  │
+  ┌─────────│                                                                                                                  │        ◆
+  │ Orbit   │                                                                                                                  │
+  │ 940.0 Mi│                                                                                                                  │━━━━━━━
+  │         │                                                                                                                  │
+  │         │                                                                                                                  │
+  │  install│                                                                                                                  │
+  │  680.0 M│                                                                                                                  │━━━━━━━
+  │         │                                                                                                                  │
+  │         │                                                                                                                  │
+  │         │                                                                                                                  │
+  │         │                                                                                                                  │
+  │         │                                                                                                                  │
+  │         │                                                                                                                  │
+  │         │                                                                                                                  │
+  │         │                                                                                                                  │
+  │         │                                                                                                                  │
+  │         │                                                                                                                  │
+  │         │                                                                                                                  │
+  │         │                                                                                                                  │
+  │         │                                                                                                                  │
+  │         │                                                                                                                  │
+  │         │                                                                                                                  │
+  │         │                                                                                                                  │
+  │         │                                                                                                                  │
+  │         │  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────  │
+  └─────────│  /home/diggle/Work/tui-disk/fixtures/ssd-story/Caches/Browser                                                    │
+            │                                                                                                                  │
+            │                                                                                                                  │
+  ──────────│  folder  ·  1.0 GiB allocated when scanned  ·  2 files                                                           │──────────
+  Orbit  /  │                                                                                                                  │
+  folder  · │  ↑↓ / jk move   Space / Backspace remove row   t move all to Trash   Esc close                                   │
+            └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+  ↑↓ choose   Enter open   Backspace up   Space collect   c review   d delete   r rescan   ? help   q quit
+

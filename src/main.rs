@@ -1,6 +1,8 @@
+mod collector;
 mod delete;
 mod scan;
 mod theme;
+mod trash;
 mod ui;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
@@ -18,7 +20,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
         mpsc,
     },
     time::{Duration, Instant},
@@ -67,7 +69,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         match a.to_string_lossy().as_ref() {
             "--help" | "-h" => {
                 println!(
-                    "tui-disk — find what ate your disk\n\nUsage: tui-disk [OPTIONS] [PATH]\n\n  --scan             Scan and exit without starting the terminal interface\n  --json, --summary   Print a summary JSON object (with --scan)\n  --snapshot STATE   Render overview, drilled, or delete as ANSI\n  --width N          Snapshot columns (default 140)\n  --height N         Snapshot rows (default 44)\n  -h, --help         Show this help\n\nKeys: ↑↓ / jk select · Enter open · Backspace back · d delete\n      r rescan · ? help · q quit · Esc cancels a scan or dialog\n\nSizes include allocated file and directory blocks. Symlinks are not followed.\nHard links count once. Deletion is permanent and requires typing delete."
+                    "tui-disk — find what ate your disk\n\nUsage: tui-disk [OPTIONS] [PATH]\n\n  --scan             Scan and exit without starting the terminal interface\n  --json, --summary   Print a summary JSON object (with --scan)\n  --snapshot STATE   Render overview, drilled, delete, or collector as ANSI\n                     (also collector-browse, collector-confirm,\n                     collector-errors, collector-empty)\n  --width N          Snapshot columns (default 140)\n  --height N         Snapshot rows (default 44)\n  -h, --help         Show this help\n\nKeys: ↑↓ / jk select · Enter open · Backspace back · d delete\n      Space collect for Trash · c review collector (t moves it to Trash)\n      r rescan · ? help · q quit · Esc cancels a scan or dialog\n\nSizes include allocated file and directory blocks. Symlinks are not followed.\nHard links count once. Deletion is permanent and requires typing delete.\nCollected items are moved with gio trash after typing trash; space is freed\nwhen Trash is emptied. A failed move never falls back to deletion."
                 );
                 return Ok(());
             }
@@ -135,8 +137,55 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             app.drill()
         } else if state == "delete" {
             app.confirm = true
+        } else if let Some(collector_state) =
+            state.to_str().and_then(|s| s.strip_prefix("collector"))
+        {
+            if collector_state != "-empty" {
+                snapshot_collect(&mut app);
+            }
+            match collector_state {
+                "-browse" => {}
+                "" | "-empty" => app.open_review(),
+                "-confirm" => {
+                    app.open_review();
+                    app.trash_confirm = true
+                }
+                "-errors" => {
+                    // A fabricated report, applied through the real path, shows
+                    // how refused and failed items look. Nothing is executed.
+                    let outcomes = [
+                        trash::Outcome::Failed(
+                            "gio trash failed (1): Trashing on system internal mounts is not supported"
+                                .into(),
+                        ),
+                        trash::Outcome::Refused(
+                            "path now names a different item than the one collected".into(),
+                        ),
+                    ];
+                    let report = trash::Report {
+                        outcomes: app
+                            .collector
+                            .records()
+                            .iter()
+                            .skip(1)
+                            .zip(outcomes)
+                            .map(|(r, o)| (r.path.clone(), o))
+                            .collect(),
+                        attempted: 1,
+                        cancelled: false,
+                    };
+                    app.collector.apply(&report);
+                    app.open_review();
+                    app.review_selected = 1.min(app.collector.len().saturating_sub(1));
+                    app.message = report.summary();
+                }
+                _ => return Err("unknown collector snapshot state".into()),
+            }
         } else if state != "overview" {
-            return Err("snapshot state must be overview, drilled, or delete".into());
+            return Err(
+                "snapshot state must be overview, drilled, delete, or collector[-browse|-confirm|-errors|-empty]"
+                    .into(),
+            );
         }
         let mut terminal = Terminal::new(TestBackend::new(width, height))?;
         terminal.draw(|f| {
@@ -215,7 +264,6 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 KeyCode::Enter if app.typed == "delete" => {
                     let name = app.selection().map(|n| n.name.clone()).unwrap_or_default();
-                    let current_path = app.current().path.clone();
                     let root_path = app.root.path.clone();
                     app.confirm = false;
                     app.typed.clear();
@@ -232,8 +280,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     // either replaced by a fresh scan or never shown again.
                     match rescan_after_delete(&mut terminal, &root_path, &summary) {
                         Ok(Some((root, seconds))) => {
-                            app = ui::App::new(root, seconds);
-                            app.restore_path(&current_path);
+                            // The collector outlives the tree it was picked from.
+                            app = app.rebuild(root, seconds);
                             app.message = summary;
                         }
                         Ok(None) => {
@@ -257,6 +305,45 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
             continue;
         }
+        if app.review {
+            if !app.review_key(key.code) {
+                continue;
+            }
+            let root_path = app.root.path.clone();
+            let report = match trash_in_terminal(&mut terminal, &app) {
+                Ok(report) => report,
+                Err(e) => {
+                    drop(terminal);
+                    drop(guard);
+                    return Err(e.into());
+                }
+            };
+            // Moved items leave the collector; refused, failed and unprocessed
+            // ones stay with their reason. Nothing is ever deleted instead.
+            app.collector.apply(&report);
+            let summary = report.summary();
+            // A refusal can reveal a concurrent filesystem change even when
+            // gio never ran. Refresh the view after every confirmed batch.
+            match rescan_after_delete(&mut terminal, &root_path, &summary) {
+                Ok(Some((root, seconds))) => {
+                    app = app.rebuild(root, seconds);
+                    app.review = !app.collector.is_empty();
+                    app.message = summary;
+                }
+                Ok(None) => {
+                    drop(terminal);
+                    drop(guard);
+                    eprintln!("tui-disk: {summary}; exited without a current scan");
+                    return Ok(());
+                }
+                Err(e) => {
+                    drop(terminal);
+                    drop(guard);
+                    return Err(format!("{summary}; terminal error: {e}").into());
+                }
+            }
+            continue;
+        }
         if app.help {
             app.help = false;
             continue;
@@ -275,20 +362,117 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 app.confirm = true;
                 app.typed.clear()
             }
+            KeyCode::Char(' ') => app.toggle_collect(),
+            KeyCode::Char('c') => app.open_review(),
             KeyCode::Char('?') => app.help = true,
             KeyCode::Char('r') => {
-                let current_path = app.current().path.clone();
                 let root_path = app.root.path.clone();
                 match scan_in_terminal(&mut terminal, &root_path) {
-                    Ok(Some((root, seconds))) => {
-                        app = ui::App::new(root, seconds);
-                        app.restore_path(&current_path)
-                    }
+                    Ok(Some((root, seconds))) => app = app.rebuild(root, seconds),
                     Ok(None) => app.message = "Rescan cancelled; previous results retained".into(),
                     Err(e) => app.message = format!("Rescan failed: {e}"),
                 }
             }
             _ => {}
+        }
+    }
+    Ok(())
+}
+/// Deterministic collector contents for snapshots: the two largest root
+/// entries plus one item from inside the next folder, as a user picking across
+/// directories would leave it.
+fn snapshot_collect(app: &mut ui::App) {
+    let count = app.current().children.len();
+    for index in 0..count.min(2) {
+        app.selected = index;
+        app.toggle_collect();
+    }
+    let nested = (2..count).find(|&i| !app.current().children[i].children.is_empty());
+    if let Some(index) = nested {
+        app.selected = index;
+        app.drill();
+        app.toggle_collect();
+        app.back();
+    }
+    app.selected = 0;
+    app.message.clear();
+}
+/// Run the confirmed batch on a worker while this thread keeps drawing. Esc
+/// asks the worker to stop before the next item; a gio process that is already
+/// running is left to finish, and the worker is always joined.
+fn trash_in_terminal(terminal: &mut AppTerminal, app: &ui::App) -> io::Result<trash::Report> {
+    let cancel = AtomicBool::new(false);
+    let done = AtomicUsize::new(0);
+    let records = app.collector.records();
+    // Mounts can change while the user builds the collection. Recheck current
+    // protected locations when executing, retaining the collected identities.
+    let guard = trash::Guard::from_system();
+    let (report, ui_error) = std::thread::scope(|scope| {
+        let worker = std::thread::Builder::new()
+            .name("trash".into())
+            .spawn_scoped(scope, || {
+                trash::run_batch(records, &guard, &trash::Gio, &cancel, &done)
+            });
+        let worker = match worker {
+            Ok(worker) => worker,
+            Err(e) => return (None, Some(e)),
+        };
+        let mut ui_error = None;
+        while !worker.is_finished() {
+            if let Err(e) = trash_frame(terminal, records, &cancel, &done) {
+                cancel.store(true, Ordering::SeqCst);
+                ui_error = Some(e);
+                break;
+            }
+        }
+        (worker.join().ok(), ui_error)
+    });
+    match (report, ui_error) {
+        (Some(report), None) => Ok(report),
+        (Some(report), Some(e)) => Err(io::Error::other(format!(
+            "terminal error while moving items to Trash: {e}; {}",
+            report.summary()
+        ))),
+        (None, Some(e)) => Err(e),
+        (None, None) => Err(io::Error::other("trash worker panicked")),
+    }
+}
+fn trash_frame(
+    terminal: &mut AppTerminal,
+    records: &[collector::Record],
+    cancel: &AtomicBool,
+    done: &AtomicUsize,
+) -> io::Result<()> {
+    let finished = done.load(Ordering::SeqCst);
+    let hint = if cancel.load(Ordering::SeqCst) {
+        "Stopping after the current item; the rest stay collected"
+    } else {
+        "Esc stop after the current item (items already moved stay in Trash)"
+    };
+    let current = records
+        .get(finished)
+        .map(|r| scan::display_path(r.path.as_os_str()))
+        .unwrap_or_default();
+    terminal.draw(|f| {
+        let area = f.area();
+        f.render_widget(
+            Paragraph::new(format!(
+                "\n  Moving collected items to Trash\n\n  items finished: {finished} of {}\n  {current}\n\n  {hint}",
+                records.len()
+            ))
+            .style(Style::default().fg(theme::FG).bg(theme::BG)),
+            area,
+        );
+    })?;
+    if event::poll(Duration::from_millis(40))? {
+        if let Event::Key(k) = event::read()? {
+            if k.kind != KeyEventKind::Release
+                && (k.code == KeyCode::Esc
+                    || (k.modifiers.contains(KeyModifiers::CONTROL)
+                        && k.code == KeyCode::Char('c')))
+            {
+                cancel.store(true, Ordering::SeqCst);
+            }
         }
     }
     Ok(())

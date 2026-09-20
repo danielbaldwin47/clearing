@@ -1,0 +1,93 @@
+{
+  "recorded_at": "2026-09-19T23:58:03.165636+00:00",
+  "feature": "Persistent cross-directory Trash collector",
+  "release_sha256": "6f530a0ea119498849c89b089e3c3e143ccc5308adf0005199f856e02d67c3a9",
+  "baseline_commit": "176da86",
+  "status": "verified",
+  "tests": {
+    "rust_unit": {
+      "passed": 41,
+      "total": 41,
+      "evidence": "validation/collector-unit.log"
+    },
+    "existing_black_box": {
+      "passed": 17,
+      "total": 17,
+      "evidence": "validation/collector-regression.log"
+    },
+    "collector_black_box": {
+      "passed": 14,
+      "total": 14,
+      "evidence": "validation/collector-acceptance.log"
+    },
+    "total_passed": 72,
+    "total": 72
+  },
+  "builder": {
+    "provider": "Anthropic",
+    "requested_model": "fable",
+    "observed_model": "claude-fable-5-1",
+    "session": "679543c6-30ee-4fc1-a83d-d0a9533920a2",
+    "evidence": "build-evidence/fable-collector-001.json"
+  },
+  "independent_checks": [
+    "Real gio moves into isolated disposable XDG_DATA_HOME Trash; existing user Trash untouched",
+    "Cross-directory collection and duplicate basenames preserve original-path restoration metadata",
+    "Cancellation, wrong confirmation, review removal and parent-child normalization",
+    "Original inode retained across rescans; replaced entries and symlink ancestors refused",
+    "Partial batch failure retains failed entry for later successful retry",
+    "Cancellation between actual gio moves retains unprocessed entries for retry",
+    "Symlink targets and non-UTF8 filenames preserved correctly",
+    "Missing gio never falls back to permanent deletion",
+    "Collection survives permanent deletion of another item",
+    "Headless real terminal review and confirmation; minimum 60x20 layout inspected"
+  ],
+  "screenshots": [
+    {
+      "title": "Collected items in overview",
+      "path": "/validation/collector-overview.png",
+      "headless": true
+    },
+    {
+      "title": "Cross-directory review",
+      "path": "/validation/collector-review.png",
+      "headless": true
+    },
+    {
+      "title": "Batch confirmation",
+      "path": "/validation/collector-confirm.png",
+      "headless": true
+    },
+    {
+      "title": "Minimum terminal size",
+      "path": "/validation/collector-narrow.png",
+      "headless": true
+    }
+  ],
+  "source_sha256": {
+    "src/collector.rs": "e6e5ff9037e780b2bd8fae5b5fd857c19f0403a0eef93c64f44be5b8c5409f0a",
+    "src/delete.rs": "7c0a276b67fdb21909e4966ecc98945ebde3e7991277edc248aeee6125adbc0b",
+    "src/main.rs": "1971b90b15cbfb2d61aa9788bdbc8eb8c469b6a78ad2f7d6dee10089c5838522",
+    "src/scan.rs": "2e8e14787e156520b15f9ff8d4743ad77196284175716540ddba5d226cd056d5",
+    "src/theme.rs": "d6c051083b72467a1f7c6134f412634b912fbcdd4d17e02f698a2f97f163188e",
+    "src/trash.rs": "6d5ff0fd110c0e9a9bd907d2ed8bf8c81d62c492241ddd489599644139771727",
+    "src/ui/confirm.rs": "bc61c2a95c15493147df75bc9540833570a9dedc92f9156889d4a8d4c646ea18",
+    "src/ui/foundation.rs": "fd18f25508c16a56da2a0183d21a0da26ad676a39b75cab9bf9dfb16d2fdd854",
+    "src/ui/review.rs": "8098deb10df7e1e45668ffe195254b9988baf24e1f44a74ac0d1116e086f4d7c",
+    "src/ui/view.rs": "22303ea8fdd3b859df8eb0a2115c5e305bdf7751b09277f3badb61c30f83421a",
+    "src/ui.rs": "80f5b973df5eaf8703de0d09d1340ce2863c86700584a52ff30c9654729f6a8d"
+  },
+  "limitations": [
+    "Collection is in-session, not persisted after exit.",
+    "Trashing retains allocation until Trash is emptied.",
+    "Preflight validation and external gio path resolution are separate; not atomic against concurrent filesystem swaps. Current mount protection is refreshed before each batch.",
+    "Original visual competition and gdu results apply only to baseline176da86; collector release has not been visually rejudged or benchmarked."
+  ],
+  "host_integration_corrections": [
+    "Refresh mount guards immediately before each batch",
+    "Reject symlink components above the scan root",
+    "Rescan after every confirmed batch, including all-refused outcomes",
+    "Keep totals and action hints visible in narrow terminals",
+    "Describe failed outcomes as retained collection records, without claiming an intact source"
+  ]
+}

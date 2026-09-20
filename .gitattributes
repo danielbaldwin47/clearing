@@ -4,3 +4,5 @@ judging/captures/*.txt -text -diff
 judging/test-terminal.txt -text -diff
 benchmarks/*.log -text -diff
 build-evidence/*.jsonl -text -diff
+validation/*.txt -text -diff
+validation/*.log -text -diff

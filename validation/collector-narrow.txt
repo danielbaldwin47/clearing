@@ -1,0 +1,20 @@
+
+  DISK ALLOCATION                 1.1 GiB
+  ┌──────────────────────────────────────────────────────┐
+  │  TRASH COLLECTOR                  2 items · 1.9 GiB  │
+  │  Space is freed when Trash is emptied, not now.      │
+  │  ──────────────────────────────────────────────────  │
+  │  ▸    1.0 GiB  folder   …s/ssd-story/Caches/Browser  │
+  │     940.0 MiB  folder   …ures/ssd-story/Games/Orbit  │
+  │                                                      │
+  │                                                      │
+  │                                                      │
+  │  ──────────────────────────────────────────────────  │
+  │  /home/diggle/Work/tui-disk/fixtures/ssd-story/Cach  │
+  │  es/Browser                                          │
+  │  folder  ·  1.0 GiB allocated when scanned  ·  2 f…  │
+  │                                                      │
+  │  ↑↓/jk move  Space remove  t Trash  Esc close        │
+  └──────────────────────────────────────────────────────┘
+  ↑↓ Enter   Space collect   c review   d delete   ? help…
+
