@@ -222,7 +222,7 @@ fn names(fd: RawFd) -> io::Result<Vec<Entry>> {
 // workers only add lock contention, so it stays at one worker per core. A small
 // filesystem cannot hold enough entries to repay starting many threads.
 fn workers(fd: RawFd, prelude: std::time::Duration, listed: usize) -> usize {
-    if let Some(n) = std::env::var("TUI_DISK_SCAN_THREADS")
+    if let Some(n) = std::env::var("SPACEMAP_SCAN_THREADS")
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
     {
@@ -372,7 +372,7 @@ mod tests {
     };
     fn fixture() -> PathBuf {
         let p = std::env::temp_dir().join(format!(
-            "tuidisk-test-{}-{}",
+            "spacemap-test-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)

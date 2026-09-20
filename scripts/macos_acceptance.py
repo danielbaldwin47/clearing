@@ -13,7 +13,7 @@ import acceptance
 @unittest.skipUnless(sys.platform == 'darwin', 'requires macOS native Trash')
 class NativeTrashAcceptance(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(prefix='tui-disk-native-')
+        self.temporary = tempfile.TemporaryDirectory(prefix='spacemap-native-')
         self.base = Path(self.temporary.name).resolve()
         self.tree = self.base / 'tree'
         self.tree.mkdir()
@@ -23,7 +23,7 @@ class NativeTrashAcceptance(unittest.TestCase):
         self.addCleanup(self.restore_owned_items)
 
     def item(self, content=b'Native Trash test data'):
-        path = self.tree / ('tui-disk-test-' + uuid.uuid4().hex)
+        path = self.tree / ('spacemap-test-' + uuid.uuid4().hex)
         path.write_bytes(content)
         self.items.append(path)
         return path
@@ -56,7 +56,7 @@ class NativeTrashAcceptance(unittest.TestCase):
     def test_native_trash_keeps_symlink_target_intact(self):
         target = self.base / 'outside-target'
         target.write_bytes(b'keep this target')
-        link = self.tree / ('tui-disk-test-' + uuid.uuid4().hex)
+        link = self.tree / ('spacemap-test-' + uuid.uuid4().hex)
         link.symlink_to(target)
         self.items.append(link)
         session = self.session()

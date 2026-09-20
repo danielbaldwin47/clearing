@@ -16,7 +16,7 @@ captured_at=datetime.datetime.now(datetime.timezone.utc).isoformat()
 name='refcap'+str(os.getpid());tmp=pathlib.Path(tempfile.mkdtemp(prefix=name));display=':91';env=os.environ.copy();env.update(DISPLAY=display,TERM='xterm-256color',LC_ALL='C.UTF-8',LIBGL_ALWAYS_SOFTWARE='1');env.pop('WAYLAND_DISPLAY',None);env.pop('NO_COLOR',None)
 conf=tmp/'tmux.conf';conf.write_text('set -g default-terminal tmux-256color\nset -as terminal-features ",xterm-kitty:RGB,xterm-256color:RGB"\n')
 capture_command=list(a.command)
-if binary_path.name in ('tui-disk','diskonaut'):
+if binary_path.name in ('spacemap','diskonaut'):
  frozen_binary=tmp/binary_path.name;shutil.copy2(binary_path,frozen_binary);capture_command[0]=str(frozen_binary);binary_hash=hashlib.sha256(frozen_binary.read_bytes()).hexdigest()
 log=open(tmp/'capture.log','w');procs=[]
 def run(*cmd,**kw):return subprocess.run(cmd,env=env,check=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,**kw)

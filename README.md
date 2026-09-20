@@ -1,58 +1,126 @@
-# tui-disk
+# spacemap
 
-A terminal disk explorer for Linux and macOS: see where the space went, open a folder, and collect items across directories for one confirmed move to Trash.
+**See what ate your disk, right in the terminal.** spacemap scans a folder, draws it as a map where bigger rectangles mean more space used, and lets you gather the clutter from anywhere and send it to the Trash in one confirmed step. Linux and macOS.
+
+![spacemap showing a 4.2 GiB drive as a colour-coded map beside a list sorted largest first](docs/images/overview.png)
+
+## Why spacemap
+
+- **Spot the hogs at a glance.** Every folder is a rectangle sized by the space it really takes. Each one previews what is inside, so you can see the culprit before you open anything.
+- **Clean up in one pass.** Press Space on things as you wander through folders. They go into a collector that follows you around, and one confirmation moves the lot to the Trash.
+- **Hard to hurt yourself.** Trash moves are recoverable and ask you to type `trash`. Permanent deletion is a separate key and asks you to type `delete`. If a Trash move fails, it fails; it never quietly deletes instead.
+- **Fast and honest.** Scans run in parallel in the background and can be cancelled. Sizes are the space actually allocated on disk, not the file length.
+
+## Install
+
+You need a [Rust toolchain](https://rustup.rs). On macOS you also need the Xcode Command Line Tools.
 
 ```sh
-cargo build --release
-./target/release/tui-disk "$HOME"
+cargo install --locked --git https://github.com/danielbaldwin47/tui-disk
 ```
 
-The screen combines a treemap with a list ordered by disk usage. Rectangle area represents allocated bytes; nested rectangles preview the next directory level. Categories retain related colors as you drill down. Small entries are grouped into a remainder tile while every entry remains selectable in the list.
+Or build from a checkout:
 
-| Key | Action |
+```sh
+cargo build --release --locked
+./target/release/spacemap "$HOME"
+```
+
+Prebuilt binaries for Linux, Apple Silicon and Intel Macs are attached to each run of the [GitHub Actions workflow](https://github.com/danielbaldwin47/tui-disk/actions).
+
+On Linux, moving things to the Trash uses `gio trash`, which ships with `glib2` (already present on most desktops). macOS uses the system Trash directly and needs nothing extra.
+
+## Use it
+
+```sh
+spacemap            # scan the current folder
+spacemap ~/Videos   # scan somewhere else
+```
+
+Move with the arrow keys, press Enter to open a folder and Backspace to go back up.
+
+![spacemap opened one level down into a Caches folder, showing browser and package caches](docs/images/drilled.png)
+
+| Key | What it does |
 | --- | --- |
 | Up / Down, `k` / `j` | Select an entry |
-| Enter / Right | Open the selected directory |
-| Backspace / Left | Return to its parent |
-| Home / End | Select the first / last entry |
+| Enter / Right | Open the selected folder |
+| Backspace / Left | Go back to the parent |
+| Home / End | Jump to the first / last entry |
 | Page Up / Page Down | Move eight entries |
 | Space | Add or remove the selected item from the collector |
 | `c` | Review the collector |
-| `t` | Move the highlighted item to system Trash after confirmation |
-| `d` | Open the permanent deletion confirmation |
-| `r` | Rescan, preserving the current directory when possible |
+| `t` | Move the selected item to the Trash (asks first) |
+| `d` | Permanently delete the selected item (asks first) |
+| `r` | Rescan, staying in the current folder when possible |
 | `?` | Show help |
-| Escape | Close a dialog or collector; cancel a scan or stop a running operation; otherwise quit |
+| Escape | Close a dialog, cancel a scan, or stop a running operation; otherwise quit |
 | `q`, Control-C | Quit |
 
-Press Space on files or folders as you explore, then `c` to review the collection. The collection stays available across directory changes and rescans for the current session. Collecting a folder replaces collected descendants, so its contents are not counted or submitted twice. Items already covered by a collected folder are marked accordingly.
+## Cleaning up
 
-For one item, press `t` while browsing, type `trash`, and press Enter. This moves only the highlighted item; unrelated items in the collector stay queued. Escape cancels. Press `d` when you want the separate permanent-deletion action.
+### Collect, review, trash
 
-In the collector, use Up/Down or `j`/`k` to select a row, Space or Backspace to remove it, and Escape to return to browsing. Press `t`, type `trash`, and press Enter to move the collection to the desktop Trash. Escape cancels the confirmation. During a batch, Escape or Control-C stops after the current item; successful moves leave the collection, while failed and unprocessed items stay available. Rescanning does not authorize a replacement file at an old collected path.
+Press Space on files or folders as you explore. The collector in the top right keeps a running count and total, and it stays with you as you move between folders and rescan. Collecting a folder covers everything inside it, so nothing is counted twice.
 
-On Linux, recoverable trashing uses `gio trash` from Arch's `glib2` package, following the [Freedesktop Trash specification](https://specifications.freedesktop.org/trash/latest/). On macOS, it uses the native `NSFileManager` Trash API through [trash-rs](https://github.com/Byron/trash-rs/tree/master/src/macos), with no `gio` dependency or Finder automation. Restore items by dragging them out of Trash; macOS may not offer **Put Back** for this API. Invalid UTF-8 paths are refused on macOS so the native backend cannot address a different filename. Missing services and unsupported filesystems produce errors, never a fallback to permanent deletion. **Moving items to Trash does not free their disk space; empty Trash when you are ready.** The collector does not empty Trash.
+Press `c` to review what you picked:
 
-Deletion requires typing `delete` and pressing Enter. Escape cancels the confirmation. During deletion, a live count shows entries actually removed; Escape or Control-C stops before the next removal. Entries already removed stay removed. The selected item and its descendants are checked against their scanned device and inode numbers. Deletion uses directory file descriptors without following symlinks, refuses incomplete directory scans and filesystem crossings, and never exposes deletion of the current view itself. A changed entry stops deletion; already removed children cannot be restored. Every deletion attempt rescans the tree.
+![The spacemap collector listing two folders totalling 2.5 GiB, ready to move to the Trash](docs/images/collector.png)
 
-Sizes count allocated blocks, including directory blocks, rather than apparent file length. Sparse files therefore show the space actually allocated. Hard links count once within the scanned tree; another link may prevent deleted data from releasing space. The root path is resolved once; symlink targets discovered inside it are not scanned. Filesystem compression, snapshots, reflinks and open deleted files can make actual free-space changes differ from the displayed allocation. Inaccessible entries are reported and the screen marks partial results.
+In the collector, Space or Backspace removes a row and Escape returns to browsing. Press `t`, type `trash`, and press Enter to move everything to the Trash. Escape or Control-C during the move stops after the current item; anything that failed or was not reached stays in the collector.
 
-A true-color terminal with at least 60 columns and 20 rows is required; 120 × 40 or larger is recommended. It runs directly in terminals under Hyprland, with no graphical window or display-server dependency. Startup scans run in the background and can be cancelled. Raw mode and the alternate screen are restored on ordinary exit and errors.
+**Moving items to the Trash does not free disk space until you empty the Trash.** spacemap never empties it for you.
 
-On a Mac with a current Rust toolchain and Xcode Command Line Tools installed, use the same `cargo build --release --locked` command. Both Apple Silicon and Intel targets are supported by the build configuration. macOS privacy permissions still apply to protected folders. The [GitHub Actions workflow](https://github.com/danielbaldwin47/tui-disk/actions) builds Linux and both Mac architectures and uploads their binaries. Native Mac tests cover scanning, deletion guards, actual Trash moves and restoration, and preserving symlink targets. Visual captures are made headlessly on Linux.
+### One item at a time
 
-To scan without a terminal:
+Press `t` on the highlighted item, type `trash`, and press Enter. Only that item moves; anything waiting in the collector stays there.
+
+### Permanent deletion
+
+Press `d`, type `delete`, and press Enter. This cannot be undone. A live count shows what has been removed, and Escape or Control-C stops before the next removal, but entries already removed stay removed. spacemap refuses to delete anything that changed since the scan, anything it could not scan completely, anything on a different filesystem, and the folder you are currently viewing. It never follows symlinks while deleting, and it rescans afterwards.
+
+### Getting things back
+
+On Linux, items go to the standard desktop Trash ([Freedesktop Trash specification](https://specifications.freedesktop.org/trash/latest/)), so your file manager can restore them. On macOS, drag items back out of the Trash; **Put Back** may not be offered. File names that are not valid UTF-8 are refused on macOS rather than risk trashing the wrong file.
+
+## How sizes are counted
+
+- Sizes are allocated disk blocks, including the blocks folders themselves use. A sparse file shows what it really occupies.
+- A hard-linked file counts once per scan. If another link exists elsewhere, deleting one may not free the space.
+- Symlinks are listed but never followed.
+- Compression, snapshots, reflinks and files still held open by a program can make the space you actually get back differ from what is shown.
+- Anything spacemap could not read is reported, and the screen marks the result as partial.
+
+## Terminal requirements
+
+A true-colour terminal of at least 60 × 20; 120 × 40 or larger looks best. It needs no graphical window or display server, so it works over SSH and in any terminal emulator. Your terminal is restored on exit, including after errors. On macOS, the system's privacy permissions still apply to protected folders.
+
+## Scripting
+
+Scan without the interface and get JSON:
 
 ```sh
-./target/release/tui-disk --scan --json "$HOME"
+spacemap --scan --json "$HOME"
 ```
 
-The summary includes `path`, `bytes`, `apparent_bytes`, `files`, `directories`, `errors`, and `elapsed_seconds`. `--summary` aliases `--json`; both use the same full in-memory scan as the interactive app. The root counts as a directory. Paths starting with a hyphen can follow `--`. In displayed names and the summary path, control characters, backslashes, and invalid UTF-8 bytes use explicit escapes; filesystem operations always retain the original path bytes.
+```json
+{"apparent_bytes":4473226088,"bytes":4473225216,"directories":22,"elapsed_seconds":0.001,"errors":0,"files":18,"path":"/mnt/ssd"}
+```
 
-The original release's independent judging and benchmarking evidence lives in `judging/`, `progress/`, and `benchmarks/`; those results belong to commit `176da86`, before the collector addition. `--snapshot overview|drilled|delete|collector` renders deterministic ANSI for inspection; the official visual comparisons use actual terminal captures. The separate `--wireframe` renderer is a runnable minimal prototype for calibrating the original visual comparisons.
+`--summary` is an alias for `--json`. The root counts as a directory. Put paths that start with a hyphen after `--`. Control characters, backslashes and invalid UTF-8 bytes are escaped in displayed names and in `path`; file operations always use the original bytes. Set `SPACEMAP_SCAN_THREADS` to a number from 1 to 256 to fix the scanner's thread count.
+
+## Development
 
 ```sh
 cargo test
 python scripts/acceptance.py
 python scripts/collector_acceptance.py
 ```
+
+`--snapshot overview|drilled|delete|trash|collector` renders a deterministic ANSI frame for inspection, and `--wireframe` runs the minimal prototype used to calibrate the original visual comparisons. CI builds and tests Linux and both Mac architectures, including real Trash moves and restores on macOS.
+
+The project was developed under the name `tui-disk`. The judging, benchmarking and build records in `judging/`, `progress/`, `benchmarks/`, `build-evidence/` and `validation/` are kept exactly as captured, so they still use that name; the judging and benchmark results belong to commit `176da86`, before the collector was added.
+
+## License
+
+MIT

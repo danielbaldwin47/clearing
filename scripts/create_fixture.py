@@ -22,7 +22,7 @@ def allocated(path, size):
         os.posix_fallocate(f.fileno(), 0, size)
         # Written data ensures allocation is real even on copying tools that skip
         # all-zero extents. Benchmark files themselves are fully written below.
-        f.write(b"tui-disk deterministic fixture\n")
+        f.write(b"spacemap deterministic fixture\n")
 
 
 def story():

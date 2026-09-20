@@ -1,6 +1,6 @@
 //! Small Unix differences used by the scanner and filesystem guards.
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-compile_error!("tui-disk currently supports Linux and macOS");
+compile_error!("spacemap currently supports Linux and macOS");
 use std::path::PathBuf;
 
 pub fn identity(stat: &libc::stat) -> (u64, u64) {

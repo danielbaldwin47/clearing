@@ -69,7 +69,7 @@ static void drop_caches(void) {
 }
 
 static void run(int application, int measured, int trial, const char *cache) {
-    const char *name = application ? "tui-disk" : "gdu";
+    const char *name = application ? "spacemap" : "gdu";
     int output = open("/tmp/output", O_CREAT | O_TRUNC | O_RDWR, 0600);
     if (output < 0) die("open output");
     long long start = nanos();
@@ -80,7 +80,7 @@ static void run(int application, int measured, int trial, const char *cache) {
         dup2(output, STDERR_FILENO);
         close(output);
         if (application) {
-            execl("/bin/tui-disk", "tui-disk", "--scan", "/tree", "--summary", NULL);
+            execl("/bin/spacemap", "spacemap", "--scan", "/tree", "--summary", NULL);
         } else {
 #if GDU_FULL_TREE
             execl("/bin/gdu", "gdu", "--config-file", "/dev/null", "-n", "-p", "-c", "--no-prefix", "-s",
