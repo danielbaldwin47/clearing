@@ -1,5 +1,4 @@
-//! The in-session trash collector: items picked across directories for one
-//! reviewed batch move to the Trash.
+//! The in-session Collector: items picked across directories for one reviewed batch move to the Trash.
 //!
 //! Records own what they need (raw path, identities, size) and never refer to
 //! the scan tree, so they survive rescans. Identities are captured once, when an

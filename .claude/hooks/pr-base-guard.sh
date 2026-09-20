@@ -26,6 +26,8 @@ number=""
 repo=""
 for segment in "${segments[@]}"; do
     segment=${segment#"${segment%%[![:space:]]*}"}
+    # A `VAR=x` or `timeout 60` in front is still a merge.
+    segment=$(sed -E 's/^([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*//; s/^timeout[[:space:]]+[^[:space:]]+[[:space:]]+//' <<< "$segment")
     case "$segment" in gh\ pr\ merge | gh\ pr\ merge\ *) ;; *) continue ;; esac
     merge=1
     # The PR is the first bare number; `-R`/`--repo` names the repo it is in.

@@ -9,14 +9,14 @@ The steps travel whole, in the comment, PR body or report the owner reads: first
 ```sh
 cd <the worktree's absolute path>
 cargo build --release --locked
-rm -rf /tmp/spacemap-hand && mkdir -p /tmp/spacemap-hand/big /tmp/spacemap-hand/small/nested
-head -c 30M /dev/urandom > /tmp/spacemap-hand/big/video.bin
-head -c 8M /dev/urandom > /tmp/spacemap-hand/small/nested/cache.bin
-head -c 2M /dev/urandom > /tmp/spacemap-hand/small/notes.bin
-<the worktree's absolute path>/target/release/spacemap /tmp/spacemap-hand
+rm -rf .runtime/hand && mkdir -p .runtime/hand/big .runtime/hand/small/nested
+head -c 30M /dev/urandom > .runtime/hand/big/video.bin
+head -c 8M /dev/urandom > .runtime/hand/small/nested/cache.bin
+head -c 2M /dev/urandom > .runtime/hand/small/notes.bin
+./target/release/spacemap .runtime/hand
 ```
 
-Every step below runs against `/tmp/spacemap-hand`, which the setup rebuilds, so a step that trashes or deletes costs nothing.
+The tree sits under the worktree's `.runtime/hand`, which git ignores, because `gio trash` refuses a file on `/tmp` ("Trashing on system internal mounts is not supported"). Each section below starts from a fresh tree: the `rm -rf` line onward is run again before it, so a step that trashes or deletes costs nothing and no section depends on the one before.
 
 ## Collector
 
@@ -37,6 +37,6 @@ Every step below runs against `/tmp/spacemap-hand`, which the setup rebuilds, so
 
 ## Permanent deletion
 
-1. Select a file and press `d`; the confirmation names the file and its path and says the deletion cannot be undone.
+1. Open `small`, select `notes.bin` and press `d`; the confirmation names the file and its path and says the deletion cannot be undone.
 2. Type `delet` and press Enter; nothing is removed. Press Escape; the dialog closes.
 3. Press `d`, type `delete`, press Enter; a live count runs, the file is gone after the rescan, and it is not in the Trash.

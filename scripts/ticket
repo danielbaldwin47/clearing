@@ -94,12 +94,9 @@ def render(n, issue):
 def parent_of(body):
     """The issue number the `## Parent` section names, or None.
 
-    The contract is the shape `/to-tickets` writes: a `## Parent` heading, then a first
-    non-empty line naming the spec as `#<M>` — `Child of #<M> (...)` on #123, `#<M> — <title>`
-    on #234. Anything else in that place — a heading, prose naming no issue — is a ticket with
-    no parent rather than an error. The number is an issue's: docs/agents/issue-tracker.md warns
-    a bare `#N` may be a pull request, and #73 puts pull requests out of scope, so one that is
-    not an issue fails by name rather than being followed.
+    The shape `/to-tickets` writes: a `## Parent` heading, then a first non-empty line naming the
+    spec as `#<M>`. Anything else in that place, a heading or prose naming no issue, is a body that
+    names no parent; `native_parent` is then asked.
     """
     lines = body_lines(body)
     for i, line in enumerate(lines):
@@ -114,6 +111,13 @@ def parent_of(body):
             return int(hit.group(1)) if hit else None
         return None
     return None
+
+
+def native_parent(n):
+    """The issue N is a GitHub sub-issue of, or None: how a wayfinder child or a bug batched under a
+    parent names its spec without a `## Parent` section."""
+    out, _ = gh(["api", f"repos/{{owner}}/{{repo}}/issues/{n}/parent", "--jq", ".number"])
+    return int(out) if out and out.strip().isdigit() else None
 
 
 def headings(lines):
@@ -156,12 +160,12 @@ def labelled(body, label):
     The line is `**Size:** <text>` as docs/agents/tickets.md writes it, `**Size**: <text>`, or a
     `## Size` heading over one paragraph. Each reads as the same line here.
     """
-    marks = (f"**{label}:**", f"**{label}**:", f"- **{label}:**")
+    mark = re.compile(rf"^\s*[-*]?\s*\**{re.escape(label)}\**\s*:\**\s*", re.IGNORECASE)
     lines = body_lines(body)
     for i, line in enumerate(lines):
-        mark = next((m for m in marks if line.startswith(m)), None)
-        if mark:
-            return f"{label}: {line[len(mark):].strip()}"
+        hit = mark.match(line)
+        if hit:
+            return f"{label}: {line[hit.end():].strip()}"
         if HEADING.match(line) and line.lstrip("#").strip().lower() == label.lower():
             text = next((rest.strip() for rest in lines[i + 1:] if rest.strip()), None)
             if text is not None and not HEADING.match(text):
@@ -245,7 +249,7 @@ def main(argv):
 
     spec_path = None
     spec_lines = []
-    spec_n = parent_of(issue["body"])
+    spec_n = parent_of(issue["body"]) or native_parent(n)
     if spec_n is not None:
         spec, reason = fetch(spec_n)
         if spec is None:

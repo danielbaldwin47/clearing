@@ -31,18 +31,32 @@ STEPS = [
 STEP_TIMEOUT_S = 900
 
 
-def changed_files():
-    out = subprocess.run(
-        ["git", "diff", "--name-only"], cwd=ROOT, capture_output=True, text=True
-    )
-    return set(out.stdout.split())
+def say(line):
+    """One line, out at once: a piped run (CI) shows each step as it ends."""
+    print(line, flush=True)
+
+
+def worktree_state():
+    """Each changed file with its content hash, so a file fmt rewrites shows even if it was dirty."""
+    try:
+        out = subprocess.run(
+            ["git", "diff", "--raw", "--abbrev=40"], cwd=ROOT, capture_output=True, text=True
+        ).stdout
+    except OSError:
+        return {}
+    names = [line.split("\t", 1)[1] for line in out.splitlines() if "\t" in line]
+    state = {}
+    for name in names:
+        path = ROOT / name
+        state[name] = hash(path.read_bytes()) if path.is_file() else None
+    return state
 
 
 def check():
     LOGS.mkdir(parents=True, exist_ok=True)
     began = time.monotonic()
     for name, command in STEPS:
-        before = changed_files() if name == "fmt" else set()
+        before = worktree_state() if name == "fmt" else {}
         started = time.monotonic()
         log = LOGS / f"{name}.log"
         try:
@@ -53,27 +67,34 @@ def check():
                 ).returncode
         except subprocess.TimeoutExpired:
             code = f"timed out after {STEP_TIMEOUT_S} s"
+        except OSError as error:
+            code = f"could not run {command[0]}: {error.strerror}"
+            log.write_text(f"{code}\n")
         seconds = time.monotonic() - started
         if code != 0:
             print(log.read_text(), end="")
-            print(f"gate: FAIL at {name} ({code}); the output above is {log.relative_to(ROOT)}")
+            say(f"gate: FAIL at {name} ({code}); the output above is {log.relative_to(ROOT)}")
             return 1
         note = ""
         if name == "fmt":
-            formatted = sorted(changed_files() - before)
+            after = worktree_state()
+            formatted = sorted(f for f in after if before.get(f, "absent") != after[f])
             if formatted:
                 note = "  formatted: " + " ".join(formatted)
-        print(f"gate: {name} ok {seconds:.1f}s{note}")
-    print(f"gate: pass ({len(STEPS)} steps, {time.monotonic() - began:.0f}s)")
+        say(f"gate: {name} ok {seconds:.1f}s{note}")
+    say(f"gate: pass ({len(STEPS)} steps, {time.monotonic() - began:.0f}s)")
     return 0
 
 
 def story_fixture():
     """The story tree of this checkout, or of the main checkout a worktree hangs off."""
-    common = subprocess.run(
-        ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
-        cwd=ROOT, capture_output=True, text=True,
-    ).stdout.strip()
+    try:
+        common = subprocess.run(
+            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            cwd=ROOT, capture_output=True, text=True,
+        ).stdout.strip()
+    except OSError:
+        common = ""
     roots = [ROOT] + ([Path(common).parent] if common else [])
     for root in roots:
         if (root / "fixtures/ssd-story").is_dir():
@@ -90,14 +111,25 @@ def plain(ansi, height):
     return "\n".join(rows) + "\n"
 
 
+STATES = (
+    "overview", "drilled", "delete", "trash", "collector", "collector-browse",
+    "collector-confirm", "collector-errors", "collector-empty",
+)
+
+
 def snapshot(state, width, height):
+    if state not in STATES:
+        print(f"gate: no snapshot state {state}; the states are {', '.join(STATES)}")
+        return 2
     fixture = story_fixture()
     if fixture is None:
         print("gate: no fixtures/ssd-story; make it with: python3 scripts/create_fixture.py story")
         return 3
-    build = subprocess.run(
-        ["cargo", "build", "--release", "--locked", "-q"], cwd=ROOT
-    )
+    try:
+        build = subprocess.run(["cargo", "build", "--release", "--locked", "-q"], cwd=ROOT)
+    except OSError as error:
+        print(f"gate: FAIL at build (could not run cargo: {error.strerror})")
+        return 1
     if build.returncode != 0:
         return 1
     shot = subprocess.run(
@@ -124,7 +156,7 @@ def main():
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("check")
     shot = commands.add_parser("snapshot")
-    shot.add_argument("state", help="a --snapshot state; spacemap --help lists them")
+    shot.add_argument("state", help="one of: " + ", ".join(STATES))
     shot.add_argument("--width", type=int, default=140)
     shot.add_argument("--height", type=int, default=44)
     args = parser.parse_args()

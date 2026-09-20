@@ -4,7 +4,7 @@ What a ticket carries so that one `/implement` session lands it (`CLAUDE.md` § 
 
 ## The four lines
 
-Every `ready-for-agent` ticket ends with these, one line each:
+Every `ready-for-agent` ticket ends with these four, each starting its own line as `**Size:** ...`, the form `scripts/ticket --graph` reads. The Hand test line's numbered steps follow on the lines under it.
 
 - **Size:** the modules it touches by the module map (`CLAUDE.md` § Code intelligence), and the nearest landed ticket with what that session cost. One or two modules is a ticket; three is the ceiling; more is two tickets, or a prefactor ticket first. A landed shape is the `tool_uses` and `subagent_tokens` line a parent's closing comment carries per ticket (`docs/agents/implement-spec.md`); while none exists for a like ticket, the line says "no landed shape".
 - **Reading:** the `CONTEXT.md` terms, ADRs and spec sections the session needs, by heading, and what it can skip. A bug ticket's Reading is usually its own reproduction and one module.

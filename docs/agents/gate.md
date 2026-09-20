@@ -11,10 +11,10 @@ What must be true before work lands. The owner judges what a user sees and feels
 - **`cargo fmt` is applied.** The `fmt` line names any file it changed, and that change is committed with the rest.
 - **The release build precedes the acceptance scripts**, because `scripts/acceptance.py` and `scripts/collector_acceptance.py` run `target/release/spacemap` and would otherwise test the last build. Run either script alone only after `cargo build --release --locked`.
 - **A green run is its step lines and the `pass` line.** A failed step prints its log above a `FAIL` line naming `target/gate/<step>.log`; that log is the whole reading.
-- **The acceptance scripts need a PTY and no display**, so the check runs anywhere a shell does. While iterating, `cargo clippy --all-targets -q --message-format=short -- -D warnings` and `cargo test <name>` are the fast loop; the whole check runs once, before the PR.
+- **The acceptance scripts need a PTY, `/usr/bin/gio` (glib2) and a checkout on the same filesystem as the home Trash; no display.** While iterating, `cargo clippy --all-targets -q --message-format=short -- -D warnings` and `cargo test <name>` are the fast loop; the whole check runs once, before the PR.
 - An `#[allow(...)]` carries its reason on the same line.
 
-CI runs the same check on Linux, then `git diff --exit-code` to catch a commit that skipped it; the macOS runners keep `cargo test`, the release build and `scripts/macos_acceptance.py`.
+CI runs the same check on Linux, installing `gio` when the runner lacks it, then `git diff --exit-code` to catch a commit that skipped it; the macOS runners keep `cargo test`, the release build and `scripts/macos_acceptance.py`.
 
 Done when: `scripts/gate check` prints `gate: pass`.
 
@@ -30,6 +30,6 @@ Done when: every touched state is on the PR as text.
 
 ## Feature tier: a ticket whose Hand test line says yes
 
-The owner closes it. The session's last comment on the ticket is the **Hand test**: the build lines, spelled out for the branch's own worktree (`cd <absolute path>`, `cargo build --release --locked`, then `<absolute path>/target/release/spacemap <a directory>`), followed by numbered "do X, see Y" steps. The owner walks them in their real terminal and answers `hand test: pass`, or names the failed step, which returns the ticket to the agent. The PR stays open, and the worktree stays, until that answer.
+The owner closes it. The session's last comment on the ticket is the **Hand test**: the setup block of `docs/agents/hand-tests.md` § Handing the steps over with the worktree's absolute path filled in, followed by numbered "do X, see Y" steps, that file's checklists merged with the ticket's own. The owner walks them in their real terminal and answers `hand test: pass`, or names the failed step, which returns the ticket to the agent. The PR stays open, and the worktree stays, until that answer; the agent session the owner opens next lands it by `CLAUDE.md` § An `/implement` session, step 9, and for a spec by `docs/agents/implement-spec.md`.
 
 Done when: the owner has written `hand test: pass` on the ticket.
