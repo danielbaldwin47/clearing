@@ -1,4 +1,4 @@
-//! `App`: selection, route, collector and dialog state, and the keys of the collector review and the Trash dialogs.
+//! `App`: selection, route, collector and dialog state, and the keys of the collector review and confirmation dialogs.
 use crate::{
     collector::{Collector, Record, Toggle},
     scan::{Node, display_path},
@@ -19,6 +19,7 @@ pub struct App {
     pub previous: Vec<usize>,
     pub confirm: bool,
     pub typed: String,
+    pub delete_feedback: &'static str,
     pub message: String,
     pub help: bool,
     /// Items picked for the Trash. It outlives the scan tree: see `rebuild`.
@@ -41,6 +42,7 @@ impl App {
             previous: vec![],
             confirm: false,
             typed: String::new(),
+            delete_feedback: "",
             message: String::new(),
             help: false,
             collector,
@@ -103,6 +105,28 @@ impl App {
         if len > 0 {
             self.selected = (self.selected as isize + delta).rem_euclid(len as isize) as usize;
         }
+    }
+    /// Returns true only when the exact word authorizes permanent deletion.
+    pub fn delete_confirm_key(&mut self, code: KeyCode) -> bool {
+        self.delete_feedback = "";
+        match code {
+            KeyCode::Esc => {
+                self.confirm = false;
+                self.typed.clear();
+            }
+            KeyCode::Backspace => {
+                self.typed.pop();
+            }
+            KeyCode::Char(c) if self.typed.len() < 32 => self.typed.push(c),
+            KeyCode::Enter if self.typed == "delete" => {
+                self.confirm = false;
+                self.typed.clear();
+                return true;
+            }
+            KeyCode::Enter => self.delete_feedback = "Not deleted: type delete to confirm",
+            _ => {}
+        }
+        false
     }
     /// Space while browsing: collect the highlighted entry, or drop it again.
     pub fn toggle_collect(&mut self) {
@@ -298,6 +322,67 @@ mod tests {
                     + "\n"
             })
             .collect()
+    }
+
+    #[test]
+    fn delete_confirmation_rejects_wrong_word_until_next_key() {
+        let base = fixture("delete-keys");
+        let mut app = app(&base);
+        app.confirm = true;
+        for c in "delet".chars() {
+            assert!(!app.delete_confirm_key(KeyCode::Char(c)));
+        }
+        for next in [
+            KeyCode::Left,
+            KeyCode::Backspace,
+            KeyCode::Char('e'),
+            KeyCode::Esc,
+        ] {
+            app.typed = "delet".into();
+            assert!(!app.delete_confirm_key(KeyCode::Enter));
+            assert!(app.confirm);
+            assert_eq!(app.typed, "delet");
+            assert_eq!(app.delete_feedback, "Not deleted: type delete to confirm");
+            assert!(!app.delete_confirm_key(next));
+            assert!(app.delete_feedback.is_empty());
+        }
+        assert!(!app.confirm);
+        assert!(app.typed.is_empty());
+        app.confirm = true;
+        for c in "delete".chars() {
+            assert!(!app.delete_confirm_key(KeyCode::Char(c)));
+        }
+        assert!(app.delete_confirm_key(KeyCode::Enter));
+        assert!(!app.confirm);
+        assert!(app.typed.is_empty());
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn delete_confirmation_renders_feedback_and_only_offers_valid_enter() {
+        let base = fixture("delete-render");
+        let mut app = app(&base);
+        app.confirm = true;
+        for (width, height) in [(60, 20), (80, 24), (140, 44)] {
+            for typed in ["", "delet", "delete", "Delete", "delete "] {
+                app.typed = typed.into();
+                let rendered = screen(&app, width, height);
+                assert_eq!(rendered.contains("Enter delete"), typed == "delete");
+                assert!(rendered.contains("Esc cancel"));
+            }
+            app.typed = "delet".into();
+            assert!(!app.delete_confirm_key(KeyCode::Enter));
+            let rendered = screen(&app, width, height);
+            assert!(rendered.contains("Not deleted: type delete to confirm"));
+            assert!(rendered.contains("Type delete to confirm: delet▏"));
+            assert!(!rendered.contains("Enter delete"));
+            assert!(rendered.contains("Esc cancel"));
+            assert!(!app.delete_confirm_key(KeyCode::Char('e')));
+            let rendered = screen(&app, width, height);
+            assert!(!rendered.contains("Not deleted:"));
+            assert!(rendered.contains("Enter delete"));
+        }
+        fs::remove_dir_all(base).unwrap();
     }
 
     #[test]

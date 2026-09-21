@@ -1,4 +1,4 @@
-//! Command line, the --scan and --snapshot exits, and the terminal loop: browse, scan-time and delete-confirm keys, and the scan, delete and Trash workers.
+//! Command line, the --scan and --snapshot exits, and the terminal loop: browse and scan-time keys, and the scan, delete and Trash workers.
 mod collector;
 mod delete;
 mod platform;
@@ -253,59 +253,42 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             break;
         }
         if app.confirm {
-            match key.code {
-                KeyCode::Esc => {
-                    app.confirm = false;
-                    app.typed.clear()
-                }
-                KeyCode::Backspace => {
-                    app.typed.pop();
-                }
-                KeyCode::Char(c) => {
-                    if app.typed.len() < 32 {
-                        app.typed.push(c)
+            if app.delete_confirm_key(key.code) {
+                let name = app.selection().map(|n| n.name.clone()).unwrap_or_default();
+                let root_path = app.root.path.clone();
+                let outcome = match delete_in_terminal(&mut terminal, &app, &name) {
+                    Ok(outcome) => outcome,
+                    Err(e) => {
+                        drop(terminal);
+                        drop(guard);
+                        return Err(e.into());
+                    }
+                };
+                let summary = delete_message(&name, &outcome);
+                // The scanned tree no longer describes the disk, so it is
+                // either replaced by a fresh scan or never shown again.
+                match rescan_after_delete(&mut terminal, &root_path, &summary) {
+                    Ok(Some((root, seconds))) => {
+                        // The collector outlives the tree it was picked from.
+                        app = app.rebuild(root, seconds);
+                        app.message = summary;
+                    }
+                    Ok(None) => {
+                        drop(terminal);
+                        drop(guard);
+                        let note = format!("{summary}; exited without a current scan");
+                        if matches!(outcome.status, delete::Status::Completed) {
+                            eprintln!("clearing: {note}");
+                            return Ok(());
+                        }
+                        return Err(note.into());
+                    }
+                    Err(e) => {
+                        drop(terminal);
+                        drop(guard);
+                        return Err(format!("{summary}; terminal error: {e}").into());
                     }
                 }
-                KeyCode::Enter if app.typed == "delete" => {
-                    let name = app.selection().map(|n| n.name.clone()).unwrap_or_default();
-                    let root_path = app.root.path.clone();
-                    app.confirm = false;
-                    app.typed.clear();
-                    let outcome = match delete_in_terminal(&mut terminal, &app, &name) {
-                        Ok(outcome) => outcome,
-                        Err(e) => {
-                            drop(terminal);
-                            drop(guard);
-                            return Err(e.into());
-                        }
-                    };
-                    let summary = delete_message(&name, &outcome);
-                    // The scanned tree no longer describes the disk, so it is
-                    // either replaced by a fresh scan or never shown again.
-                    match rescan_after_delete(&mut terminal, &root_path, &summary) {
-                        Ok(Some((root, seconds))) => {
-                            // The collector outlives the tree it was picked from.
-                            app = app.rebuild(root, seconds);
-                            app.message = summary;
-                        }
-                        Ok(None) => {
-                            drop(terminal);
-                            drop(guard);
-                            let note = format!("{summary}; exited without a current scan");
-                            if matches!(outcome.status, delete::Status::Completed) {
-                                eprintln!("clearing: {note}");
-                                return Ok(());
-                            }
-                            return Err(note.into());
-                        }
-                        Err(e) => {
-                            drop(terminal);
-                            drop(guard);
-                            return Err(format!("{summary}; terminal error: {e}").into());
-                        }
-                    }
-                }
-                _ => {}
             }
             continue;
         }
