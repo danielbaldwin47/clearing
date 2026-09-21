@@ -750,7 +750,8 @@ fn draw_compact_row(b: &mut Buffer, r: Rect, app: &App, i: usize) {
     let bar_width = if r.width >= 42 { 4 } else { 2 };
     let bar_x = r.right() - bar_width;
     let pct_x = bar_x - 7;
-    let size_x = pct_x - 9;
+    // 10 cells hold the widest text `size()` produces.
+    let size_x = pct_x - 11;
     let name_x = r.x + rank_width + 1;
     text(
         b,
@@ -781,8 +782,8 @@ fn draw_compact_row(b: &mut Buffer, r: Rect, app: &App, i: usize) {
         b,
         size_x,
         r.y,
-        8,
-        format!("{:>8}", size(n.bytes)),
+        10,
+        format!("{:>10}", size(n.bytes)),
         color,
         bg,
         selected,
@@ -1277,6 +1278,45 @@ mod tests {
         );
         assert!(map.contains("yay"), "{map}");
         assert!(map.matches("smaller items").count() <= 1, "{map}");
+    }
+
+    #[test]
+    fn one_line_list_row_shows_every_size_in_full_at_both_sizes() {
+        let sized = [
+            ("chromium", 10_276_045, "9.8 MiB"),
+            ("yay", 1_048_575, "1024.0 KiB"),
+            ("spotify", 892_928, "872.0 KiB"),
+        ];
+        for (w, h) in [(140, 44), (100, 30)] {
+            let mut app = dense_app();
+            for (child, &(name, bytes, _)) in app.root.children.iter_mut().zip(&sized) {
+                child.name = name.into();
+                child.bytes = bytes;
+            }
+            for child in app.root.children.iter_mut().skip(sized.len()) {
+                child.bytes = 92 * 1024;
+            }
+            app.root.bytes = app.root.children.iter().map(|n| n.bytes).sum();
+            let side = (w / 2 + 6).min(46);
+            let list = contents(&render(&app, w, h), Rect::new(w - side - 2, 0, side, h));
+            println!("List at {w}×{h}:\n{list}");
+            let mut size_ends = vec![];
+            for (name, _, size) in sized {
+                let row = list
+                    .lines()
+                    .find(|row| row.contains(name))
+                    .unwrap_or_else(|| panic!("no List row for {name} at {w}×{h}"));
+                assert!(row.contains(size), "{row}");
+                assert!(!row.contains('…'), "{row}");
+                let cells = row.chars().collect::<Vec<_>>();
+                let end = cells.iter().rposition(|&c| c == 'B').unwrap();
+                size_ends.push(end);
+            }
+            assert!(
+                size_ends.iter().all(|&end| end == size_ends[0]),
+                "{size_ends:?}"
+            );
+        }
     }
 
     #[test]
