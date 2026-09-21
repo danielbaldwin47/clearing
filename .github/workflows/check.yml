@@ -71,7 +71,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, macos-15-intel]
     runs-on: ${{ matrix.os }}
-    # The slowest runner takes 5; a hung acceptance session would otherwise hold its runner for 6 hours.
+    # The slowest runner takes 1 on a warm cache and 3 from cold (#44); a hung acceptance session would otherwise hold its runner for 6 hours.
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
