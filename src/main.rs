@@ -163,8 +163,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     // how refused and failed items look. Nothing is executed.
                     let outcomes = [
                         trash::Outcome::Failed(
-                            "Trash service failed: Trashing on system internal mounts is not supported"
-                                .into(),
+                            "Trashing on system internal mounts is not supported".into(),
                         ),
                         trash::Outcome::Refused(
                             "path now names a different item than the one collected".into(),
@@ -339,14 +338,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 .file_name()
                 .map(scan::display_path)
                 .unwrap_or_default();
-            let summary = match outcome {
-                Some(trash::Outcome::Trashed) => {
-                    format!("Moved {label} to Trash · space is freed when Trash is emptied")
-                }
-                Some(trash::Outcome::Refused(why)) => format!("Trash refused for {label}: {why}"),
-                Some(trash::Outcome::Failed(why)) => format!("Trash failed for {label}: {why}"),
-                _ => format!("Trash cancelled for {label}; item was not processed"),
-            };
+            let summary = single_trash_summary(&label, outcome);
             match rescan_after_delete(&mut terminal, &root_path, &summary) {
                 Ok(Some((root, seconds))) => {
                     app = app.rebuild(root, seconds);
@@ -459,6 +451,17 @@ fn snapshot_collect(app: &mut ui::App) {
     app.selected = 0;
     app.message.clear();
 }
+fn single_trash_summary(label: &str, outcome: Option<&trash::Outcome>) -> String {
+    match outcome {
+        Some(trash::Outcome::Trashed) => {
+            format!("Moved {label} to Trash · space is freed when Trash is emptied")
+        }
+        Some(trash::Outcome::Refused(why)) => format!("Trash refused for {label}: {why}"),
+        Some(trash::Outcome::Failed(why)) => format!("Trash failed: {why} · {label}"),
+        _ => format!("Trash cancelled for {label}; item was not processed"),
+    }
+}
+
 /// Run the confirmed batch on a worker while this thread keeps drawing. Esc
 /// asks the worker to stop before the next item; a gio process that is already
 /// running is left to finish, and the worker is always joined.
@@ -734,5 +737,47 @@ fn ansi_color(w: &mut impl Write, c: Color, bg: bool) -> io::Result<()> {
         Color::Rgb(r, g, b) => write!(w, "\x1b[{code};2;{r};{g};{b}m"),
         Color::Reset => write!(w, "\x1b[{}m", if bg { 49 } else { 39 }),
         _ => write!(w, "\x1b[{code};5;7m"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn trash_failure_summary_leads_with_reason_before_long_label() {
+        let label = "very-long-file-name".repeat(10);
+        let reason = "Trashing on system internal mounts is not supported";
+        let outcome = trash::Outcome::Failed(reason.into());
+        assert_eq!(
+            single_trash_summary(&label, Some(&outcome)),
+            format!("Trash failed: {reason} · {label}")
+        );
+    }
+
+    #[test]
+    fn trash_failure_reason_is_visible_in_an_80_column_footer() {
+        let base =
+            std::env::temp_dir().join(format!("clearing-failure-footer-{}", std::process::id()));
+        std::fs::create_dir_all(&base).unwrap();
+        let root = scan::scan(&base, Arc::new(AtomicU64::new(0))).unwrap();
+        let mut app = ui::App::new(root, 0.);
+        let reason = "Trashing on system internal mounts is not supported";
+        app.message = single_trash_summary(
+            &"long-label".repeat(20),
+            Some(&trash::Outcome::Failed(reason.into())),
+        );
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|f| ui::draw(f, &app)).unwrap();
+        let buffer = terminal.backend().buffer();
+        let screen = (0..24)
+            .map(|y| (0..80).map(|x| buffer[(x, y)].symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            screen.contains(&format!("Trash failed: {reason}")),
+            "{screen}"
+        );
+        std::fs::remove_dir(&base).unwrap();
     }
 }
