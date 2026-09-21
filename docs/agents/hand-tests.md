@@ -4,7 +4,7 @@ The standing "do X, see Y" steps, checked against `scripts/gate snapshot` of eac
 
 ## Handing the steps over
 
-The steps travel whole, in the comment, PR body or report the owner reads: first the setup block below with the worktree's absolute path filled in, then the numbered steps, each written out in full. The owner walks the message in front of them, and a message without the build lines is walked on whatever `spacemap` was built last.
+The steps travel whole, in the comment, PR body or report the owner reads: first the setup block below with the worktree's absolute path filled in, then the numbered steps, each written out in full. The owner walks the message in front of them, and a message without the build lines is walked on whatever `clearing` was built last.
 
 ```sh
 cd <the worktree's absolute path>
@@ -13,7 +13,7 @@ rm -rf .runtime/hand && mkdir -p .runtime/hand/big .runtime/hand/small/nested
 head -c 30M /dev/urandom > .runtime/hand/big/video.bin
 head -c 8M /dev/urandom > .runtime/hand/small/nested/cache.bin
 head -c 2M /dev/urandom > .runtime/hand/small/notes.bin
-./target/release/spacemap .runtime/hand
+./target/release/clearing .runtime/hand
 ```
 
 The tree sits under the worktree's `.runtime/hand`, which git ignores, because `gio trash` refuses a file on `/tmp` ("Trashing on system internal mounts is not supported"). Each section below starts from a fresh tree: the `rm -rf` line onward is run again before it, so a step that trashes or deletes costs nothing and no section depends on the one before.

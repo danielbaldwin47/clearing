@@ -54,7 +54,7 @@ fn main() {
         hook(info)
     }));
     if let Err(e) = run() {
-        eprintln!("spacemap: {e}");
+        eprintln!("clearing: {e}");
         std::process::exit(1)
     }
 }
@@ -71,7 +71,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         match a.to_string_lossy().as_ref() {
             "--help" | "-h" => {
                 println!(
-                    "spacemap — find what ate your disk\n\nUsage: spacemap [OPTIONS] [PATH]\n\n  --scan             Scan and exit without starting the terminal interface\n  --json, --summary   Print a summary JSON object (with --scan)\n  --snapshot STATE   Render overview, drilled, delete, trash, or collector as ANSI\n                     (also collector-browse, collector-confirm,\n                     collector-errors, collector-empty)\n  --width N          Snapshot columns (default 140)\n  --height N         Snapshot rows (default 44)\n  -h, --help         Show this help\n\nKeys: ↑↓ / jk select · Enter open · Backspace back · t Trash · d delete\n      t move selected item to Trash · Space collect · c review collector\n      r rescan · ? help · q quit · Esc cancels a scan or dialog\n\nSizes include allocated file and directory blocks. Symlinks are not followed.\nHard links count once. Deletion is permanent and requires typing delete.\nCollected items use the desktop Trash after typing trash; space is freed\nwhen Trash is emptied. A failed move never falls back to deletion."
+                    "clearing — find what ate your disk\n\nUsage: clearing [OPTIONS] [PATH]\n\n  --scan             Scan and exit without starting the terminal interface\n  --json, --summary   Print a summary JSON object (with --scan)\n  --snapshot STATE   Render overview, drilled, delete, trash, or collector as ANSI\n                     (also collector-browse, collector-confirm,\n                     collector-errors, collector-empty)\n  --width N          Snapshot columns (default 140)\n  --height N         Snapshot rows (default 44)\n  -h, --help         Show this help\n\nKeys: ↑↓ / jk select · Enter open · Backspace back · t Trash · d delete\n      t move selected item to Trash · Space collect · c review collector\n      r rescan · ? help · q quit · Esc cancels a scan or dialog\n\nSizes include allocated file and directory blocks. Symlinks are not followed.\nHard links count once. Deletion is permanent and requires typing delete.\nCollected items use the desktop Trash after typing trash; space is freed\nwhen Trash is emptied. A failed move never falls back to deletion."
                 );
                 return Ok(());
             }
@@ -293,7 +293,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                             drop(guard);
                             let note = format!("{summary}; exited without a current scan");
                             if matches!(outcome.status, delete::Status::Completed) {
-                                eprintln!("spacemap: {note}");
+                                eprintln!("clearing: {note}");
                                 return Ok(());
                             }
                             return Err(note.into());
@@ -351,7 +351,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 Ok(None) => {
                     drop(terminal);
                     drop(guard);
-                    eprintln!("spacemap: {summary}; exited without a current scan");
+                    eprintln!("clearing: {summary}; exited without a current scan");
                     return Ok(());
                 }
                 Err(e) => {
@@ -390,7 +390,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 Ok(None) => {
                     drop(terminal);
                     drop(guard);
-                    eprintln!("spacemap: {summary}; exited without a current scan");
+                    eprintln!("clearing: {summary}; exited without a current scan");
                     return Ok(());
                 }
                 Err(e) => {

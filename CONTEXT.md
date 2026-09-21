@@ -1,4 +1,4 @@
-# spacemap
+# clearing
 
 A terminal disk-usage explorer: it shows where disk space went and lets the user reclaim it safely.
 

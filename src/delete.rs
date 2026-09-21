@@ -258,7 +258,7 @@ mod tests {
     };
     fn dir() -> std::path::PathBuf {
         let p = std::env::temp_dir().join(format!(
-            "spacemap-delete-{}-{}",
+            "clearing-delete-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
