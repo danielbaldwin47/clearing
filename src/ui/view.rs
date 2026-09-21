@@ -427,7 +427,7 @@ pub fn draw(f: &mut Frame, app: &App) {
             draw_trash_confirm(f, app)
         }
     } else if app.help {
-        let r = Rect::new((w - 60) / 2, (h - 18) / 2, 60, 18);
+        let r = Rect::new((w - 60) / 2, (h - 20) / 2, 60, 20);
         f.render_widget(Clear, r);
         f.render_widget(
             Block::default()
@@ -437,7 +437,7 @@ pub fn draw(f: &mut Frame, app: &App) {
                 .style(Style::default().bg(PANEL).fg(ACCENT)),
             r,
         );
-        f.render_widget(Paragraph::new("↑ / ↓ or j / k    Select an entry\nEnter / →         Open directory\nBackspace / ←     Parent directory\nSpace             Collect / uncollect entry for Trash\nc                 Review collector, t moves it to Trash\nt                 Move selected entry to system Trash\nd                 Delete selected entry permanently\nr                 Rescan root (Esc cancels)\n?                 Toggle this help\nq / Esc           Quit (or close dialog)\n\nSizes include allocated file and directory blocks.\nSymlinks stay separate. Hard links count once.").style(Style::default().fg(FG).bg(PANEL)),Rect::new(r.x+2,r.y+2,r.width-4,r.height-4));
+        f.render_widget(Paragraph::new("↑ / ↓ or j / k    Select an entry\nEnter / →         Open directory\nBackspace / ←     Parent directory\nHome              Jump to the first entry\nEnd               Jump to the last entry\nPgUp              Move eight entries\nPgDn              Move eight entries\nSpace             Collect / uncollect entry for Trash\nc                 Review collector, t moves it to Trash\nt                 Move selected entry to system Trash\nd                 Delete selected entry permanently\nr                 Rescan root (Esc cancels)\n?                 Toggle this help\nq / Esc           Quit (or close dialog)\n\nSizes include allocated file and directory blocks.\nSymlinks stay separate. Hard links count once.").style(Style::default().fg(FG).bg(PANEL)),Rect::new(r.x+2,r.y+1,r.width-4,r.height-2));
     }
 }
 /// Dense maps retain sibling identities rather than folding them into a large remainder.
@@ -819,6 +819,49 @@ mod tests {
             })
             .collect::<Vec<_>>()
             .join("\n")
+    }
+
+    #[test]
+    fn help_lists_navigation_keys_without_clipping_at_both_sizes() {
+        let mut app = dense_app();
+        app.help = true;
+        let rows = [
+            "↑ / ↓ or j / k    Select an entry",
+            "Enter / →         Open directory",
+            "Backspace / ←     Parent directory",
+            "Home              Jump to the first entry",
+            "End               Jump to the last entry",
+            "PgUp              Move eight entries",
+            "PgDn              Move eight entries",
+            "Space             Collect / uncollect entry for Trash",
+            "c                 Review collector, t moves it to Trash",
+            "t                 Move selected entry to system Trash",
+            "d                 Delete selected entry permanently",
+            "r                 Rescan root (Esc cancels)",
+            "?                 Toggle this help",
+            "q / Esc           Quit (or close dialog)",
+            "",
+            "Sizes include allocated file and directory blocks.",
+            "Symlinks stay separate. Hard links count once.",
+        ];
+        for (w, h) in [(140, 44), (60, 20)] {
+            let b = render(&app, w, h);
+            let overlay = Rect::new((w - 60) / 2, (h - 20) / 2, 60, 20);
+            println!("Help overlay at {w}×{h}:\n{}", contents(&b, overlay));
+            for (i, expected) in rows.iter().enumerate() {
+                let y = overlay.y + 1 + i as u16;
+                let row = contents(&b, Rect::new(overlay.x + 1, y, 58, 1));
+                assert_eq!(row.trim(), *expected, "row {i} at {w}×{h}");
+            }
+            for y in overlay.y + 1..overlay.bottom() - 1 {
+                assert_eq!(b[(overlay.x, y)].symbol(), "│");
+                assert_eq!(b[(overlay.right() - 1, y)].symbol(), "│");
+            }
+            assert_eq!(
+                contents(&b, Rect::new(overlay.x, overlay.bottom() - 1, 60, 1)),
+                format!("╰{}╯", "─".repeat(58))
+            );
+        }
     }
 
     #[test]
