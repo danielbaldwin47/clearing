@@ -265,8 +265,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 };
                 let summary = delete_message(&name, &outcome);
-                // The scanned tree no longer describes the disk, so it is
-                // either replaced by a fresh scan or never shown again.
+                if matches!(outcome.status, delete::Status::Completed) && app.remove_selection() {
+                    app.message = summary;
+                    continue;
+                }
+                // Partial outcomes and shared allocations need a fresh scan.
                 match rescan_after_delete(&mut terminal, &root_path, &summary) {
                     Ok(Some((root, seconds))) => {
                         // The collector outlives the tree it was picked from.
@@ -319,6 +322,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 .map(scan::display_path)
                 .unwrap_or_default();
             let summary = single_trash_summary(&label, outcome);
+            if matches!(outcome, Some(trash::Outcome::Trashed))
+                && !report.cancelled
+                && app.remove_selection()
+            {
+                app.message = summary;
+                continue;
+            }
             match rescan_after_delete(&mut terminal, &root_path, &summary) {
                 Ok(Some((root, seconds))) => {
                     app = app.rebuild(root, seconds);

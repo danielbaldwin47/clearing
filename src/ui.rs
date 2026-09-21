@@ -71,6 +71,19 @@ impl App {
     pub fn current(&self) -> &Node {
         self.root.at(&self.route)
     }
+    /// Apply a completed single action, retaining the route and selected row.
+    /// False asks the caller to rescan instead.
+    pub fn remove_selection(&mut self) -> bool {
+        if !self.root.remove(&self.route, self.selected) {
+            return false;
+        }
+        self.selected = self
+            .selected
+            .min(self.current().children.len().saturating_sub(1));
+        self.collector.reconcile(&self.root);
+        self.clamp_review();
+        true
+    }
     pub fn selection(&self) -> Option<&Node> {
         self.current().children.get(self.selected)
     }
@@ -329,6 +342,33 @@ mod tests {
                     + "\n"
             })
             .collect()
+    }
+
+    #[test]
+    fn removal_keeps_route_and_row_clamps_last_and_reconciles_collector() {
+        let base = fixture("remove-selection");
+        fs::create_dir(base.join("nested")).unwrap();
+        for name in ["a", "b", "c"] {
+            fs::write(base.join("nested").join(name), [1; 4096]).unwrap();
+        }
+        let mut app = app(&base);
+        select(&mut app, "nested");
+        app.drill();
+        select(&mut app, "b");
+        app.toggle_collect();
+        let route = app.route.clone();
+        let previous = app.previous.clone();
+        for (name, selected, next) in [("b", 1, Some("c")), ("c", 0, Some("a")), ("a", 0, None)] {
+            fs::remove_file(base.join("nested").join(name)).unwrap();
+            assert!(app.remove_selection());
+            assert_eq!(app.route, route);
+            assert_eq!(app.previous, previous);
+            assert_eq!(app.selected, selected);
+            assert_eq!(app.selection().map(|n| n.name.as_str()), next);
+            assert!(app.collector.records()[0].stale.is_some());
+        }
+        assert!(!app.remove_selection());
+        fs::remove_dir_all(base).unwrap();
     }
 
     #[test]
