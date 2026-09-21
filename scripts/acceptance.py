@@ -431,6 +431,49 @@ class InteractionAcceptance(ScanAcceptance):
         self.assertFalse(target.exists(), 'exact confirmed deletion did not remove selected file')
         self.assertTrue(self.path.exists())
 
+    def test_single_delete_updates_total_and_keeps_row_without_scan(self):
+        (self.path / 'largest').write_bytes(b'x' * 32768)
+        target = self.path / 'candidate'
+        target.write_bytes(b'x' * 16384)
+        for index in range(30):
+            (self.path / f'keep-{index:02d}').write_bytes(b'x' * 4096)
+        allocated = target.stat().st_blocks * 512
+        session = self.session()
+        session.send(b'j')  # candidate is row 02; keep-00 will take its place.
+        session.read()
+
+        def row(number):
+            # Replay absolute cursor writes, including partial changed cells.
+            # This fixture and the UI use only single-column characters.
+            output = re.sub(rb'\x1b\[[0-9;]*m', b'', bytes(session.output))
+            cells = [' '] * 100
+            for y, x, text in re.findall(rb'\x1b\[(\d+);(\d+)H([^\x1b]*)', output):
+                if int(y) == number:
+                    start = int(x) - 1
+                    value = text.decode('utf-8')[:100 - start]
+                    cells[start:start + len(value)] = value
+            return ''.join(cells)
+
+        def header_total():
+            total = row(2)[73:].strip()
+            self.assertRegex(total, r'^\d+\.\d+ KiB$')
+            return float(total.split()[0])
+
+        before_total = header_total()
+        self.assertTrue(row(11)[52:].startswith('02 candidate'))
+        self.assertTrue(row(29)[5:].startswith('candidate'))
+        session.send(b'd')
+        start = len(session.output)
+        session.send(b'delete\r', 2, until=IDLE)
+        session.read()  # Finish the frame after its heading matched.
+        after = ANSI.sub(b'', session.output[start:])
+        self.assertFalse(target.exists())
+        self.assertNotIn(b'Reading disk allocation', after)
+        self.assertNotIn(b'entries scanned', after)
+        self.assertEqual(before_total - header_total(), allocated / 1024)
+        self.assertTrue(row(11)[52:].startswith('02 keep-00'))
+        self.assertTrue(row(29)[5:].startswith('keep-00'), 'selection did not stay on row 02')
+
     def test_drill_back_and_delete_directory_without_following_symlink(self):
         target = self.path / 'candidate'
         target.mkdir()
