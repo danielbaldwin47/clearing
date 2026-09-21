@@ -6,7 +6,9 @@ on:
   push:
     branches: [main]
     paths-ignore: ["**.md"]
+  # A ticket's pull request into a spec branch starts no run: the spec's own pull request is its check.
   pull_request:
+    branches: [main]
     paths-ignore: ["**.md"]
   workflow_dispatch:
 
