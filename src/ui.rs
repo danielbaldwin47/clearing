@@ -27,6 +27,7 @@ pub struct App {
     pub review: bool,
     pub review_selected: usize,
     pub trash_confirm: bool,
+    pub trash_feedback: &'static str,
     /// An isolated direct action; never includes the cross-directory collector.
     pub single_trash: Option<Record>,
 }
@@ -49,6 +50,7 @@ impl App {
             review: false,
             review_selected: 0,
             trash_confirm: false,
+            trash_feedback: "",
             single_trash: None,
         }
     }
@@ -157,6 +159,7 @@ impl App {
             Toggle::Added { .. } => {
                 self.single_trash = isolated.remove(0);
                 self.typed.clear();
+                self.trash_feedback = "";
                 self.message.clear();
             }
             Toggle::Refused(why) => self.message = format!("Cannot move to Trash: {why}"),
@@ -165,6 +168,7 @@ impl App {
     }
     /// Keep the captured record untouched until the exact word is confirmed.
     pub fn single_trash_key(&mut self, code: KeyCode) -> bool {
+        self.trash_feedback = "";
         match code {
             KeyCode::Esc => {
                 self.single_trash = None;
@@ -178,6 +182,7 @@ impl App {
                 self.typed.clear();
                 return true;
             }
+            KeyCode::Enter => self.trash_feedback = "Not moved: type trash to confirm",
             _ => {}
         }
         false
@@ -213,6 +218,7 @@ impl App {
     /// Keys while the review or its Trash confirmation is open. Returns true
     /// once the user has typed the confirmation and the batch should run.
     pub fn review_key(&mut self, code: KeyCode) -> bool {
+        self.trash_feedback = "";
         if self.trash_confirm {
             match code {
                 KeyCode::Esc => {
@@ -232,6 +238,7 @@ impl App {
                     self.typed.clear();
                     return true;
                 }
+                KeyCode::Enter => self.trash_feedback = "Not moved: type trash to confirm",
                 _ => {}
             }
             return false;
@@ -381,6 +388,126 @@ mod tests {
             let rendered = screen(&app, width, height);
             assert!(!rendered.contains("Not deleted:"));
             assert!(rendered.contains("Enter delete"));
+        }
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn single_trash_rejects_wrong_word_until_next_key() {
+        let base = fixture("single-trash-feedback");
+        let mut app = app(&base);
+        select(&mut app, "file");
+        app.toggle_collect();
+        app.open_single_trash();
+        let captured = app.single_trash.clone().unwrap();
+        for next in [
+            KeyCode::Left,
+            KeyCode::Backspace,
+            KeyCode::Char('h'),
+            KeyCode::Esc,
+        ] {
+            app.typed.clear();
+            for c in "tras".chars() {
+                assert!(!app.single_trash_key(KeyCode::Char(c)));
+            }
+            assert!(!app.single_trash_key(KeyCode::Enter));
+            let pending = app.single_trash.as_ref().unwrap();
+            assert_eq!(pending.path, captured.path);
+            assert_eq!(pending.identity, captured.identity);
+            assert_eq!(app.typed, "tras");
+            assert_eq!(app.trash_feedback, "Not moved: type trash to confirm");
+            assert_eq!(app.collector.len(), 1);
+            assert!(captured.path.exists());
+            assert!(!app.single_trash_key(next));
+            assert!(app.trash_feedback.is_empty());
+        }
+        assert!(app.single_trash.is_none());
+        assert!(app.typed.is_empty());
+        app.open_single_trash();
+        for c in "trash".chars() {
+            assert!(!app.single_trash_key(KeyCode::Char(c)));
+        }
+        assert!(app.single_trash_key(KeyCode::Enter));
+        assert!(app.typed.is_empty());
+        assert!(app.trash_feedback.is_empty());
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn review_trash_rejects_wrong_word_until_next_key() {
+        let base = fixture("review-trash-feedback");
+        let mut app = app(&base);
+        select(&mut app, "file");
+        app.toggle_collect();
+        app.open_review();
+        app.review_key(KeyCode::Char('t'));
+        for next in [
+            KeyCode::Left,
+            KeyCode::Backspace,
+            KeyCode::Char('h'),
+            KeyCode::Esc,
+        ] {
+            app.typed.clear();
+            for c in "tras".chars() {
+                assert!(!app.review_key(KeyCode::Char(c)));
+            }
+            assert!(!app.review_key(KeyCode::Enter));
+            assert!(app.review && app.trash_confirm);
+            assert_eq!(app.typed, "tras");
+            assert_eq!(app.trash_feedback, "Not moved: type trash to confirm");
+            assert_eq!(app.collector.len(), 1);
+            assert_eq!(app.collector.records()[0].path, base.join("file"));
+            assert!(base.join("file").exists());
+            assert!(!app.review_key(next));
+            assert!(app.trash_feedback.is_empty());
+        }
+        assert!(app.review && !app.trash_confirm);
+        assert!(app.typed.is_empty());
+        app.review_key(KeyCode::Char('t'));
+        for c in "trash".chars() {
+            assert!(!app.review_key(KeyCode::Char(c)));
+        }
+        assert!(app.review_key(KeyCode::Enter));
+        assert!(!app.trash_confirm);
+        assert!(app.typed.is_empty());
+        assert!(app.trash_feedback.is_empty());
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn trash_confirmations_render_feedback_and_only_offer_valid_enter() {
+        let base = fixture("trash-render");
+        for single in [false, true] {
+            let mut app = app(&base);
+            select(&mut app, "file");
+            let key = if single {
+                app.open_single_trash();
+                App::single_trash_key
+            } else {
+                app.toggle_collect();
+                app.open_review();
+                app.review_key(KeyCode::Char('t'));
+                App::review_key
+            };
+            for (width, height) in [(60, 20), (80, 24), (140, 44)] {
+                for typed in ["", "tras", "trash", "Trash", "trash "] {
+                    app.typed = typed.into();
+                    let rendered = screen(&app, width, height);
+                    assert_eq!(rendered.contains("Enter move to Trash"), typed == "trash");
+                    assert!(rendered.contains("Esc cancel"));
+                }
+                app.typed = "tras".into();
+                assert!(!key(&mut app, KeyCode::Enter));
+                let rendered = screen(&app, width, height);
+                assert!(rendered.contains("Not moved: type trash to confirm"));
+                assert!(rendered.contains("Type trash to confirm: tras▏"));
+                assert!(!rendered.contains("Enter move to Trash"));
+                assert!(rendered.contains("Esc cancel"));
+                assert!(!key(&mut app, KeyCode::Char('h')));
+                let rendered = screen(&app, width, height);
+                assert!(!rendered.contains("Not moved:"));
+                assert!(rendered.contains("Enter move to Trash"));
+            }
         }
         fs::remove_dir_all(base).unwrap();
     }
