@@ -1,4 +1,4 @@
-//! PROTOTYPE (ticket #3), variant E: ranked folder windows with proportional nested groups; throwaway.
+//! PROTOTYPE (ticket #3), variant G: shared walls, every block outlined and siblings wall to wall; throwaway.
 #![allow(dead_code)]
 use super::{
     App,
@@ -12,7 +12,7 @@ use ratatui::{
     buffer::Buffer,
     layout::Rect,
     style::{Color, Style},
-    widgets::{Block, BorderType, Borders, Clear, Paragraph, Widget},
+    widgets::{Block, Borders, Clear, Paragraph, Widget},
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -385,39 +385,29 @@ pub fn draw(f: &mut Frame, app: &App) {
         f.render_widget(Paragraph::new("↑ / ↓ or j / k    Select an entry\nEnter / →         Open directory\nBackspace / ←     Parent directory\nHome              Jump to the first entry\nEnd               Jump to the last entry\nPgUp              Move eight entries\nPgDn              Move eight entries\nSpace             Collect / uncollect entry for Trash\nc                 Review collector, t moves it to Trash\nt                 Move selected entry to system Trash\nd                 Delete selected entry permanently\nr                 Rescan root (Esc cancels)\n?                 Toggle this help\nq / Esc           Quit (or close dialog)\n\nSizes include allocated file and directory blocks.\nSymlinks stay separate. Hard links count once.").style(Style::default().fg(FG).bg(PANEL)),Rect::new(r.x+2,r.y+1,r.width-4,r.height-2));
     }
 }
-/// Dense maps retain sibling identities rather than folding them into a large remainder.
-fn sibling_entries(node: &crate::scan::Node) -> Vec<MapEntry<'_>> {
-    let mut entries: Vec<_> = node
-        .children
-        .iter()
-        .enumerate()
-        .filter(|(_, n)| n.bytes > 0)
-        .map(|(i, n)| MapEntry {
-            node: Some(n),
-            index: Some(i),
-            bytes: n.bytes,
-            label: n.name.clone(),
-        })
-        .collect();
-    let metadata = node
-        .bytes
-        .saturating_sub(entries.iter().map(|n| n.bytes).sum());
-    if metadata > 0 {
-        entries.push(MapEntry {
-            node: None,
-            index: None,
-            bytes: metadata,
-            label: "Metadata".into(),
-        });
-    }
-    entries
-}
+// ---------------------------------------------------------------------------
+// Variant G, "shared walls": every block has its own thin outline and siblings
+// sit wall to wall inside a folder. Gaps exist only between top-level Tiles.
+// ---------------------------------------------------------------------------
 
-struct MapTile<'a> {
-    rect: Rect,
-    entry: MapEntry<'a>,
-    indices: Vec<usize>,
-    inline: bool,
+const COL_GAP: u16 = 1;
+const ROW_GAP: u16 = 1;
+const MAX_DEPTH: usize = 4;
+const MAX_KEEP: usize = 26;
+
+#[derive(Clone)]
+struct Blk<'a> {
+    node: Option<&'a crate::scan::Node>,
+    /// Index among the current view's children (top level only).
+    index: Option<usize>,
+    /// Top-level indices gathered into a remainder block.
+    members: Vec<usize>,
+    bytes: u64,
+    label: String,
+    count: usize,
+    remainder: bool,
+    /// May go unlabelled (a grain of small things) when no label fits.
+    loose: bool,
 }
 
 fn item_count(label: &str) -> usize {
@@ -432,109 +422,79 @@ fn item_count(label: &str) -> usize {
     }
 }
 
-fn remainder_name(count: usize, width: u16) -> String {
-    for name in [format!("{count} smaller items"), format!("{count} smaller")] {
-        if name.width() <= width as usize {
-            return name;
-        }
+fn blocks_of(node: &crate::scan::Node) -> Vec<Blk<'_>> {
+    let mut out: Vec<_> = node
+        .children
+        .iter()
+        .enumerate()
+        .filter(|(_, n)| n.bytes > 0)
+        .map(|(i, n)| Blk {
+            node: Some(n),
+            index: Some(i),
+            members: vec![i],
+            bytes: n.bytes,
+            label: if n.is_dir && !n.name.ends_with(" smaller items") {
+                format!("{}/", n.name)
+            } else {
+                n.name.clone()
+            },
+            count: item_count(&n.name),
+            remainder: n.name.ends_with(" smaller items"),
+            loose: n.name.ends_with(" smaller items"),
+        })
+        .collect();
+    let metadata = node
+        .bytes
+        .saturating_sub(out.iter().map(|n| n.bytes).sum());
+    if metadata > 0 {
+        out.push(Blk {
+            node: None,
+            index: None,
+            members: Vec::new(),
+            bytes: metadata,
+            label: "metadata".into(),
+            count: 0,
+            remainder: false,
+            loose: true,
+        });
     }
-    String::new()
+    // A tail node already stands for many small items: it always ends in the remainder.
+    out.sort_by(|a, b| a.remainder.cmp(&b.remainder).then(b.bytes.cmp(&a.bytes)));
+    out
 }
 
-/// Largest-remainder rounding covers the available cells, without a minimum
-/// allocation that silently gives tiny entries extra area.
-fn cell_shares(weights: &[f64], cells: u16) -> Vec<u16> {
-    let total = weights.iter().sum::<f64>().max(0.000001);
-    let exact: Vec<_> = weights.iter().map(|n| *n / total * cells as f64).collect();
-    let mut sizes: Vec<_> = exact.iter().map(|n| n.floor() as u16).collect();
-    let mut order: Vec<_> = (0..weights.len()).collect();
-    order.sort_by(|&a, &b| {
-        (exact[b] - sizes[b] as f64)
-            .total_cmp(&(exact[a] - sizes[a] as f64))
-            .then(a.cmp(&b))
-    });
-    let extra = cells.saturating_sub(sizes.iter().sum());
-    for &i in order.iter().take(extra as usize) {
-        sizes[i] += 1;
-    }
-    sizes
-}
-
-/// Rows preserve rank, with an optional single leading column: that column's
-/// one entry is still read before every entry to its right.
-fn row_candidates(weights: &[f64], r: Rect, peels_allowed: u8) -> Vec<Vec<Rect>> {
-    if weights.is_empty() || r.is_empty() {
-        return Vec::new();
-    }
-    let n = weights.len();
-    let mut out = Vec::new();
-    let mut peels = vec![0];
-    if peels_allowed > 0 && n > 1 && r.width > 4 {
-        let ideal =
-            ((r.width - 1) as f64 * weights[0] / weights.iter().sum::<f64>()).round() as u16;
-        for width in ideal.saturating_sub(4).max(1)..=(ideal + 2).min(r.width - 2) {
-            peels.push(width);
-        }
-    }
-    for peel in peels {
-        let offset = usize::from(peel > 0);
-        let work = if peel > 0 {
-            Rect::new(r.x + peel + 1, r.y, r.width - peel - 1, r.height)
-        } else {
-            r
-        };
-        if peel > 0 && peels_allowed > 1 {
-            for mut rest in row_candidates(&weights[1..], work, peels_allowed - 1) {
-                let mut rects = vec![Rect::new(r.x, r.y, peel, r.height)];
-                rects.append(&mut rest);
-                out.push(rects);
-            }
-        }
-        for mask in 0..(1_usize << (n - offset).saturating_sub(1)) {
-            let mut ends = Vec::new();
-            for i in (offset + 1)..n {
-                if mask & (1 << (i - offset - 1)) != 0 {
-                    ends.push(i);
-                }
-            }
-            ends.push(n);
-            if ends.len() as u16 > work.height {
-                continue;
-            }
-            let mut start = offset;
-            let mut row_weights = Vec::new();
-            let mut widths = Vec::new();
-            for &end in &ends {
-                let columns = end - start;
-                if columns as u16 > work.width {
-                    break;
-                }
-                let usable = work.width - (columns as u16 - 1);
-                row_weights.push(weights[start..end].iter().sum::<f64>() / usable.max(1) as f64);
-                widths.push(cell_shares(&weights[start..end], usable));
-                start = end;
-            }
-            if widths.len() != ends.len() {
-                continue;
-            }
-            let heights = cell_shares(&row_weights, work.height - (ends.len() as u16 - 1));
-            let mut rects = Vec::new();
-            if peel > 0 {
-                rects.push(Rect::new(r.x, r.y, peel, r.height));
-            }
-            let mut y = work.y;
-            for (row, &height) in heights.iter().enumerate() {
-                let mut x = work.x;
-                for &width in &widths[row] {
-                    rects.push(Rect::new(x, y, width, height));
-                    x += width + 1;
-                }
-                y += height + 1;
-            }
-            out.push(rects);
-        }
+/// The first `keep` blocks, then one block for everything after them.
+fn grouped<'a>(all: &[Blk<'a>], keep: usize) -> Vec<Blk<'a>> {
+    let mut out: Vec<Blk<'a>> = all[..keep].to_vec();
+    let rest = &all[keep..];
+    if rest.len() == 1 {
+        out.push(Blk {
+            loose: true,
+            ..rest[0].clone()
+        });
+    } else if !rest.is_empty() {
+        let count: usize = rest.iter().map(|n| n.count).sum();
+        out.push(Blk {
+            node: None,
+            index: None,
+            members: rest.iter().flat_map(|n| n.members.clone()).collect(),
+            bytes: rest.iter().map(|n| n.bytes).sum(),
+            label: format!("{count} smaller items"),
+            count,
+            remainder: true,
+            loose: true,
+        });
     }
     out
+}
+
+/// Label spellings, longest first. Only the remainder block has a short form.
+fn spellings(blk: &Blk<'_>) -> Vec<String> {
+    if blk.remainder {
+        vec![blk.label.clone(), format!("{} smaller", blk.count)]
+    } else {
+        vec![blk.label.clone()]
+    }
 }
 
 fn name_lines(name: &str, width: u16) -> Vec<String> {
@@ -556,12 +516,11 @@ fn name_lines(name: &str, width: u16) -> Vec<String> {
                 boundary = i + ch.len_utf8();
             }
         }
-        let cut = boundary;
-        if cut == 0 {
+        if boundary == 0 {
             return Vec::new();
         }
-        lines.push(rest[..cut].trim().to_owned());
-        rest = rest[cut..].trim_start();
+        lines.push(rest[..boundary].trim().to_owned());
+        rest = rest[boundary..].trim_start();
     }
     if !rest.is_empty() {
         lines.push(rest.to_owned());
@@ -569,466 +528,313 @@ fn name_lines(name: &str, width: u16) -> Vec<String> {
     lines
 }
 
-/// Solve visible surfaces after the gaps. The remainder is an ordinary last
-/// cell; counts are local to this sibling set and selection is not an input.
-fn ranked_layout<'a>(
-    entries: &[MapEntry<'a>],
-    r: Rect,
-    depth: usize,
-    app: &App,
-) -> Vec<MapTile<'a>> {
-    if entries.is_empty() || r.is_empty() {
-        return Vec::new();
+/// Narrowest outline that still holds this block's whole label at height `h`.
+fn need_w(blk: &Blk<'_>, h: u16) -> Option<u16> {
+    if h < 3 {
+        return None;
     }
-    let compact = app.current().children.len() > 16;
-    for keep in (0..=entries.len().min(12)).rev() {
-        let mut groups: Vec<(MapEntry<'a>, Vec<usize>)> = entries[..keep]
+    let value = size(blk.bytes).width();
+    let name = spellings(blk).last().map(|s| s.width()).unwrap_or(0);
+    let mut best = if h == 3 {
+        name + 2 + value
+    } else {
+        name.max(value)
+    };
+    if h >= 5 && !blk.remainder {
+        for width in value.max(5)..name {
+            let lines = name_lines(&blk.label, width as u16);
+            if !lines.is_empty() && lines.len() <= 2 {
+                best = best.min(width);
+                break;
+            }
+        }
+    }
+    Some(best as u16 + 4)
+}
+
+/// Largest-remainder shares of `cells`, then each share lifted to its minimum
+/// at the cost of whichever share has the most slack.
+fn shares_min(weights: &[f64], cells: u16, mins: &[u16]) -> Option<Vec<u16>> {
+    if mins.iter().map(|m| *m as u32).sum::<u32>() > cells as u32 {
+        return None;
+    }
+    let total = weights.iter().sum::<f64>().max(0.000001);
+    let exact: Vec<_> = weights.iter().map(|n| *n / total * cells as f64).collect();
+    let mut sizes: Vec<_> = exact.iter().map(|n| n.floor() as u16).collect();
+    let mut order: Vec<_> = (0..weights.len()).collect();
+    order.sort_by(|&a, &b| {
+        (exact[b] - sizes[b] as f64)
+            .total_cmp(&(exact[a] - sizes[a] as f64))
+            .then(a.cmp(&b))
+    });
+    let extra = cells.saturating_sub(sizes.iter().sum());
+    for &i in order.iter().take(extra as usize) {
+        sizes[i] += 1;
+    }
+    loop {
+        let Some(short) = (0..sizes.len()).find(|&i| sizes[i] < mins[i]) else {
+            return Some(sizes);
+        };
+        let donor = (0..sizes.len())
+            .filter(|&i| sizes[i] > mins[i])
+            .max_by_key(|&i| sizes[i] - mins[i])?;
+        sizes[donor] -= 1;
+        sizes[short] += 1;
+    }
+}
+
+fn overdrawn(actual: u32, ideal: f64, area: f64, nested: bool) -> bool {
+    let _ = area;
+    let slack = if nested { 16.0 } else { 10.0 };
+    actual as f64 > ideal * 1.3 + slack || (actual as f64) < ideal * 0.7 - slack
+}
+
+fn shape_cost(w: u16, h: u16) -> f64 {
+    // A cell is about twice as tall as wide; blocks a little wider than square read best.
+    (w as f64 * 0.45 / h as f64 / 1.3).ln().abs()
+}
+
+/// One strip of blocks `i..j`. Rows: side by side at one height. Columns: stacked at one width.
+/// Sizes are in layout cells; with shared walls (`ov` = 1) an outline is one cell larger each way.
+fn strip_with(
+    blks: &[Blk<'_>],
+    total: f64,
+    r: Rect,
+    gaps: (u16, u16),
+    ov: u16,
+    columns: bool,
+    thickness: u16,
+    relax: bool,
+) -> Option<(f64, Vec<(u16, u16)>)> {
+    let n = blks.len() as u16;
+    let weights: Vec<_> = blks.iter().map(|b| b.bytes as f64).collect();
+    let area = r.width as f64 * r.height as f64;
+    let loose = |b: &Blk<'_>| relax && b.loose;
+    let dims: Vec<(u16, u16)> = if columns {
+        let usable = r.height.checked_sub(gaps.1 * (n - 1))?;
+        let heights = shares_min(&weights, usable, &vec![3 - ov; blks.len()])?;
+        for (b, h) in blks.iter().zip(&heights) {
+            let need = if loose(b) { 4 } else { need_w(b, *h + ov)? };
+            if need > thickness + ov {
+                return None;
+            }
+        }
+        heights.into_iter().map(|h| (thickness, h)).collect()
+    } else {
+        let usable = r.width.checked_sub(gaps.0 * (n - 1))?;
+        let mins: Option<Vec<u16>> = blks
             .iter()
-            .enumerate()
-            .map(|(i, n)| {
-                (
-                    MapEntry {
-                        node: n.node,
-                        index: n.index,
-                        bytes: n.bytes,
-                        label: n.label.clone(),
-                    },
-                    vec![i],
-                )
+            .map(|b| {
+                if loose(b) {
+                    Some(4 - ov)
+                } else {
+                    need_w(b, thickness + ov).map(|w| w - ov)
+                }
             })
             .collect();
-        if keep < entries.len() {
-            let count = entries[keep..]
-                .iter()
-                .map(|n| item_count(&n.label))
-                .sum::<usize>();
-            groups.push((
-                MapEntry {
-                    node: None,
-                    index: None,
-                    bytes: entries[keep..].iter().map(|n| n.bytes).sum(),
-                    label: format!("{count} smaller items"),
-                },
-                (keep..entries.len()).collect(),
-            ));
-        }
-        let weights: Vec<_> = groups.iter().map(|(e, _)| e.bytes as f64).collect();
-        let n = groups.len();
-        if n == 0 {
-            continue;
-        }
-        let total = weights.iter().sum::<f64>().max(1.0);
-        // Reject unreadable shares before enumerating layouts, especially the
-        // long tail of tiny children in a small nested group.
-        if groups.iter().any(|(e, _)| {
-            let label = if e.label.ends_with(" smaller items") {
-                format!("{} smaller", item_count(&e.label))
-            } else {
-                e.label.clone()
-            };
-            let mark = usize::from(e.node.is_some_and(|n| collected_glyph(app, n).is_some())) * 2;
-            let value = size(e.bytes).width();
-            let mut minimum = if compact && depth == 0 {
-                usize::MAX
-            } else {
-                label.width() + value + 4 + mark
-            };
-            for width in (value + 2)..=(label.width().max(value) + 2 + mark) {
-                let lines = name_lines(&label, width.saturating_sub(2 + mark) as u16);
-                if !lines.is_empty() && lines.len() <= if depth == 0 { 1 } else { 2 } {
-                    minimum =
-                        minimum.min(width * (lines.len() + 1 + usize::from(compact && depth == 0)));
-                }
-            }
-            minimum as f64 > r.width as f64 * r.height as f64 * e.bytes as f64 / total * 1.28
-        }) {
-            continue;
-        }
-        let mut candidates = row_candidates(
-            &weights,
-            r,
-            if depth > 0 || !compact && n <= 4 {
-                2
-            } else {
-                0
-            },
-        );
-        // A leading ranked row can leave a taller, nested region below it.
-        if r.height >= 5 {
-            for split in 1..n.min(r.width as usize) {
-                let ideal = ((r.height - 1) as f64 * weights[..split].iter().sum::<f64>() / total)
-                    .round() as u16;
-                for height in ideal.saturating_sub(1).max(1)..=(ideal + 1).min(r.height - 2) {
-                    let widths = cell_shares(&weights[..split], r.width - (split as u16 - 1));
-                    let mut row = Vec::new();
-                    let mut x = r.x;
-                    for width in widths {
-                        row.push(Rect::new(x, r.y, width, height));
-                        x += width + 1;
-                    }
-                    let below = Rect::new(r.x, r.y + height + 1, r.width, r.height - height - 1);
-                    for mut rest in row_candidates(
-                        &weights[split..],
-                        below,
-                        if depth == 0 && compact { 0 } else { 2 },
-                    ) {
-                        let mut rects = row.clone();
-                        rects.append(&mut rest);
-                        candidates.push(rects);
-                    }
-                }
-            }
-        }
-        // A short final cell can leave a single bottom gutter row. This lets
-        // a tiny remainder keep readable type without borrowing a full row's area.
-        if !compact
-            && n >= 2
-            && groups[n - 1].0.node.is_none()
-            && (depth > 0 || weights[n - 1] / total < 0.04)
+        let widths = shares_min(&weights, usable, &mins?)?;
+        widths.into_iter().map(|w| (w, thickness)).collect()
+    };
+    let mut cost = if relax { 1.0 } else { 0.0 };
+    for (b, (w, h)) in blks.iter().zip(&dims) {
+        let share = b.bytes as f64 / total;
+        let actual = *w as u32 * *h as u32;
+        // A block that gives up its label must not also give up its area.
+        if overdrawn(actual, area * share, area, ov == 1)
+            || loose(b) && (actual as f64) < area * share * 0.6
         {
-            let mut trimmed = Vec::new();
-            for rects in &candidates {
-                let a = rects[n - 2];
-                let z = rects[n - 1];
-                if a.y == z.y && a.height == z.height && z.height >= 3 && a.right() + 1 == z.x {
-                    let usable = a.width + z.width;
-                    let last_width = (usable as f64 * weights[n - 1] * z.height as f64
-                        / (weights[n - 2] * (z.height - 1) as f64
-                            + weights[n - 1] * z.height as f64))
-                        .round() as u16;
-                    for width in last_width..=(last_width + 2).min(usable.saturating_sub(1)) {
-                        let mut adjusted = rects.clone();
-                        adjusted[n - 2].width = usable - width;
-                        adjusted[n - 1] =
-                            Rect::new(a.x + usable - width + 1, z.y, width, z.height - 1);
-                        trimmed.push(adjusted);
-                    }
-                }
-            }
-            candidates.extend(trimmed);
+            return None;
         }
-        // A short leaf may trade its last row for a wider label at the same
-        // area. Its siblings keep their baseline and at most one gutter row
-        // remains beneath it.
-        if compact && depth == 0 {
-            // Consider neighbouring integer row heights too: largest-remainder
-            // rounding alone can make a readable last row one cell too short.
-            let mut rounded = Vec::new();
-            for rects in &candidates {
-                let mut rows: Vec<_> = rects.iter().map(|rr| (rr.y, rr.height)).collect();
-                rows.dedup();
-                for pair in rows.windows(2) {
-                    for delta in [-1_i32, 1] {
-                        if pair[0].1 as i32 + delta < 3 || pair[1].1 as i32 - delta < 3 {
-                            continue;
-                        }
-                        let mut adjusted = rects.clone();
-                        for rr in &mut adjusted {
-                            if rr.y == pair[0].0 {
-                                rr.height = (rr.height as i32 + delta) as u16;
-                            } else if rr.y == pair[1].0 {
-                                rr.y = (rr.y as i32 + delta) as u16;
-                                rr.height = (rr.height as i32 - delta) as u16;
-                            }
-                        }
-                        rounded.push(adjusted);
-                    }
-                }
-            }
-            candidates.extend(rounded);
-            let mut wider = Vec::new();
-            for rects in &candidates {
-                for (i, rr) in rects.iter().enumerate() {
-                    let e = &groups[i].0;
-                    let need = e.label.width().max(size(e.bytes).width()) + 2;
-                    if rr.height < 4 || rr.width as usize >= need {
-                        continue;
-                    }
-                    let row: Vec<_> = (0..n)
-                        .filter(|&j| rects[j].y == rr.y && rects[j].height == rr.height)
-                        .collect();
-                    let usable = row.iter().map(|&j| rects[j].width).sum();
-                    let widths = cell_shares(
-                        &row.iter()
-                            .map(|&j| weights[j] / (rects[j].height - u16::from(i == j)) as f64)
-                            .collect::<Vec<_>>(),
-                        usable,
-                    );
-                    let mut adjusted = rects.clone();
-                    let mut x = rects[row[0]].x;
-                    for (&j, width) in row.iter().zip(widths) {
-                        adjusted[j].x = x;
-                        adjusted[j].width = width;
-                        x += width + 1;
-                    }
-                    adjusted[i].height -= 1;
-                    let mut end_gutter = adjusted.clone();
-                    let last = *row.last().unwrap();
-                    end_gutter[last].width = end_gutter[last].width.saturating_sub(1);
-                    wider.push(end_gutter);
-                    wider.push(adjusted);
-                }
-            }
-            candidates.extend(wider);
-        }
-        let mut best: Option<(f64, Vec<Rect>, Vec<bool>)> = None;
-        for mut rects in candidates {
-            if !compact || depth == 0 {
-                for i in 0..rects.len() {
-                    if rects[i].height < 3 {
-                        continue;
-                    }
-                    let e = &groups[i].0;
-                    let name = if e.label.ends_with(" smaller items") {
-                        format!("{} smaller", item_count(&e.label))
-                    } else {
-                        e.label.clone()
-                    };
-                    let mut need = (name.width().max(size(e.bytes).width())
-                        + if depth == 0 && !compact { 4 } else { 2 })
-                        as u16;
-                    if depth == 0
-                        && e.label.ends_with(" smaller items")
-                        && let Some(node) = e.node
-                        && node.children.len() >= 2
-                    {
-                        need = need.max(
-                            (node.children[..2]
-                                .iter()
-                                .map(|n| n.name.width().max(size(n.bytes).width()) + 2)
-                                .sum::<usize>()
-                                + 3) as u16,
-                        );
-                    }
-                    let deficit = need.saturating_sub(rects[i].width);
-                    if deficit == 0 {
-                        continue;
-                    }
-                    let donor = (0..rects.len())
-                        .filter(|&j| {
-                            j != i
-                                && rects[j].y == rects[i].y
-                                && rects[j].height == rects[i].height
-                                && rects[j].width > need + deficit
-                        })
-                        .max_by_key(|&j| rects[j].width);
-                    if let Some(j) = donor {
-                        rects[j].width -= deficit;
-                        rects[i].width += deficit;
-                        let mut row: Vec<_> = (0..rects.len())
-                            .filter(|&k| rects[k].y == rects[i].y)
-                            .collect();
-                        row.sort_by_key(|&k| rects[k].x);
-                        let mut x = rects[row[0]].x;
-                        for k in row {
-                            rects[k].x = x;
-                            x += rects[k].width + 1;
-                        }
-                    }
-                }
-                if depth == 0 && n > 1 && rects[n - 1].height == 1 && groups[n - 1].0.node.is_none()
-                {
-                    let e = &groups[n - 1].0;
-                    let minimum =
-                        format!("{} smaller  {}", item_count(&e.label), size(e.bytes)).width() + 2;
-                    let share = (r.width as f64 * r.height as f64 * e.bytes as f64 / total).round()
-                        as usize;
-                    rects[n - 1].width = rects[n - 1].width.min(minimum.max(share) as u16);
-                }
-            }
-            if rects.iter().enumerate().any(|(i, rr)| {
-                rr.right() > r.right()
-                    || rr.bottom() > r.bottom()
-                    || rects[..i].iter().any(|other| {
-                        rr.x < other.right()
-                            && rr.right() > other.x
-                            && rr.y < other.bottom()
-                            && rr.bottom() > other.y
-                    })
-            }) {
+        cost += share * shape_cost(*w + ov, *h + ov);
+    }
+    Some((cost, dims))
+}
+
+fn strip(
+    blks: &[Blk<'_>],
+    total: f64,
+    r: Rect,
+    gaps: (u16, u16),
+    ov: u16,
+    columns: bool,
+    thickness: u16,
+) -> Option<(f64, Vec<(u16, u16)>)> {
+    strip_with(blks, total, r, gaps, ov, columns, thickness, false).or_else(|| {
+        blks.last()
+            .filter(|b| ov == 1 && b.loose)
+            .and_then(|_| strip_with(blks, total, r, gaps, ov, columns, thickness, true))
+    })
+}
+
+fn strips(
+    blks: &[Blk<'_>],
+    r: Rect,
+    gaps: (u16, u16),
+    ov: u16,
+    columns: bool,
+    min_thick: u16,
+) -> Option<(f64, Vec<Rect>)> {
+    let n = blks.len();
+    let total = blks.iter().map(|b| b.bytes as f64).sum::<f64>().max(1.0);
+    let span = if columns { r.width } else { r.height };
+    let estimate = |i: usize, j: usize| -> u16 {
+        let share = blks[i..j].iter().map(|b| b.bytes as f64).sum::<f64>() / total;
+        ((span as f64 * share).round() as u16).clamp(min_thick, span.max(min_thick))
+    };
+    // Shortest path over strip breaks.
+    let mut best: Vec<Option<(f64, usize)>> = vec![None; n + 1];
+    best[0] = Some((0.0, 0));
+    for j in 1..=n {
+        for i in 0..j {
+            let Some((before, _)) = best[i] else { continue };
+            let Some((cost, _)) = strip(&blks[i..j], total, r, gaps, ov, columns, estimate(i, j))
+            else {
                 continue;
+            };
+            if best[j].is_none_or(|(c, _)| before + cost < c) {
+                best[j] = Some((before + cost, i));
             }
-            let area: u32 = rects.iter().map(|r| r.width as u32 * r.height as u32).sum();
-            let inline: Vec<bool> = rects
-                .iter()
-                .map(|rr| {
-                    (depth > 0 || rr.height == 1)
-                        && rects
-                            .iter()
-                            .enumerate()
-                            .filter(|(_, peer)| peer.y == rr.y)
-                            .all(|(j, peer)| {
-                                let e = &groups[j].0;
-                                let mark = usize::from(
-                                    e.node.is_some_and(|n| collected_glyph(app, n).is_some()),
-                                ) * 2;
-                                let label = if e.label.ends_with(" smaller items") {
-                                    remainder_name(
-                                        item_count(&e.label),
-                                        peer.width
-                                            .saturating_sub((size(e.bytes).width() + 4) as u16),
-                                    )
-                                } else {
-                                    e.label.clone()
-                                };
-                                !label.is_empty()
-                                    && label.width() + size(e.bytes).width() + 4 + mark
-                                        <= peer.width as usize
-                            })
-                })
-                .collect();
-            let mut valid = true;
-            let mut score = 0.0;
-            for (i, rr) in rects.iter().enumerate() {
-                let e = &groups[i].0;
-                let surface = rr.width as u32 * rr.height as u32;
-                if surface == 0
-                    || (0..i).any(|j| {
-                        let prior = rects[j].width as u32 * rects[j].height as u32;
-                        (groups[j].0.bytes > e.bytes && prior < surface)
-                            || (groups[j].0.bytes < e.bytes && prior > surface)
-                    })
-                {
-                    valid = false;
-                    break;
-                }
-                let grouped = e.label.ends_with(" smaller items");
-                let mark =
-                    usize::from(e.node.is_some_and(|n| collected_glyph(app, n).is_some())) * 2;
-                let horizontal_padding = 2;
-                let inner = rr.width.saturating_sub(horizontal_padding + mark as u16);
-                let label = if grouped {
-                    remainder_name(item_count(&e.label), inner)
-                } else {
-                    e.label.clone()
-                };
-                let lines = name_lines(&label, inner);
-                let minimum_height =
-                    if depth == 0 && !compact && !grouped && e.bytes as f64 / total > 0.03 {
-                        3
-                    } else if inline[i] {
-                        1
-                    } else if depth == 0 && compact {
-                        3
-                    } else {
-                        (lines.len() + 1) as u16
-                    };
-                if label.is_empty()
-                    || lines.is_empty()
-                    || (depth == 0 && lines.len() > 1)
-                    || lines.len() > 2
-                    || rr.height < minimum_height
-                    || size(e.bytes).width() + horizontal_padding as usize > rr.width as usize
-                    || (depth == 0
-                        && !compact
-                        && rr.height >= 3
-                        && label.width().max(size(e.bytes).width()) + 4 > rr.width as usize)
-                {
-                    valid = false;
-                    break;
-                }
-                let share = e.bytes as f64 / total;
-                let actual = surface as f64 / area.max(1) as f64;
-                // Coarse cells can round equal; they cannot reverse the order,
-                // or turn a 35% child into half its parent's visible contents.
-                let cell_rounding = depth == 0
-                    && !compact
-                    && grouped
-                    && surface as f64 <= area as f64 * share + 8.0
-                    && actual >= share;
-                if n > 1 && (actual / share).ln().abs() > 0.24 && !cell_rounding {
-                    valid = false;
-                    break;
-                }
-                score += 60.0 * (actual / share).ln().powi(2) * share;
-                score += (rr.width as f64 * 0.45 / rr.height as f64).ln().abs()
-                    * share
-                    * if compact && depth == 0 { 3.0 } else { 1.0 };
-                if !grouped && lines.len() > 1 {
-                    score += share
-                        * if e.label.contains(['.', '-', '_', ' ']) {
-                            0.8
-                        } else {
-                            8.0
-                        };
-                }
-                if depth > 0
-                    && e.node.is_some_and(|node| {
-                        node.children.len() > 1
-                            && node.children[0].bytes as f64 / node.bytes.max(1) as f64 >= 0.60
-                    })
-                {
-                    if !inline[i] || rr.height < 5 {
-                        score += share * 5.0;
-                    }
-                    let node = e.node.unwrap();
-                    let largest = node.children[0].bytes as f64;
-                    let child_area = rr.width as f64 * rr.height.saturating_sub(2) as f64 * largest
-                        / node.bytes.max(1) as f64;
-                    for (j, (peer, _)) in groups.iter().enumerate() {
-                        if j != i
-                            && largest > peer.bytes as f64
-                            && peer.node.is_some_and(|n| {
-                                n.children.is_empty()
-                                    || n.children[0].bytes as f64 / (n.bytes.max(1) as f64) < 0.60
-                            })
-                        {
-                            let peer_area = rects[j].width as f64 * rects[j].height as f64;
-                            let shortfall = (largest
-                                / peer.bytes.max(1) as f64
-                                / (child_area / peer_area.max(1.0)).max(0.01))
-                            .ln()
-                            .max(0.0);
-                            score += share * shortfall * 6.0;
-                        }
-                    }
-                }
-                if depth == 0 && !compact && e.node.is_some_and(|n| !n.children.is_empty()) {
-                    if rr.height < 4 {
-                        score += share * 4.0;
-                    }
-                    if share >= 0.20 && rr.height < 10 {
-                        score += share * 4.0;
-                    }
-                    if share >= 0.20 && r.height >= 24 && rr.height < 15 {
-                        score += share * 3.0;
-                    }
-                }
-            }
-            if valid && best.as_ref().is_none_or(|(s, _, _)| score < *s) {
-                best = Some((score, rects, inline));
-            }
-        }
-        if let Some((_, rects, inline)) = best {
-            return groups
-                .into_iter()
-                .zip(rects.into_iter().zip(inline))
-                .map(|((entry, indices), (rect, inline))| MapTile {
-                    rect,
-                    entry,
-                    indices,
-                    inline,
-                })
-                .collect();
         }
     }
-    let count = entries.iter().map(|n| item_count(&n.label)).sum::<usize>();
-    vec![MapTile {
-        rect: r,
-        inline: false,
-        indices: (0..entries.len()).collect(),
-        entry: MapEntry {
-            node: None,
-            index: None,
-            bytes: entries.iter().map(|n| n.bytes).sum(),
-            label: format!("{count} smaller items"),
-        },
-    }]
+    best[n]?;
+    let mut breaks = vec![n];
+    while *breaks.last().unwrap() > 0 {
+        breaks.push(best[*breaks.last().unwrap()].unwrap().1);
+    }
+    breaks.reverse();
+    let count = breaks.len() - 1;
+    let gap = if columns { gaps.0 } else { gaps.1 };
+    let usable = span.checked_sub(gap * (count as u16 - 1))?;
+    let strip_weights: Vec<_> = breaks
+        .windows(2)
+        .map(|p| blks[p[0]..p[1]].iter().map(|b| b.bytes as f64).sum::<f64>())
+        .collect();
+    // A column must be wide enough for whatever its blocks need at their heights.
+    let mins: Vec<u16> = breaks
+        .windows(2)
+        .map(|p| {
+            if columns {
+                let e = estimate(p[0], p[1]);
+                let mut lo = min_thick;
+                while lo < e && strip(&blks[p[0]..p[1]], total, r, gaps, ov, true, lo).is_none() {
+                    lo += 1;
+                }
+                lo
+            } else {
+                min_thick
+            }
+        })
+        .collect();
+    let thick = shares_min(&strip_weights, usable, &mins)?;
+    let mut rects = Vec::new();
+    let mut cost = 0.0;
+    let mut at = if columns { r.x } else { r.y };
+    for (p, t) in breaks.windows(2).zip(thick) {
+        let (c, dims) = strip(&blks[p[0]..p[1]], total, r, gaps, ov, columns, t)?;
+        cost += c;
+        let mut along = if columns { r.y } else { r.x };
+        for (w, h) in dims {
+            if columns {
+                rects.push(Rect::new(at, along, w + ov, h + ov));
+                along += h + gaps.1;
+            } else {
+                rects.push(Rect::new(along, at, w + ov, h + ov));
+                along += w + gaps.0;
+            }
+        }
+        at += t + gap;
+    }
+    // Cells round, but never so far that a smaller block outgrows a clearly larger one.
+    let cells = |r: &Rect| (r.width - ov) as u32 * (r.height - ov) as u32;
+    for (i, a) in blks.iter().enumerate() {
+        for (j, b) in blks.iter().enumerate() {
+            if a.bytes as f64 > b.bytes as f64 * 1.15 && cells(&rects[i]) < cells(&rects[j]) {
+                return None;
+            }
+        }
+    }
+    Some((cost, rects))
+}
+
+/// As many blocks as stay readable, then one block for the rest. `None` when
+/// not even the largest child fits: the folder is then drawn as a leaf.
+/// Top-level Tiles keep gaps; nested siblings share their walls.
+fn layout<'a>(all: &[Blk<'a>], r: Rect, top: bool) -> Option<Vec<(Blk<'a>, Rect)>> {
+    if all.is_empty() || r.width < 4 || r.height < 4 {
+        return None;
+    }
+    let (gaps, ov, work) = if top {
+        ((COL_GAP, ROW_GAP), 0, r)
+    } else {
+        ((0, 0), 1, Rect::new(r.x, r.y, r.width - 1, r.height - 1))
+    };
+    let area = r.width as usize * r.height as usize;
+    for keep in (1..=all.len().min(MAX_KEEP).min(area / 30 + 1)).rev() {
+        let blks = grouped(all, keep);
+        let rows = strips(&blks, work, gaps, ov, false, if !top {
+            2
+        } else if r.height >= 24 {
+            6
+        } else {
+            4
+        });
+        let cols = if top {
+            None
+        } else {
+            strips(&blks, work, gaps, ov, true, 4)
+        };
+        let chosen = match (rows, cols) {
+            (Some(a), Some(b)) => Some(if b.0 < a.0 { b } else { a }),
+            (a, b) => a.or(b),
+        };
+        if let Some((_, rects)) = chosen {
+            return Some(blks.into_iter().zip(rects).collect());
+        }
+    }
+    None
+}
+
+fn lerp(a: Color, b: Color, t: f32) -> Color {
+    match (a, b) {
+        (Color::Rgb(ar, ag, ab), Color::Rgb(br, bg, bb)) => Color::Rgb(
+            (ar as f32 + (br as f32 - ar as f32) * t) as u8,
+            (ag as f32 + (bg as f32 - ag as f32) * t) as u8,
+            (ab as f32 + (bb as f32 - ab as f32) * t) as u8,
+        ),
+        _ => a,
+    }
+}
+
+/// Whether a folder's title fits its top edge. `Some(true)`: a narrow top-level
+/// Tile keeps its name in the top edge and moves its size to the bottom edge.
+fn title_split(blk: &Blk<'_>, r: Rect, depth: usize) -> Option<bool> {
+    let (name, value) = (blk.label.width(), size(blk.bytes).width());
+    let room = (r.width as usize).saturating_sub(4);
+    if depth > 0 || name + 2 + value <= room {
+        (name <= room).then_some(false)
+    } else {
+        (name <= room && value <= room).then_some(true)
+    }
+}
+
+fn tone(depth: usize) -> f32 {
+    0.07 + depth.min(4) as f32 * 0.05
+}
+
+/// The drawn contents of a folder block, when its title and at least its largest child fit.
+fn contents<'a>(blk: &Blk<'a>, r: Rect, depth: usize) -> Option<Vec<(Blk<'a>, Rect)>> {
+    let node = blk.node?;
+    if node.children.is_empty() || depth >= MAX_DEPTH || r.height < 5 || blk.remainder {
+        return None;
+    }
+    title_split(blk, r, depth)?;
+    let inner = Rect::new(r.x + 1, r.y + 1, r.width - 2, r.height - 2);
+    layout(&blocks_of(node), inner, false)
 }
 
 fn draw_cutaway_map(b: &mut Buffer, map: Rect, app: &App) {
-    let entries = sibling_entries(app.current());
-    if entries.is_empty() {
+    let all = blocks_of(app.current());
+    if all.is_empty() {
         text(
             b,
             map.x,
@@ -1041,309 +847,240 @@ fn draw_cutaway_map(b: &mut Buffer, map: Rect, app: &App) {
         );
         return;
     }
-    for tile in ranked_layout(&entries, map, 0, app) {
-        let selected = tile
-            .indices
-            .iter()
-            .any(|&i| entries[i].index == Some(app.selected));
-        let color = tile.entry.index.map(|i| color_for(app, i)).unwrap_or(MUTED);
-        draw_folder(
-            b,
-            tile.rect,
-            &tile.entry,
-            app,
-            color,
-            selected,
-            0,
-            tile.inline,
-        );
+    let tiles = layout(&all, map, true).unwrap_or_else(|| vec![(grouped(&all, 0).remove(0), map)]);
+    // Percent sits in the top edge of every titled Tile, or of none.
+    let view = app.current().bytes;
+    let percents = tiles.iter().all(|(blk, r)| {
+        contents(blk, *r, 0).is_none()
+            || blk.label.width()
+                + size(blk.bytes).width()
+                + percent(blk.bytes, view).width()
+                + 9
+                <= r.width as usize
+    });
+    let group: Vec<_> = tiles
+        .into_iter()
+        .map(|(blk, r)| {
+            let selected = blk.members.contains(&app.selected);
+            let color = blk.index.map(|i| color_for(app, i)).unwrap_or(MUTED);
+            (blk, r, color, selected)
+        })
+        .collect();
+    draw_group(b, &group, app, 0, percents);
+}
+
+const UP: u8 = 1;
+const DOWN: u8 = 2;
+const LEFT: u8 = 4;
+const RIGHT: u8 = 8;
+const WALLS: [(&str, u8); 11] = [
+    ("─", LEFT | RIGHT),
+    ("│", UP | DOWN),
+    ("╭", DOWN | RIGHT),
+    ("╮", DOWN | LEFT),
+    ("╰", UP | RIGHT),
+    ("╯", UP | LEFT),
+    ("├", UP | DOWN | RIGHT),
+    ("┤", UP | DOWN | LEFT),
+    ("┬", LEFT | RIGHT | DOWN),
+    ("┴", LEFT | RIGHT | UP),
+    ("┼", UP | DOWN | LEFT | RIGHT),
+];
+
+/// One wall cell. A wall that two siblings share becomes a junction rather than a second line.
+fn wall(b: &mut Buffer, x: u16, y: u16, bits: u8, fg: Color, strong: bool) {
+    let cell = &mut b[(x, y)];
+    let old = WALLS
+        .iter()
+        .find(|(s, _)| *s == cell.symbol())
+        .map(|(_, bits)| *bits)
+        .unwrap_or(0);
+    let merged = if strong { bits } else { bits | old };
+    if let Some((s, _)) = WALLS.iter().find(|(_, bits)| *bits == merged) {
+        cell.set_symbol(s);
+        cell.set_fg(fg);
     }
 }
 
-fn draw_folder(
-    b: &mut Buffer,
-    r: Rect,
-    entry: &MapEntry<'_>,
-    app: &App,
-    color: Color,
-    selected: bool,
-    depth: usize,
-    inline: bool,
-) {
-    if r.is_empty() {
+fn outline(b: &mut Buffer, r: Rect, fg: Color, strong: bool) {
+    if r.width < 2 || r.height < 2 {
         return;
     }
-    let compact = app.current().children.len() > 16;
-    let remainder = entry.label.ends_with(" smaller items");
-    let glyph = entry.node.and_then(|n| collected_glyph(app, n));
-    let mark_space = if glyph.is_some() { 2 } else { 0 };
-    let framed = depth == 0 && !compact && r.height >= 3 && r.width >= 6;
-    let label = if remainder {
-        remainder_name(
-            item_count(&entry.label),
-            r.width.saturating_sub(if framed { 4 } else { 2 }),
-        )
-    } else {
-        entry.label.clone()
+    let (x1, y1) = (r.right() - 1, r.bottom() - 1);
+    for x in r.x + 1..x1 {
+        wall(b, x, r.y, LEFT | RIGHT, fg, strong);
+        wall(b, x, y1, LEFT | RIGHT, fg, strong);
+    }
+    for y in r.y + 1..y1 {
+        wall(b, r.x, y, UP | DOWN, fg, strong);
+        wall(b, x1, y, UP | DOWN, fg, strong);
+    }
+    wall(b, r.x, r.y, DOWN | RIGHT, fg, strong);
+    wall(b, x1, r.y, DOWN | LEFT, fg, strong);
+    wall(b, r.x, y1, UP | RIGHT, fg, strong);
+    wall(b, x1, y1, UP | LEFT, fg, strong);
+}
+
+/// One sibling set: every background, then every wall (so shared walls merge), then labels and contents.
+fn draw_group(
+    b: &mut Buffer,
+    group: &[(Blk<'_>, Rect, Color, bool)],
+    app: &App,
+    depth: usize,
+    percents: bool,
+) {
+    let bg_of = |color: Color, selected: bool| {
+        tint(color, tone(depth) + if selected { 0.035 } else { 0.0 })
     };
-    let combined = format!("{label}  {}", size(entry.bytes));
-    let title_fits = combined.width() + 4 <= r.width as usize;
-    let header = if framed && !title_fits { 2 } else { 1 };
-    let parent_inline = combined.width() + 2 + mark_space as usize <= r.width as usize;
-    let has_children = entry.node.is_some_and(|n| {
-        !n.children.is_empty()
-            && (depth == 0
-                || inline
-                    && parent_inline
-                    && n.children[0].bytes as f64 / n.bytes.max(1) as f64 >= 0.60)
-    });
-    let mut children = Vec::new();
-    if has_children && depth < 3 && (depth == 0 || inline && parent_inline) {
-        let content = if depth == 0 {
-            Rect::new(
-                r.x + 1,
-                r.y + header,
-                r.width.saturating_sub(2),
-                r.height.saturating_sub(header + 1),
-            )
+    for (_, r, color, selected) in group {
+        fill(b, *r, bg_of(*color, *selected));
+    }
+    for (_, r, color, selected) in group {
+        let line = if *selected {
+            lerp(*color, FG, 0.6)
+        } else if depth == 0 {
+            tint(*color, 0.45)
         } else {
-            Rect::new(r.x, r.y + 1, r.width, r.height.saturating_sub(1))
+            tint(*color, tone(depth) + 0.16)
         };
-        if content.height >= 2 {
-            children = ranked_layout(
-                &sibling_entries(entry.node.unwrap()),
-                content,
-                depth + 1,
-                app,
-            );
-            if children.iter().all(|t| t.entry.node.is_none()) {
-                children.clear();
+        outline(b, *r, line, depth == 0);
+    }
+    for (blk, r, color, selected) in group {
+        let (r, color, selected) = (*r, *color, *selected);
+        if r.width < 3 || r.height < 3 {
+            continue;
+        }
+        let bg = bg_of(color, selected);
+        let mut title_end = r.x + 1;
+        if let Some(children) = contents(blk, r, depth) {
+            let name_fg = if selected {
+                FG
+            } else if depth == 0 {
+                color
+            } else {
+                lerp(MUTED, color, 0.5)
+            };
+            let mut title = vec![(format!(" {}", blk.label), name_fg, depth == 0)];
+            let split = title_split(blk, r, depth) == Some(true);
+            if split {
+                let value = format!(" {} ", size(blk.bytes));
+                let x = r.right() - 2 - value.width() as u16;
+                text(b, x, r.bottom() - 1, value.width() as u16, &value, lerp(color, MUTED, 0.35), bg, false);
+            } else if depth == 0 {
+                title.push((format!("  {}", size(blk.bytes)), lerp(color, MUTED, 0.35), false));
+                if percents {
+                    let pct = percent(blk.bytes, app.current().bytes);
+                    title.push((format!(" · {pct}"), MUTED, false));
+                }
+            }
+            title.push((" ".into(), name_fg, false));
+            let mut x = r.x + 1;
+            for (s, fg, bold) in title {
+                text(b, x, r.y, s.width() as u16, &s, fg, bg, bold);
+                x += s.width() as u16;
+            }
+            title_end = x;
+            let nested: Vec<_> = children
+                .into_iter()
+                .map(|(child, rect)| (child, rect, color, false))
+                .collect();
+            draw_group(b, &nested, app, depth + 1, false);
+        } else {
+            let inner = Rect::new(r.x + 1, r.y + 1, r.width - 2, r.height - 2);
+            if !draw_label(b, inner, blk, color, bg, depth, selected) && blk.loose {
+                // Too small to name: a grain of small things rather than a hollow box.
+                let grain = tint(color, tone(depth) + 0.13);
+                for y in inner.y..inner.bottom() {
+                    for x in inner.x..inner.right() {
+                        if inner.width < 3 || (x + y) % 2 == 0 {
+                            text(b, x, y, 1, "·", grain, bg, false);
+                        }
+                    }
+                }
             }
         }
-    }
-    let bg = tint(
-        color,
-        if remainder {
-            0.16
-        } else if depth > 0 {
-            0.20 + (depth - 1) as f32 * 0.08
-        } else if selected {
-            if compact { 0.20 } else { 0.14 }
-        } else if compact {
-            0.15
-        } else {
-            0.075
-        },
-    );
-    fill(b, r, bg);
-    if framed || selected {
-        let outline = if selected && !framed {
-            Rect::new(
-                r.x.saturating_sub(1),
-                r.y.saturating_sub(1),
-                r.width + 2,
-                r.height + 2,
-            )
-        } else {
-            r
-        };
-        Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(
-                Style::default()
-                    .fg(if selected {
-                        shade(color, 1.55)
-                    } else {
-                        tint(color, 0.26)
-                    })
-                    .bg(if outline == r { bg } else { BG }),
-            )
-            .render(outline, b);
-    }
-    if framed {
-        let title = if title_fits {
-            combined.clone()
-        } else {
-            label.clone()
-        };
-        let available = r.width.saturating_sub(4);
-        if title.width() <= available as usize {
-            text(
-                b,
-                r.x + 1,
-                r.y,
-                r.width - 2,
-                format!(" {title} "),
-                if selected { FG } else { color },
-                bg,
-                true,
-            );
-            let pct = format!(" · {}", percent(entry.bytes, app.current().bytes));
-            if title.width() + pct.width() <= available as usize {
-                text(
-                    b,
-                    r.x + 2 + title.width() as u16,
-                    r.y,
-                    pct.width() as u16 + 1,
-                    format!("{pct} "),
-                    MUTED,
-                    bg,
-                    false,
-                );
-            }
+        if let Some((glyph, fg)) = blk.node.and_then(|n| collected_glyph(app, n))
+            && title_end + 5 <= r.right()
+        {
+            text(b, r.right() - 5, r.y, 3, format!(" {glyph} "), fg, bg, true);
         }
-        if !title_fits {
+    }
+}
+
+/// Name above size, centred both ways; one line when the block is short; nothing when neither fits.
+fn draw_label(
+    b: &mut Buffer,
+    inner: Rect,
+    blk: &Blk<'_>,
+    color: Color,
+    bg: Color,
+    depth: usize,
+    selected: bool,
+) -> bool {
+    if inner.is_empty() || inner.width < 3 {
+        return false;
+    }
+    let width = inner.width - 2;
+    let value = size(blk.bytes);
+    let name_fg = if selected {
+        FG
+    } else if blk.remainder || blk.node.is_none() {
+        MUTED
+    } else if depth == 0 {
+        color
+    } else {
+        lerp(MUTED, FG, 0.55)
+    };
+    let value_fg = if blk.remainder || blk.node.is_none() {
+        lerp(MUTED, bg, 0.35)
+    } else {
+        lerp(color, MUTED, 0.35)
+    };
+    let bold = depth == 0 && !blk.remainder;
+    let mut centre = |y: u16, s: &str, fg: Color, bold: bool| {
+        let x = inner.x + (inner.width - s.width() as u16) / 2;
+        text(b, x, y, s.width() as u16, s, fg, bg, bold);
+    };
+    for name in spellings(blk) {
+        let lines = name_lines(&name, width);
+        if value.width() > width as usize || lines.is_empty() {
+            continue;
+        }
+        if lines.len() <= 2 && lines.len() < inner.height as usize {
+            let y = inner.y + (inner.height - lines.len() as u16 - 1) / 2;
+            for (i, l) in lines.iter().enumerate() {
+                centre(y + i as u16, l, name_fg, bold);
+            }
+            centre(y + lines.len() as u16, &value, value_fg, false);
+            return true;
+        }
+        if name.width() + 2 + value.width() <= width as usize {
+            let y = inner.y + (inner.height - 1) / 2;
+            let x = inner.x + (inner.width - (name.width() + 2 + value.width()) as u16) / 2;
+            text(b, x, y, name.width() as u16, &name, name_fg, bg, bold);
             text(
                 b,
-                r.x + 2,
-                r.y + 1,
-                r.width.saturating_sub(4),
-                size(entry.bytes),
-                color,
+                x + name.width() as u16 + 2,
+                y,
+                value.width() as u16,
+                &value,
+                value_fg,
                 bg,
                 false,
             );
+            return true;
         }
-        if let Some((glyph, fg)) = glyph {
-            text(b, r.right() - 2, r.y + 1, 1, glyph, fg, bg, true);
-        }
-        // A narrow frame can describe its largest child without pretending
-        // that an unscaled text line is another proportional tile.
-        if children.is_empty()
-            && let Some(node) = entry.node
-            && let Some(child) = node.children.first()
-        {
-            let available = r.height.saturating_sub(header + 1);
-            let width = r.width.saturating_sub(4);
-            let lines = name_lines(&format!("↳ {}", child.name), width);
-            if !lines.is_empty()
-                && lines.len() <= 2
-                && lines.len() as u16 + 1 <= available
-                && size(child.bytes).width() <= width as usize
-            {
-                let y = r.y + header;
-                for (i, line) in lines.iter().enumerate() {
-                    text(b, r.x + 2, y + i as u16, width, line, MUTED, bg, false);
-                }
-                text(
-                    b,
-                    r.x + 2,
-                    y + lines.len() as u16,
-                    width,
-                    size(child.bytes),
-                    MUTED,
-                    bg,
-                    false,
-                );
-                let count = node.children[1..].iter().map(|n| item_count(&n.name)).sum();
-                let tail = remainder_name(count, width);
-                if count > 0 && !tail.is_empty() && lines.len() as u16 + 4 <= available {
-                    text(
-                        b,
-                        r.x + 2,
-                        y + lines.len() as u16 + 2,
-                        width,
-                        tail,
-                        MUTED,
-                        bg,
-                        false,
-                    );
-                    text(
-                        b,
-                        r.x + 2,
-                        y + lines.len() as u16 + 3,
-                        width,
-                        size(node.bytes.saturating_sub(child.bytes)),
-                        MUTED,
-                        bg,
-                        false,
-                    );
-                }
-            }
-        }
-    } else {
-        let width = r.width.saturating_sub(2 + mark_space);
-        let y = r.y + u16::from(depth == 0 && compact);
-        let label = if remainder && inline {
-            remainder_name(
-                item_count(&entry.label),
-                width.saturating_sub(size(entry.bytes).width() as u16 + 2),
-            )
-        } else {
-            label
-        };
-        if inline {
-            let line = format!("{label}  {}", size(entry.bytes));
-            if !label.is_empty() && line.width() <= width as usize {
-                text(
-                    b,
-                    r.x + 1,
-                    y,
-                    width,
-                    line,
-                    if selected { FG } else { MUTED },
-                    bg,
-                    selected,
-                );
-            }
-        } else {
-            let lines = name_lines(&label, width);
-            if !label.is_empty()
-                && !lines.is_empty()
-                && lines.len() <= if depth == 0 { 1 } else { 2 }
-                && y + (lines.len() as u16) < r.bottom()
-            {
-                for (i, line) in lines.iter().enumerate() {
-                    text(
-                        b,
-                        r.x + 1,
-                        y + i as u16,
-                        width,
-                        line,
-                        if selected {
-                            FG
-                        } else if depth == 0 && !remainder {
-                            color
-                        } else {
-                            MUTED
-                        },
-                        bg,
-                        selected || depth == 0 && !remainder,
-                    );
-                }
-                if size(entry.bytes).width() <= r.width.saturating_sub(2) as usize {
-                    text(
-                        b,
-                        r.x + 1,
-                        y + lines.len() as u16,
-                        r.width.saturating_sub(2),
-                        size(entry.bytes),
-                        if remainder { MUTED } else { color },
-                        bg,
-                        false,
-                    );
-                }
-            }
-        }
-        if let Some((glyph, fg)) = glyph {
-            if r.width >= 3 {
-                text(b, r.right() - 2, y, 1, glyph, fg, bg, true);
+    }
+    // A block allowed to go unlabelled still says what it is when only that fits.
+    if blk.loose {
+        for name in spellings(blk) {
+            if name.width() <= inner.width as usize {
+                centre(inner.y + (inner.height - 1) / 2, &name, name_fg, false);
+                return true;
             }
         }
     }
-    for tile in children {
-        draw_folder(
-            b,
-            tile.rect,
-            &tile.entry,
-            app,
-            color,
-            false,
-            depth + 1,
-            tile.inline,
-        );
-    }
+    false
 }
 
 fn draw_compact_row(b: &mut Buffer, r: Rect, app: &App, i: usize) {
