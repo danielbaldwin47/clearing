@@ -117,16 +117,30 @@ class Session:
             return
         self.closed = True
         try:
-            self.send(b'\x03', 0.2)
-            for _ in range(10):
-                pid, status = os.waitpid(self.pid, os.WNOHANG)
-                if pid:
-                    return os.waitstatus_to_exitcode(status)
-                time.sleep(0.05)
-            os.kill(self.pid, signal.SIGTERM)
-            os.waitpid(self.pid, 0)
+            os.write(self.master, b'\x03')
+            for stop in (None, signal.SIGTERM, signal.SIGKILL):
+                if stop:
+                    os.kill(self.pid, stop)
+                code = self.reap(0.7 if stop is None else 5)
+                if code is not None:
+                    return code
         finally:
             os.close(self.master)
+
+    def reap(self, seconds):
+        """The app's exit code, or None if it outlives `seconds`.
+
+        Reads throughout: a read that ended on its text leaves the rest of the
+        frame in the PTY, and macOS holds an exiting process until that is read.
+        """
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            pid, status = os.waitpid(self.pid, os.WNOHANG)
+            if pid:
+                return os.waitstatus_to_exitcode(status)
+            self.read(0.05)
+            time.sleep(0.01)
+        return None
 
 
 class ScanAcceptance(unittest.TestCase):
