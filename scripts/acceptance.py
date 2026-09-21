@@ -29,7 +29,8 @@ SETTLE = 0.05
 # wait, so a wrongful move or delete gets the whole duration to land.
 NEVER = b'\0'
 # A space map heading. A scan's own screen blanks it, so the app draws it again
-# when the scan ends, whatever message the footer then carries.
+# when the scan ends, whatever message the footer then carries. A dialog opening
+# dims and so redraws it too: the key that opens one goes in a send of its own.
 IDLE = b'LARGEST FIRST'
 
 
