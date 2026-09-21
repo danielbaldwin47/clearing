@@ -9,11 +9,14 @@ use ratatui::{
 };
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
+/// The widest text `size()` produces ("1024.0 PiB"); EiB keeps every u64 inside it.
+pub(super) const SIZE_WIDTH: u16 = 10;
+
 pub fn size(bytes: u64) -> String {
-    const U: [&str; 6] = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
+    const U: [&str; 7] = ["B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB"];
     let mut n = bytes as f64;
     let mut i = 0;
-    while n >= 1024. && i < 5 {
+    while n >= 1024. && i < 6 {
         n /= 1024.;
         i += 1;
     }
@@ -377,6 +380,26 @@ pub(super) fn draw_tile(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn size_never_outgrows_the_list_size_column() {
+        for bytes in [
+            0,
+            1023,
+            1024,
+            102_400,
+            1_048_524,
+            1_048_575,
+            1_048_576,
+            u64::MAX,
+        ] {
+            let text = size(bytes);
+            assert!(
+                text.width() <= SIZE_WIDTH as usize,
+                "size({bytes}) is {text}"
+            );
+        }
+    }
 
     #[test]
     fn tail_leaves_fitting_strings_unchanged() {
