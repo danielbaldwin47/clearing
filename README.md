@@ -13,7 +13,13 @@
 
 ## Install
 
-You need a [Rust toolchain](https://rustup.rs). On macOS you also need the Xcode Command Line Tools.
+You need a [Rust toolchain](https://rustup.rs), 1.88 or newer. On macOS you also need the Xcode Command Line Tools.
+
+```sh
+cargo install --locked clearing
+```
+
+For the latest unreleased code, install from the repository:
 
 ```sh
 cargo install --locked --git https://github.com/danielbaldwin47/tui-disk
