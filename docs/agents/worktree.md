@@ -13,7 +13,7 @@ Once the session has entered a worktree, the Bash isolation check reads a comman
 - A commit message, PR body, issue body or comment written to the scratch directory with Write and passed by `-F` or `--body-file`.
 - A sibling worktree read with `git worktree list`, `ls`, `find` or `git log <branch>`.
 
-**Refused:** a chain ending in a heredoc (`git commit -F - <<'EOF'`); a foreground `sleep`; a `for` loop; a `$VAR`, `$(...)` or glob argument to any command other than `bash <script>` or `python3 <script>`; a `cd` or `git -C` into a sibling worktree. Refused separately, as destructive: `git checkout -- .`; working changes move to a fresh branch by a commit, `git checkout -b <new> origin/main` and `git cherry-pick`.
+**Refused:** a chain ending in a heredoc (`git commit -F - <<'EOF'`); a foreground `sleep`; a `for` loop; a `$VAR`, `$(...)` or glob argument to any command other than `bash <script>` or `python3 <script>`; a `cd` or `git -C` into a sibling worktree; inline script text that names `git` (`python3 - <<'EOF'` editing a file that mentions it, 2026-09-20), and a `$(...)` argument to `gh`. Refused separately, as destructive: `git checkout -- .`; working changes move to a fresh branch by a commit, `git checkout -b <new> origin/main` and `git cherry-pick`.
 
 The first Bash call of a session that may have opened inside another ticket's worktree is `pwd; git branch --show-current`. The main session's cwd persists between Bash calls and a subagent's resets, so a `cd` into a subdirectory is written into the command it serves.
 

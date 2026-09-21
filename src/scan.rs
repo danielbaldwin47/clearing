@@ -371,16 +371,19 @@ mod tests {
         os::unix::fs::symlink,
         time::{SystemTime, UNIX_EPOCH},
     };
+    // Tests run in parallel and a macOS clock ticks in microseconds, so the counter keeps two names apart.
+    static FIXTURES: AtomicU64 = AtomicU64::new(0);
     fn fixture() -> PathBuf {
         let p = std::env::temp_dir().join(format!(
-            "clearing-test-{}-{}",
+            "clearing-test-{}-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+            FIXTURES.fetch_add(1, Ordering::Relaxed)
         ));
-        fs::create_dir_all(&p).unwrap();
+        fs::create_dir(&p).unwrap();
         fs::canonicalize(p).unwrap()
     }
     #[test]
