@@ -86,3 +86,15 @@ _Avoid_: cache, snapshot, index, history
 **Projection**:
 The stated outcome of moving the Collector's contents to the Trash: how much would be freed and the free space that would result.
 _Avoid_: estimate, forecast
+
+**Put back**:
+Returning something from the Trash to the place it was moved from; the only undo, and one that permanent deletion never has.
+_Avoid_: restore, undelete, recover
+
+**Receipt**:
+The line that states what was just moved to the Trash and offers to put it back; one Receipt covers a whole Collector move.
+_Avoid_: toast, notification, undo banner
+
+**Session log**:
+The list of this session's Trash moves, from which any one can still be put back after its Receipt has gone.
+_Avoid_: history, undo stack, journal
