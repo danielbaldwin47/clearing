@@ -1,4 +1,4 @@
-//! PROTOTYPE (ticket #3), variant H: bricks and mortar, framed folders and filled files with even seams; throwaway.
+//! PROTOTYPE (ticket #3), variant L: fitted containers, quiet file surfaces and off-white selection; throwaway.
 #![allow(dead_code)]
 use super::{
     App,
@@ -386,7 +386,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
 }
 // ---------------------------------------------------------------------------
-// Bricks and mortar: frame means folder, fill means file, even seams between.
+// Fitted containers: thin seams, quiet file surfaces, and room for depth.
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -415,7 +415,7 @@ impl Line {
 /// One way to write a brick's label: the text box it needs and its lines.
 #[derive(Clone)]
 struct Shape {
-    /// A last-resort wording ("N more"), avoided wherever a column can be found.
+    /// A name-only fallback, used only when the full size will not fit.
     short: bool,
     w: u16,
     h: u16,
@@ -485,25 +485,7 @@ fn shapes_for(names: &[String], bytes: u64, wrap: bool) -> Vec<Shape> {
             lines: vec![Line::Name(name.clone()), Line::Size(value.clone())],
         });
     }
-    // "12" over "smaller" over the size keeps the owner's wording in a narrow block.
-    if !wrap
-        && names.len() > 1
-        && let Some((count, word)) = names[1].split_once(' ')
-    {
-        out.push(Shape {
-            short: false,
-            w: count.width().max(word.width()).max(value.width()) as u16,
-            h: 3,
-            lines: vec![
-                Line::Name(count.to_owned()),
-                Line::Name(word.to_owned()),
-                Line::Size(value.clone()),
-            ],
-        });
-    }
-    if wrap
-        && let Some((a, z)) = wrap_two(&names[0])
-    {
+    if wrap && let Some((a, z)) = wrap_two(&names[0]) {
         out.push(Shape {
             short: false,
             w: a.width().max(z.width()).max(value.width()) as u16,
@@ -519,11 +501,21 @@ fn shapes_for(names: &[String], bytes: u64, wrap: bool) -> Vec<Shape> {
             lines: vec![Line::Both(name.clone(), value.clone())],
         });
     }
+    // Keep the complete name when a shallow block cannot hold the full size.
+    // Two-line and full-unit inline labels above remain the first choices.
+    for name in names {
+        out.push(Shape {
+            short: true,
+            w: name.width() as u16,
+            h: 1,
+            lines: vec![Line::Name(name.clone())],
+        });
+    }
     out
 }
 
 /// The `keep` largest children as bricks of their own, everything else as one
-/// "N smaller items" brick, so nothing is dropped.
+/// ellipsis brick, so every allocated byte remains represented.
 fn gather<'a>(node: &'a Node, keep: usize, app: &App) -> Vec<Brick<'a>> {
     let mut kids: Vec<(usize, &Node)> = node
         .children
@@ -534,7 +526,6 @@ fn gather<'a>(node: &'a Node, keep: usize, app: &App) -> Vec<Brick<'a>> {
     kids.sort_by(|a, b| b.1.bytes.cmp(&a.1.bytes));
     let mut out = Vec::new();
     let mut rest_indices = Vec::new();
-    let mut rest_count = 0;
     let mut kept_bytes = 0;
     for (i, n) in kids {
         let aggregate = n.name.ends_with(" smaller items");
@@ -544,42 +535,46 @@ fn gather<'a>(node: &'a Node, keep: usize, app: &App) -> Vec<Brick<'a>> {
                 node: Some(n),
                 indices: vec![i],
                 bytes: n.bytes,
-                name: n.name.clone(),
+                name: if n.is_dir {
+                    format!("{}/", n.name)
+                } else {
+                    n.name.clone()
+                },
                 kind: if n.is_dir { Kind::Folder } else { Kind::File },
                 marked: collected_glyph(app, n).is_some(),
                 loose: false,
                 full_title: false,
-                shapes: shapes_for(std::slice::from_ref(&n.name), n.bytes, true),
+                shapes: shapes_for(
+                    &[if n.is_dir {
+                        format!("{}/", n.name)
+                    } else {
+                        n.name.clone()
+                    }],
+                    n.bytes,
+                    true,
+                ),
             });
         } else {
             rest_indices.push(i);
-            rest_count += item_count(&n.name);
         }
     }
     let rest_bytes = node.bytes.saturating_sub(kept_bytes);
-    if rest_bytes > 0 && (rest_count > 0 || out.is_empty()) {
-        let names = if rest_count > 0 {
-            vec![
-                format!(
-                    "{rest_count} smaller item{}",
-                    if rest_count == 1 { "" } else { "s" }
-                ),
-                format!("{rest_count} smaller"),
-                format!("{rest_count} more"),
-            ]
-        } else {
-            vec!["metadata".to_owned()]
-        };
+    if rest_bytes > 0 {
         out.push(Brick {
             node: None,
             indices: rest_indices,
             bytes: rest_bytes,
-            name: names[0].clone(),
+            name: "…".into(),
             kind: Kind::Rest,
             marked: false,
             full_title: false,
-            loose: !out.is_empty() && (rest_bytes as f64) < node.bytes as f64 * 0.01,
-            shapes: shapes_for(&names, rest_bytes, false),
+            loose: true,
+            shapes: vec![Shape {
+                short: false,
+                w: 1,
+                h: 1,
+                lines: vec![Line::Name("…".into())],
+            }],
         });
     }
     out
@@ -588,14 +583,22 @@ fn gather<'a>(node: &'a Node, keep: usize, app: &App) -> Vec<Brick<'a>> {
 /// The text box a brick offers inside a rectangle of `w` by `h` cells.
 /// `half` is the half-block mortar row a fill gives up at its top.
 fn text_box(brick: &Brick, w: u16, h: u16, half: bool, top: bool) -> (u16, u16) {
-    let mark = if brick.marked { 4 } else { 0 };
+    let mark = if brick.marked && brick.kind == Kind::File {
+        4
+    } else {
+        0
+    };
     match brick.kind {
         Kind::Folder if titled(brick, top) => (0, 0),
-        Kind::Folder => (w.saturating_sub(2 + mark), h.saturating_sub(2)),
-        _ => (
-            w.saturating_sub(2 + mark),
-            h.saturating_sub(u16::from(half)),
-        ),
+        Kind::Folder => (w.saturating_sub(2), h.saturating_sub(2)),
+        Kind::File => {
+            let height = h.saturating_sub(u16::from(half));
+            (
+                w.saturating_sub(mark + if height == 1 { 0 } else { 2 }),
+                height,
+            )
+        }
+        _ => (w.saturating_sub(2 + mark), h),
     }
 }
 
@@ -614,16 +617,16 @@ fn title_width(brick: &Brick) -> u16 {
 /// top-level title with its size beside the name.
 fn fits(brick: &Brick, w: u16, h: u16, half: bool, top: bool, comfy: bool) -> bool {
     if brick.loose {
-        return w >= 1 && h > u16::from(half);
+        return w >= 1 && h > 0;
     }
-    let mark = if brick.marked { 4 } else { 0 };
+    let mark = 0;
     if titled(brick, top) {
-        let title = if comfy || brick.full_title {
-            title_width(brick)
+        let title = if comfy {
+            title_width(brick) + 3
         } else {
-            (brick.name.width().max(size(brick.bytes).width())) as u16
+            brick.name.width() as u16 + 4
         };
-        return h >= 3 && w >= title + 4 + mark;
+        return h >= 3 && w >= title + mark;
     }
     let (tw, th) = text_box(brick, w, h, half, top);
     let tw = if comfy && brick.kind == Kind::Folder {
@@ -743,8 +746,7 @@ fn shown_children(node: &Node, r: Rect, depth: usize, app: &App, memo: &Memo) ->
     n
 }
 
-/// A folder's children inside its frame: one column of mortar beside the
-/// frame when that costs no child, none when the folder is tight.
+/// A folder's children tile its entire interior with no discretionary inset.
 fn contents<'a>(
     node: &'a Node,
     r: Rect,
@@ -752,24 +754,21 @@ fn contents<'a>(
     app: &App,
     memo: &Memo,
 ) -> (Rect, Vec<(Brick<'a>, Rect)>) {
-    let mut best = (interior(r, 1), Vec::new());
-    let mut most = 0;
-    if node.children.is_empty() || depth >= 4 || r.width < 6 || r.height < 4 {
-        return best;
+    let inner = interior(r, 1);
+    if node.children.is_empty()
+        || depth >= 4
+        || r.width < 5
+        || r.height < 3
+        || (depth > 0 && node.name.width() + 5 > r.width as usize)
+    {
+        return (inner, Vec::new());
     }
-    for pad in [2, 1] {
-        if pad == 2 && r.width < 18 {
-            continue;
-        }
-        let inner = interior(r, pad);
-        let kids = layout_folder(node, inner, depth + 1, app, memo);
-        let count = kids.iter().filter(|(b, _)| b.kind != Kind::Rest).count();
-        if count > most {
-            most = count;
-            best = (inner, kids);
-        }
+    let kids = layout_folder(node, inner, depth + 1, app, memo);
+    if kids.iter().any(|(b, _)| b.kind != Kind::Rest) {
+        (inner, kids)
+    } else {
+        (inner, Vec::new())
     }
-    best
 }
 
 fn rate(ctx: &Ctx, brick: &Brick, r: Rect) -> Option<f64> {
@@ -777,20 +776,24 @@ fn rate(ctx: &Ctx, brick: &Brick, r: Rect) -> Option<f64> {
     let actual = r.width as f64 * r.height as f64;
     let ratio = actual / ideal;
     let share = brick.bytes as f64 / ctx.total;
-    if ctx.bricks.len() > 1 && !brick.loose {
-        let over = if actual <= ideal + 20.0 {
-            2.6
-        } else {
-            1.7
-        };
-        if ratio > over || ratio < 0.58 {
+    if ctx.bricks.len() > 1 {
+        let over = if actual <= ideal + 20.0 { 2.6 } else { 1.7 };
+        if ratio > over || (ratio < 0.58 && ideal - actual > 2.0) {
             return None;
         }
     }
     let mut score = 40.0 * ratio.ln().powi(2) * share.max(0.02);
     score += (r.width as f64 * 0.5 / r.height as f64).ln().abs() * share * 1.0;
-    if titled(brick, ctx.top) && r.width < title_width(brick) + 4 {
-        score += share * 0.5;
+    if titled(brick, ctx.top) {
+        if r.width < title_width(brick) + 3 {
+            score += 1.0 + share * 4.0;
+        }
+    } else if brick.kind != Kind::Rest {
+        let (width, height) = text_box(brick, r.width, r.height, false, ctx.top);
+        if label_for(brick, width, height).is_some_and(|label| label.short) {
+            // Prefer another text row or a wider block before omitting size.
+            score += 0.6 + share * 2.0;
+        }
     }
     if brick.kind == Kind::Rest && !brick.loose {
         let (tw, _) = text_box(brick, r.width, r.height, false, ctx.top);
@@ -809,7 +812,13 @@ fn rate(ctx: &Ctx, brick: &Brick, r: Rect) -> Option<f64> {
             } else {
                 0.0
             };
-            score += share * 4.0 * (1.0 - shown);
+            score += share
+                * if ctx.top && ctx.cells_per_byte * ctx.total < 800.0 {
+                    1.5
+                } else {
+                    9.0
+                }
+                * (1.0 - shown);
         }
         if ctx.top && share >= 0.15 && r.height < 9 {
             score += share * 2.0;
@@ -849,8 +858,13 @@ fn arrange(ctx: &Ctx, i: usize, r: Rect, above: bool) -> Option<(f64, Vec<Rect>)
                     as u16)
                     .clamp(1, avail - 1);
                 let mut v = vec![ideal];
-                for t in [ideal + 1, ideal + 2] {
-                    if t < avail {
+                for t in [
+                    ideal.saturating_sub(1),
+                    ideal + 1,
+                    ideal.saturating_sub(2),
+                    ideal + 2,
+                ] {
+                    if t > 0 && t < avail && !v.contains(&t) {
                         v.push(t);
                     }
                 }
@@ -1026,7 +1040,7 @@ fn layout_folder<'a>(
         let ctx = Ctx {
             bricks: &bricks,
             top,
-            gx: if top && r.width >= 60 { 2 } else { 1 },
+            gx: 1,
             gy: if top { 1 } else { 0 },
             origin_y: r.y,
             cells_per_byte: cells * seams / node.bytes as f64,
@@ -1036,14 +1050,63 @@ fn layout_folder<'a>(
             app,
             memo,
         };
-        if let Some((score, rects)) = arrange(&ctx, 0, r, false) {
+        if let Some((mut score, mut rects)) = arrange(&ctx, 0, r, false) {
+            if top {
+                // Label minima must not make a clearly smaller named Tile
+                // outgrow a larger one in another row. Give that width back
+                // to the final remainder, keeping the row completely tiled.
+                let mut possible = true;
+                for i in 0..bricks.len() {
+                    if bricks[i].kind == Kind::Rest {
+                        continue;
+                    }
+                    let ceiling = (0..i)
+                        .filter(|&j| bricks[j].bytes as f64 > bricks[i].bytes as f64 * 1.15)
+                        .map(|j| rects[j].width as u32 * rects[j].height as u32)
+                        .min()
+                        .unwrap_or(u32::MAX);
+                    if rects[i].width as u32 * rects[i].height as u32 <= ceiling {
+                        continue;
+                    }
+                    let width = (ceiling / rects[i].height as u32) as u16;
+                    let tail = (i + 1..bricks.len())
+                        .find(|&j| bricks[j].kind == Kind::Rest && rects[j].y == rects[i].y);
+                    let Some(tail) = tail else {
+                        possible = false;
+                        break;
+                    };
+                    if !fits(&bricks[i], width, rects[i].height, false, true, false) {
+                        possible = false;
+                        break;
+                    }
+                    let spare = rects[i].width - width;
+                    rects[i].width = width;
+                    for rect in &mut rects[i + 1..=tail] {
+                        rect.x -= spare;
+                    }
+                    rects[tail].width += spare;
+                }
+                if !possible {
+                    continue;
+                }
+                let revised = bricks
+                    .iter()
+                    .zip(&rects)
+                    .try_fold(0.0, |sum, (brick, rect)| {
+                        Some(sum + rate(&ctx, brick, *rect)?)
+                    });
+                let Some(revised) = revised else {
+                    continue;
+                };
+                score = revised;
+            }
             let hidden = bricks
                 .iter()
                 .filter(|b| b.kind == Kind::Rest)
                 .map(|b| b.bytes as f64)
                 .sum::<f64>()
                 / node.bytes as f64;
-            let score = score + if top { 12.0 } else { 7.0 } * hidden;
+            let score = score + if top { 40.0 } else { 7.0 } * hidden;
             if best.as_ref().is_none_or(|(s, _)| score < *s) {
                 best = Some((score, bricks.into_iter().zip(rects).collect()));
             }
@@ -1069,18 +1132,6 @@ fn draw_cutaway_map(b: &mut Buffer, map: Rect, app: &App) {
         );
         return;
     }
-    // Percent sits in the top edge of every top-level folder, or of none.
-    let beside = tiles.iter().all(|(brick, r)| {
-        !titled(brick, true) || title_width(brick) + 4 + if brick.marked { 4 } else { 0 } <= r.width
-    });
-    let percents = tiles.iter().all(|(brick, r)| {
-        !titled(brick, true)
-            || title_width(brick) as usize
-                + percent(brick.bytes, node.bytes).width()
-                + 7
-                + if brick.marked { 4 } else { 0 }
-                <= r.width as usize
-    });
     for (brick, rect) in &tiles {
         let selected = brick.indices.contains(&app.selected);
         let color = if brick.kind == Kind::Rest {
@@ -1089,22 +1140,12 @@ fn draw_cutaway_map(b: &mut Buffer, map: Rect, app: &App) {
             color_for(app, brick.indices[0])
         };
         draw_brick(
-            b,
-            *rect,
-            brick,
-            app,
-            color,
-            0,
-            selected,
-            false,
-            BG,
-            u8::from(beside) + u8::from(beside && percents),
-            &memo,
+            b, *rect, brick, app, color, 0, selected, false, BG, 1, &memo,
         );
     }
 }
 
-const SOFT: Color = Color::Rgb(205, 213, 219);
+const SOFT: Color = Color::Rgb(187, 199, 206);
 
 #[allow(clippy::too_many_arguments)]
 fn draw_brick(
@@ -1117,7 +1158,7 @@ fn draw_brick(
     selected: bool,
     half: bool,
     mortar: Color,
-    title_mode: u8,
+    _title_mode: u8,
     memo: &Memo,
 ) {
     if r.width == 0 || r.height == 0 {
@@ -1127,8 +1168,7 @@ fn draw_brick(
     let glyph = brick.node.and_then(|n| collected_glyph(app, n));
     if brick.kind == Kind::Folder && r.width >= 4 && r.height >= 3 {
         let node = brick.node.unwrap();
-        let title_fits = brick.name.width() + 4 + if glyph.is_some() { 4 } else { 0 }
-            <= r.width as usize;
+        let title_fits = brick.name.width() + 4 <= r.width as usize;
         let (_, kids) = if top || title_fits {
             contents(node, r, depth, app, memo)
         } else {
@@ -1146,7 +1186,7 @@ fn draw_brick(
             fill(b, r, bg);
         }
         let edge = if selected {
-            shade(color, 1.5)
+            FG
         } else if top {
             tint(color, 0.55)
         } else {
@@ -1161,69 +1201,46 @@ fn draw_brick(
             .border_type(BorderType::Rounded)
             .border_style(style)
             .render(r, b);
-        if titled(brick, top) && !kids.is_empty() {
-            let value = size(brick.bytes);
+        if titled(brick, top) {
+            let full = size(brick.bytes);
+            let value = if brick.name.width() + full.width() + 5 <= r.width as usize {
+                full
+            } else {
+                String::new()
+            };
             let name_w = brick.name.width() as u16;
-            if title_mode == 0 {
-                // A narrow view sets every size into the bottom edge instead.
-                text(
-                    b,
-                    r.x + 1,
-                    r.y,
-                    name_w + 2,
-                    format!(" {} ", brick.name),
-                    if selected { FG } else { color },
-                    mortar,
-                    true,
-                );
-                let vw = value.width() as u16 + 2;
-                text(
-                    b,
-                    r.right().saturating_sub(vw + 1),
-                    r.bottom() - 1,
-                    vw,
-                    format!(" {value} "),
-                    if selected { color } else { tint(color, 0.8) },
-                    mortar,
-                    false,
-                );
-            } else if title_width(brick) + 4 <= r.width {
-                text(
-                    b,
-                    r.x + 1,
-                    r.y,
-                    name_w + 2,
-                    format!(" {} ", brick.name),
-                    if selected { FG } else { color },
-                    mortar,
-                    true,
-                );
-                text(
-                    b,
-                    r.x + 3 + name_w,
-                    r.y,
-                    value.width() as u16 + 2,
-                    format!(" {value} "),
-                    if selected { color } else { tint(color, 0.8) },
-                    mortar,
-                    false,
-                );
-                if title_mode == 2 {
-                    let pct = format!("· {} ", percent(brick.bytes, app.current().bytes));
-                    text(
-                        b,
-                        r.x + 5 + name_w + value.width() as u16,
-                        r.y,
-                        pct.width() as u16,
-                        pct,
-                        MUTED,
-                        mortar,
-                        false,
-                    );
+            let inset = 2;
+            text(b, r.x + 1, r.y, 1, " ", color, bg, false);
+            text(
+                b,
+                r.x + inset,
+                r.y,
+                name_w,
+                &brick.name,
+                if selected { FG } else { color },
+                bg,
+                true,
+            );
+            text(
+                b,
+                r.x + inset + name_w,
+                r.y,
+                value.width() as u16 + 1,
+                format!(" {value}"),
+                tint(color, 0.85),
+                bg,
+                false,
+            );
+            let end = r.x + inset + name_w + value.width() as u16 + 1;
+            if end < r.right() - 1 {
+                text(b, end, r.y, 1, " ", color, bg, false);
+            }
+            if kids.is_empty() {
+                let inner = interior(r, 1);
+                if let Some(rest) = gather(node, 0, app).first() {
+                    draw_brick(b, inner, rest, app, color, depth + 1, false, false, bg, 0, memo);
                 }
             }
-        }
-        if titled(brick, top) && !kids.is_empty() {
         } else if !kids.is_empty() {
             text(
                 b,
@@ -1231,21 +1248,25 @@ fn draw_brick(
                 r.y,
                 brick.name.width() as u16 + 2,
                 format!(" {} ", brick.name),
-                SOFT,
-                mortar,
+                tint(color, 0.85),
+                bg,
                 false,
             );
         } else {
-            // Nothing inside is big enough to draw: a leaf, labelled like a file.
-            let tw = r.width.saturating_sub(2 + if brick.marked { 4 } else { 0 });
-            let th = r.height - 2;
-            let area = Rect::new(r.x + (r.width - tw).div_ceil(2), r.y + 1, tw, th);
-            draw_label(b, area, brick, color, bg);
+            let area = Rect::new(r.x + 1, r.y + 1, r.width - 2, r.height - 2);
+            draw_label(b, area, brick, color, bg, selected, top);
         }
         if let Some((glyph, fg)) = glyph
             && r.width >= 8
         {
-            text(b, r.right() - 5, r.y, 3, format!(" {glyph} "), fg, mortar, true);
+            let row = if (titled(brick, top) && title_width(brick) + 6 > r.width)
+                || (!kids.is_empty() && brick.name.width() + 6 > r.width as usize)
+            {
+                r.bottom() - 1
+            } else {
+                r.y
+            };
+            text(b, r.right() - 2, row, 1, glyph, fg, mortar, true);
         }
         for (kid, rect) in &kids {
             draw_brick(
@@ -1270,13 +1291,21 @@ fn draw_brick(
         return;
     }
     // A fill: a file, or the smaller items gathered into one block.
-    let strength = match brick.kind {
-        Kind::Rest if depth > 0 => 0.17,
-        Kind::Rest => 0.12,
-        _ => 0.32,
-    } + if selected { 0.08 } else { 0.0 };
-    let bg = tint(color, strength);
-    let body = if half && r.height >= 2 {
+    let bg = if brick.kind == Kind::Rest {
+        // A fixed lightness step from the actual parent surface remains
+        // visible in every hue, including a selected teal ancestor.
+        match mortar {
+            Color::Rgb(red, green, blue) => Color::Rgb(
+                red.saturating_add(14),
+                green.saturating_add(14),
+                blue.saturating_add(14),
+            ),
+            _ => SURFACE,
+        }
+    } else {
+        tint(color, 0.13 + if selected { 0.08 } else { 0.0 })
+    };
+    let body = if half && brick.kind == Kind::File && r.height >= 2 {
         for x in r.x..r.right() {
             text(b, x, r.y, 1, "▄", bg, mortar, false);
         }
@@ -1285,10 +1314,11 @@ fn draw_brick(
         r
     };
     fill(b, body, bg);
+    let pad = u16::from(brick.kind != Kind::File || body.height != 1);
     let mut area = Rect::new(
-        body.x + 1,
+        body.x + pad,
         body.y,
-        body.width.saturating_sub(2),
+        body.width.saturating_sub(2 * pad),
         body.height,
     );
     if selected && body.width >= 6 && body.height >= 3 {
@@ -1297,7 +1327,7 @@ fn draw_brick(
             .border_type(BorderType::Rounded)
             .border_style(
                 Style::default()
-                    .fg(shade(color, 1.5))
+                    .fg(FG)
                     .bg(bg)
                     .add_modifier(ratatui::style::Modifier::BOLD),
             )
@@ -1308,9 +1338,14 @@ fn draw_brick(
         }
     }
     if brick.marked {
-        area = Rect::new(area.x + 2, area.y, area.width.saturating_sub(4), area.height);
+        area = Rect::new(
+            area.x + 2,
+            area.y,
+            area.width.saturating_sub(4),
+            area.height,
+        );
     }
-    draw_label(b, area, brick, color, bg);
+    draw_label(b, area, brick, color, bg, selected, top);
     if let Some((glyph, fg)) = glyph
         && body.width >= 4
     {
@@ -1319,26 +1354,48 @@ fn draw_brick(
 }
 
 /// Name above size, centred both ways, in the richest shape that fits.
-fn draw_label(b: &mut Buffer, area: Rect, brick: &Brick<'_>, color: Color, bg: Color) {
+#[allow(clippy::too_many_arguments)]
+fn draw_label(
+    b: &mut Buffer,
+    area: Rect,
+    brick: &Brick<'_>,
+    color: Color,
+    bg: Color,
+    selected: bool,
+    top: bool,
+) {
     let Some(shape) = label_for(brick, area.width, area.height) else {
         return;
     };
     let rest = brick.kind == Kind::Rest;
-    let name_fg = if rest { MUTED } else { SOFT };
-    let size_fg = if rest {
-        MUTED
+    let name_fg = if rest {
+        tint(color, 0.55)
+    } else if selected {
+        FG
+    } else if top {
+        color
     } else {
-        tint(color, 0.95)
+        SOFT
     };
+    let size_fg = if rest { MUTED } else { tint(color, 0.85) };
     let y0 = area.y + (area.height - shape.h) / 2;
     for (i, line) in shape.lines.iter().enumerate() {
         let x = area.x + (area.width - line.width() as u16) / 2;
         let y = y0 + i as u16;
         match line {
-            Line::Name(s) => text(b, x, y, s.width() as u16, s, name_fg, bg, false),
+            Line::Name(s) => text(b, x, y, s.width() as u16, s, name_fg, bg, top && !rest),
             Line::Size(s) => text(b, x, y, s.width() as u16, s, size_fg, bg, false),
             Line::Both(name, value) => {
-                text(b, x, y, name.width() as u16, name, name_fg, bg, false);
+                text(
+                    b,
+                    x,
+                    y,
+                    name.width() as u16,
+                    name,
+                    name_fg,
+                    bg,
+                    top && !rest,
+                );
                 text(
                     b,
                     x + name.width() as u16 + 2,

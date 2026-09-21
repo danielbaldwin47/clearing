@@ -1,4 +1,4 @@
-//! PROTOTYPE (ticket #3), variant G: shared walls, every block outlined and siblings wall to wall; throwaway.
+//! PROTOTYPE, variant J: G's shared walls and ink with H's graduated contrast; throwaway.
 #![allow(dead_code)]
 use super::{
     App,
@@ -386,7 +386,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
 }
 // ---------------------------------------------------------------------------
-// Variant G, "shared walls": every block has its own thin outline and siblings
+// Variant J: every block has its own thin outline and siblings
 // sit wall to wall inside a folder. Gaps exist only between top-level Tiles.
 // ---------------------------------------------------------------------------
 
@@ -467,19 +467,14 @@ fn blocks_of(node: &crate::scan::Node) -> Vec<Blk<'_>> {
 fn grouped<'a>(all: &[Blk<'a>], keep: usize) -> Vec<Blk<'a>> {
     let mut out: Vec<Blk<'a>> = all[..keep].to_vec();
     let rest = &all[keep..];
-    if rest.len() == 1 {
-        out.push(Blk {
-            loose: true,
-            ..rest[0].clone()
-        });
-    } else if !rest.is_empty() {
+    if !rest.is_empty() {
         let count: usize = rest.iter().map(|n| n.count).sum();
         out.push(Blk {
             node: None,
             index: None,
             members: rest.iter().flat_map(|n| n.members.clone()).collect(),
             bytes: rest.iter().map(|n| n.bytes).sum(),
-            label: format!("{count} smaller items"),
+            label: "…".into(),
             count,
             remainder: true,
             loose: true,
@@ -488,10 +483,10 @@ fn grouped<'a>(all: &[Blk<'a>], keep: usize) -> Vec<Blk<'a>> {
     out
 }
 
-/// Label spellings, longest first. Only the remainder block has a short form.
+/// An aggregate is only an ellipsis, never a count or size.
 fn spellings(blk: &Blk<'_>) -> Vec<String> {
     if blk.remainder {
-        vec![blk.label.clone(), format!("{} smaller", blk.count)]
+        vec!["…".into()]
     } else {
         vec![blk.label.clone()]
     }
@@ -529,12 +524,18 @@ fn name_lines(name: &str, width: u16) -> Vec<String> {
 }
 
 /// Narrowest outline that still holds this block's whole label at height `h`.
-fn need_w(blk: &Blk<'_>, h: u16) -> Option<u16> {
+fn need_w(blk: &Blk<'_>, h: u16, top: bool) -> Option<u16> {
     if h < 3 {
         return None;
     }
+    if blk.remainder {
+        return Some(3);
+    }
     let value = size(blk.bytes).width();
     let name = spellings(blk).last().map(|s| s.width()).unwrap_or(0);
+    if top && blk.node.is_some_and(|n| n.is_dir && !n.children.is_empty()) {
+        return Some((name + 2 + value + 4) as u16);
+    }
     let mut best = if h == 3 {
         name + 2 + value
     } else {
@@ -549,7 +550,7 @@ fn need_w(blk: &Blk<'_>, h: u16) -> Option<u16> {
             }
         }
     }
-    Some(best as u16 + 4)
+    Some(best as u16 + 2)
 }
 
 /// Largest-remainder shares of `cells`, then each share lifted to its minimum
@@ -608,13 +609,13 @@ fn strip_with(
 ) -> Option<(f64, Vec<(u16, u16)>)> {
     let n = blks.len() as u16;
     let weights: Vec<_> = blks.iter().map(|b| b.bytes as f64).collect();
-    let area = r.width as f64 * r.height as f64;
+    let area = r.width as f64 * r.height as f64 * if ov == 0 { 0.9 } else { 1.0 };
     let loose = |b: &Blk<'_>| relax && b.loose;
     let dims: Vec<(u16, u16)> = if columns {
         let usable = r.height.checked_sub(gaps.1 * (n - 1))?;
         let heights = shares_min(&weights, usable, &vec![3 - ov; blks.len()])?;
         for (b, h) in blks.iter().zip(&heights) {
-            let need = if loose(b) { 4 } else { need_w(b, *h + ov)? };
+            let need = if loose(b) { 3 } else { need_w(b, *h + ov, ov == 0)? };
             if need > thickness + ov {
                 return None;
             }
@@ -626,9 +627,9 @@ fn strip_with(
             .iter()
             .map(|b| {
                 if loose(b) {
-                    Some(4 - ov)
+                    Some(3 - ov)
                 } else {
-                    need_w(b, thickness + ov).map(|w| w - ov)
+                    need_w(b, thickness + ov, ov == 0).map(|w| w - ov)
                 }
             })
             .collect();
@@ -776,8 +777,8 @@ fn layout<'a>(all: &[Blk<'a>], r: Rect, top: bool) -> Option<Vec<(Blk<'a>, Rect)
         } else if r.height >= 24 {
             6
         } else {
-            4
-        });
+            3
+        }).or_else(|| if top { packed_rows(&blks, work) } else { None });
         let cols = if top {
             None
         } else {
@@ -792,6 +793,47 @@ fn layout<'a>(all: &[Blk<'a>], r: Rect, top: bool) -> Option<Vec<(Blk<'a>, Rect)
         }
     }
     None
+}
+
+/// Try actual row heights when rounding the estimated strips has rejected a
+/// readable arrangement. Same G rows and proportional shares, no fixed scenes.
+fn packed_rows(blks: &[Blk<'_>], r: Rect) -> Option<(f64, Vec<Rect>)> {
+    let n = blks.len();
+    let total = blks.iter().map(|b| b.bytes as f64).sum::<f64>().max(1.0);
+    let min_h = if r.height >= 24 && blks.iter().any(|b| b.node.is_some_and(|n| !n.children.is_empty())) { 6 } else { 3 };
+    let mut best = vec![vec![None::<(f64, Vec<Rect>)>; r.height as usize + 1]; n + 1];
+    best[0][0] = Some((0.0, Vec::new()));
+    for i in 0..n {
+        for used in 0..r.height {
+            let Some((before, previous)) = best[i][used as usize].clone() else { continue };
+            let y = used + u16::from(i > 0);
+            for j in i + 1..=n {
+                let reserve = if j < n { min_h + 1 } else { 0 };
+                let Some(limit) = r.height.checked_sub(y + reserve) else { continue };
+                for h in min_h..=limit {
+                    if j == n && y + h != r.height { continue; }
+                    let Some((score, dims)) = strip(&blks[i..j], total, r, (1, 1), 0, false, h) else { continue };
+                    let mut rects = previous.clone();
+                    let mut x = r.x;
+                    for (w, h) in dims {
+                        rects.push(Rect::new(x, r.y + y, w, h));
+                        x += w + 1;
+                    }
+                    let ordered = (0..j).all(|a| (0..j).all(|b| {
+                        blks[a].bytes as f64 <= blks[b].bytes as f64 * 1.15
+                            || rects[a].area() >= rects[b].area()
+                    }));
+                    if !ordered { continue; }
+                    let score = before + score;
+                    let slot = &mut best[j][(y + h) as usize];
+                    if slot.as_ref().is_none_or(|(old, _)| score < *old) {
+                        *slot = Some((score, rects));
+                    }
+                }
+            }
+        }
+    }
+    best[n][r.height as usize].take()
 }
 
 fn lerp(a: Color, b: Color, t: f32) -> Color {
@@ -818,18 +860,23 @@ fn title_split(blk: &Blk<'_>, r: Rect, depth: usize) -> Option<bool> {
 }
 
 fn tone(depth: usize) -> f32 {
-    0.07 + depth.min(4) as f32 * 0.05
+    0.065 + depth.min(4) as f32 * 0.025
 }
 
 /// The drawn contents of a folder block, when its title and at least its largest child fit.
 fn contents<'a>(blk: &Blk<'a>, r: Rect, depth: usize) -> Option<Vec<(Blk<'a>, Rect)>> {
     let node = blk.node?;
-    if node.children.is_empty() || depth >= MAX_DEPTH || r.height < 5 || blk.remainder {
+    if node.children.is_empty() || depth >= MAX_DEPTH || r.height < 3 || r.width < 3 || blk.remainder {
         return None;
     }
     title_split(blk, r, depth)?;
     let inner = Rect::new(r.x + 1, r.y + 1, r.width - 2, r.height - 2);
-    layout(&blocks_of(node), inner, false)
+    let all = blocks_of(node);
+    layout(&all, inner, false).or_else(|| {
+        // The top-level title stays useful even when no child label fits:
+        // the entire interior is the proportional, dots-only contents block.
+        (depth == 0 && !all.is_empty()).then(|| vec![(grouped(&all, 0).remove(0), inner)])
+    })
 }
 
 fn draw_cutaway_map(b: &mut Buffer, map: Rect, app: &App) {
@@ -848,25 +895,15 @@ fn draw_cutaway_map(b: &mut Buffer, map: Rect, app: &App) {
         return;
     }
     let tiles = layout(&all, map, true).unwrap_or_else(|| vec![(grouped(&all, 0).remove(0), map)]);
-    // Percent sits in the top edge of every titled Tile, or of none.
-    let view = app.current().bytes;
-    let percents = tiles.iter().all(|(blk, r)| {
-        contents(blk, *r, 0).is_none()
-            || blk.label.width()
-                + size(blk.bytes).width()
-                + percent(blk.bytes, view).width()
-                + 9
-                <= r.width as usize
-    });
     let group: Vec<_> = tiles
         .into_iter()
         .map(|(blk, r)| {
             let selected = blk.members.contains(&app.selected);
-            let color = blk.index.map(|i| color_for(app, i)).unwrap_or(MUTED);
+            let color = if blk.remainder { MUTED } else { blk.index.map(|i| color_for(app, i)).unwrap_or(MUTED) };
             (blk, r, color, selected)
         })
         .collect();
-    draw_group(b, &group, app, 0, percents);
+    draw_group(b, &group, app, 0);
 }
 
 const UP: u8 = 1;
@@ -927,32 +964,57 @@ fn draw_group(
     group: &[(Blk<'_>, Rect, Color, bool)],
     app: &App,
     depth: usize,
-    percents: bool,
 ) {
-    let bg_of = |color: Color, selected: bool| {
-        tint(color, tone(depth) + if selected { 0.035 } else { 0.0 })
+    let bg_of = |blk: &Blk<'_>, color: Color, selected: bool| {
+        if blk.remainder {
+            // A remainder recedes below its neighbours, even when selected.
+            return tint(color, tone(depth) * 0.35);
+        }
+        let strength = if blk.node.is_some_and(|n| !n.is_dir) {
+            tone(depth) + 0.045
+        } else {
+            tone(depth)
+        };
+        tint(color, strength + if selected { 0.035 } else { 0.0 })
     };
-    for (_, r, color, selected) in group {
-        fill(b, *r, bg_of(*color, *selected));
+    for (blk, r, color, selected) in group {
+        // Wall glyphs occupy only part of their cells. Painting those cells
+        // with the remainder fill leaks colour outside the visible outline,
+        // including across shared walls. Keep their existing backgrounds.
+        let body = if blk.remainder && r.width >= 3 && r.height >= 3 {
+            Rect::new(r.x + 1, r.y + 1, r.width - 2, r.height - 2)
+        } else {
+            // Tiny remainder blocks have no outline and are already wholly
+            // inside their parent's walls.
+            *r
+        };
+        fill(b, body, bg_of(blk, *color, *selected));
     }
-    for (_, r, color, selected) in group {
+    for (blk, r, color, selected) in group {
+        if blk.remainder && (r.width < 3 || r.height < 3) {
+            continue;
+        }
         let line = if *selected {
             lerp(*color, FG, 0.6)
         } else if depth == 0 {
-            tint(*color, 0.45)
+            tint(*color, 0.55)
         } else {
-            tint(*color, tone(depth) + 0.16)
+            tint(*color, 0.40)
         };
         outline(b, *r, line, depth == 0);
     }
     for (blk, r, color, selected) in group {
         let (r, color, selected) = (*r, *color, *selected);
+        let bg = bg_of(blk, color, selected);
         if r.width < 3 || r.height < 3 {
+            if blk.remainder {
+                draw_label(b, r, blk, color, bg, depth, selected);
+            }
             continue;
         }
-        let bg = bg_of(color, selected);
         let mut title_end = r.x + 1;
-        if let Some(children) = contents(blk, r, depth) {
+        let children = contents(blk, r, depth);
+        if children.is_some() || depth == 0 && !blk.remainder && blk.node.is_some_and(|n| n.is_dir && !n.children.is_empty()) {
             let name_fg = if selected {
                 FG
             } else if depth == 0 {
@@ -968,10 +1030,6 @@ fn draw_group(
                 text(b, x, r.bottom() - 1, value.width() as u16, &value, lerp(color, MUTED, 0.35), bg, false);
             } else if depth == 0 {
                 title.push((format!("  {}", size(blk.bytes)), lerp(color, MUTED, 0.35), false));
-                if percents {
-                    let pct = percent(blk.bytes, app.current().bytes);
-                    title.push((format!(" · {pct}"), MUTED, false));
-                }
             }
             title.push((" ".into(), name_fg, false));
             let mut x = r.x + 1;
@@ -980,24 +1038,14 @@ fn draw_group(
                 x += s.width() as u16;
             }
             title_end = x;
-            let nested: Vec<_> = children
+            let nested: Vec<_> = children.unwrap_or_default()
                 .into_iter()
                 .map(|(child, rect)| (child, rect, color, false))
                 .collect();
-            draw_group(b, &nested, app, depth + 1, false);
+            draw_group(b, &nested, app, depth + 1);
         } else {
             let inner = Rect::new(r.x + 1, r.y + 1, r.width - 2, r.height - 2);
-            if !draw_label(b, inner, blk, color, bg, depth, selected) && blk.loose {
-                // Too small to name: a grain of small things rather than a hollow box.
-                let grain = tint(color, tone(depth) + 0.13);
-                for y in inner.y..inner.bottom() {
-                    for x in inner.x..inner.right() {
-                        if inner.width < 3 || (x + y) % 2 == 0 {
-                            text(b, x, y, 1, "·", grain, bg, false);
-                        }
-                    }
-                }
-            }
+            draw_label(b, inner, blk, color, bg, depth, selected);
         }
         if let Some((glyph, fg)) = blk.node.and_then(|n| collected_glyph(app, n))
             && title_end + 5 <= r.right()
@@ -1017,10 +1065,17 @@ fn draw_label(
     depth: usize,
     selected: bool,
 ) -> bool {
+    if blk.remainder && !inner.is_empty() {
+        let mark = if inner.width >= 5 { ". . ." } else { "…" };
+        let width = mark.width() as u16;
+        text(b, inner.x + (inner.width - width) / 2, inner.y + (inner.height - 1) / 2,
+            width, mark, lerp(MUTED, bg, 0.50), bg, false);
+        return true;
+    }
     if inner.is_empty() || inner.width < 3 {
         return false;
     }
-    let width = inner.width - 2;
+    let width = inner.width;
     let value = size(blk.bytes);
     let name_fg = if selected {
         FG
