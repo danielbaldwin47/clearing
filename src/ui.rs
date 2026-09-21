@@ -9,6 +9,9 @@ mod confirm;
 mod foundation;
 /// PROTOTYPE ONLY: variant switch and the ported first proposal (variant B).
 pub mod prototype;
+mod proto_c;
+mod proto_d;
+mod proto_e;
 mod review;
 mod view;
 pub use foundation::size;

@@ -35,12 +35,18 @@ use unicode_width::UnicodeWidthChar;
 pub enum Variant {
     A,
     B,
+    C,
+    D,
+    E,
 }
 impl Variant {
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "a" | "A" => Some(Variant::A),
             "b" | "B" => Some(Variant::B),
+            "c" | "C" => Some(Variant::C),
+            "d" | "D" => Some(Variant::D),
+            "e" | "E" => Some(Variant::E),
             _ => None,
         }
     }
@@ -85,7 +91,10 @@ impl Proto {
     pub fn cycle(&mut self) {
         self.variant = match self.variant {
             Variant::A => Variant::B,
-            Variant::B => Variant::A,
+            Variant::B => Variant::C,
+            Variant::C => Variant::D,
+            Variant::D => Variant::E,
+            Variant::E => Variant::A,
         }
     }
     /// The mock-up's state: three collected items and the nested selection.
@@ -170,12 +179,18 @@ pub fn draw(f: &mut Frame, app: &App, proto: &Proto) {
     match proto.variant {
         Variant::A => view::draw(f, app),
         Variant::B => draw_b(f, app, proto),
+        Variant::C => super::proto_c::draw(f, app),
+        Variant::D => super::proto_d::draw(f, app),
+        Variant::E => super::proto_e::draw(f, app),
     }
     // So nobody mistakes either variant for the product.
     let area = f.area();
     let (label, bg) = match proto.variant {
         Variant::A => ("PROTOTYPE · variant A (today) · F2 switches", hex(0x10141a)),
         Variant::B => ("PROTOTYPE · variant B (first proposal) · F2 switches", BG),
+        Variant::C => ("PROTOTYPE · variant C · F2 switches", hex(0x10141a)),
+        Variant::D => ("PROTOTYPE · variant D · F2 switches", hex(0x10141a)),
+        Variant::E => ("PROTOTYPE · variant E · F2 switches", hex(0x10141a)),
     };
     let width = label.chars().count() as i32;
     if area.width as i32 > width + 4 && area.height > 1 {
