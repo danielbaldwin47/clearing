@@ -2,9 +2,14 @@
 name = "clearing"
 version = "0.1.0"
 edition = "2024"
+# The floor the locked graph sets, not the edition's 1.85: darling 0.24 and instability 0.3.13, via ratatui, need 1.88.
+rust-version = "1.88"
 description = "A visual disk usage explorer for Linux and macOS"
 license = "MIT"
-include = ["/src/**/*.rs", "/README.md", "/docs/images/*.png"]
+repository = "https://github.com/danielbaldwin47/tui-disk"
+keywords = ["disk-usage", "tui", "cleanup", "ncdu"]
+categories = ["command-line-utilities", "filesystem"]
+include = ["/src/**/*.rs", "/README.md"]
 
 [dependencies]
 ratatui = "0.29"
