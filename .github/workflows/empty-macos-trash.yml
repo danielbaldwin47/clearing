@@ -1,0 +1,72 @@
+name: Empty macOS Trash
+
+# Throwaway measurement for the wayfinder ticket
+# "Measure whether a terminal program can empty ~/.Trash on the macOS runner".
+on:
+  push:
+    branches: [research/empty-macos-trash]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-15, macos-15-intel, macos-26]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Paths
+        run: |
+          echo "SCRIPT=$GITHUB_WORKSPACE/research/empty-macos-trash/measure.sh" >> "$GITHUB_ENV"
+          echo "BIN=$RUNNER_TEMP/trashitems" >> "$GITHUB_ENV"
+          echo "LOG=$RUNNER_TEMP/empty-macos-trash-${{ matrix.os }}.log" >> "$GITHUB_ENV"
+      - name: Build
+        run: swiftc -O research/empty-macos-trash/trashitems.swift -o "$BIN"
+      - name: Attach a second volume
+        run: |
+          set +e
+          {
+            echo "== attach a second volume"
+            hdiutil create -size 40m -fs APFS -volname EmptyTrashVol "$RUNNER_TEMP/EmptyTrashVol.dmg"
+            echo "[exit status $?]"
+            hdiutil attach "$RUNNER_TEMP/EmptyTrashVol.dmg"
+            echo "[exit status $?]"
+            ls -la /Volumes
+          } 2>&1 | tee -a "$LOG"
+      - name: Pass 1, the plain runner shell
+        run: bash "$SCRIPT" pass runner "$BIN" 2>&1 | tee -a "$LOG"
+      - name: Pass 2, a login over SSH to localhost
+        run: |
+          set +e
+          {
+            echo
+            echo "== set up Remote Login and a key"
+            mkdir -p ~/.ssh && chmod 700 ~/.ssh
+            ssh-keygen -q -t ed25519 -N '' -f ~/.ssh/id_ett
+            cat ~/.ssh/id_ett.pub >> ~/.ssh/authorized_keys
+            chmod 600 ~/.ssh/authorized_keys
+            sudo launchctl load -w /System/Library/LaunchDaemons/ssh.plist
+            echo "[launchctl load exit status $?]"
+            sleep 3
+            bash "$SCRIPT" seed sshseed "$BIN"
+            bash "$SCRIPT" after before-ssh "$BIN"
+            echo
+            echo "== the SSH session"
+            ssh -i ~/.ssh/id_ett -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes \
+              "$(id -un)@localhost" "EMPTY_TRASH_RESEARCH_CI=1 bash '$SCRIPT' pass ssh '$BIN'"
+            echo "[ssh exit status $?]"
+            bash "$SCRIPT" after after-ssh "$BIN"
+          } 2>&1 | tee -a "$LOG"
+      - name: Results
+        if: always()
+        run: grep '^RESULT' "$LOG" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: empty-macos-trash-${{ matrix.os }}
+          path: ${{ runner.temp }}/empty-macos-trash-${{ matrix.os }}.log
