@@ -750,8 +750,7 @@ fn draw_compact_row(b: &mut Buffer, r: Rect, app: &App, i: usize) {
     let bar_width = if r.width >= 42 { 4 } else { 2 };
     let bar_x = r.right() - bar_width;
     let pct_x = bar_x - 7;
-    // 10 cells hold the widest text `size()` produces.
-    let size_x = pct_x - 11;
+    let size_x = pct_x - SIZE_WIDTH - 1;
     let name_x = r.x + rank_width + 1;
     text(
         b,
@@ -782,8 +781,8 @@ fn draw_compact_row(b: &mut Buffer, r: Rect, app: &App, i: usize) {
         b,
         size_x,
         r.y,
-        10,
-        format!("{:>10}", size(n.bytes)),
+        SIZE_WIDTH,
+        format!("{:>1$}", size(n.bytes), SIZE_WIDTH as usize),
         color,
         bg,
         selected,
@@ -1301,12 +1300,12 @@ mod tests {
             let list = contents(&render(&app, w, h), Rect::new(w - side - 2, 0, side, h));
             println!("List at {w}×{h}:\n{list}");
             let mut size_ends = vec![];
-            for (name, _, size) in sized {
+            for (name, _, shown) in sized {
                 let row = list
                     .lines()
                     .find(|row| row.contains(name))
                     .unwrap_or_else(|| panic!("no List row for {name} at {w}×{h}"));
-                assert!(row.contains(size), "{row}");
+                assert!(row.contains(shown), "{row}");
                 assert!(!row.contains('…'), "{row}");
                 let cells = row.chars().collect::<Vec<_>>();
                 let end = cells.iter().rposition(|&c| c == 'B').unwrap();

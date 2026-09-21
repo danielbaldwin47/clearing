@@ -9,8 +9,10 @@ use ratatui::{
 };
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
+/// The widest text `size()` produces ("1024.0 PiB"); EiB keeps every u64 inside it.
+pub(super) const SIZE_WIDTH: u16 = 10;
+
 pub fn size(bytes: u64) -> String {
-    // EiB covers every u64, so the widest text is 10 cells ("1024.0 PiB").
     const U: [&str; 7] = ["B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB"];
     let mut n = bytes as f64;
     let mut i = 0;
@@ -392,7 +394,10 @@ mod tests {
             u64::MAX,
         ] {
             let text = size(bytes);
-            assert!(text.width() <= 10, "size({bytes}) is {text}");
+            assert!(
+                text.width() <= SIZE_WIDTH as usize,
+                "size({bytes}) is {text}"
+            );
         }
     }
 
