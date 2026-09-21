@@ -532,8 +532,8 @@ impl MapTile {
     }
 }
 
-/// Keep readable siblings and reserve one full-width strip for everything too
-/// small. Repartition after gathering: the strip can make another sibling too small.
+/// Keep the largest siblings that stay readable and reserve one full-width strip
+/// for the rest. Repartition after gathering: the strip can make another sibling too small.
 fn mosaic_tiles(weights: &[u64], r: Rect) -> Vec<MapTile> {
     readable_tiles(weights, r, COMPACT_LABEL_MINIMUM, compact_grid)
 }
@@ -554,7 +554,7 @@ fn sparse_tiles(weights: &[u64], r: Rect) -> Vec<MapTile> {
     }
 }
 
-/// Missing partition entries must be gathered too: a one-cell leaf can hold
+/// Missing partition entries count as unreadable too: a one-cell leaf can hold
 /// multiple siblings but the sparse partition returns only its first index.
 fn readable_tiles(
     weights: &[u64],
@@ -594,16 +594,14 @@ fn readable_tiles(
         };
         let own_rect = Rect::new(r.x, r.y, r.width, r.height - gathered_height);
         let own_weights: Vec<_> = indices.iter().map(|&i| weights[i]).collect();
-        let candidates = layout(&own_weights, own_rect);
-        let mut out = Vec::new();
-        for tile in candidates {
-            if tile.rect.width >= minimum.0 && tile.rect.height >= minimum.1 {
-                out.push(MapTile {
-                    rect: tile.rect,
-                    indices: vec![indices[tile.idx]],
-                });
-            }
-        }
+        let mut out: Vec<_> = layout(&own_weights, own_rect)
+            .into_iter()
+            .filter(|tile| tile.rect.width >= minimum.0 && tile.rect.height >= minimum.1)
+            .map(|tile| MapTile {
+                rect: tile.rect,
+                indices: vec![indices[tile.idx]],
+            })
+            .collect();
         if out.len() == keep {
             if !smaller.is_empty() {
                 out.push(MapTile {
@@ -1242,10 +1240,17 @@ mod tests {
         }
     }
 
+    /// The Map of a 100 by 30 screen in the Compact view.
+    const MAP_AT_100_BY_30: Rect = Rect::new(2, 9, 48, 14);
+
+    fn cache_weights() -> Vec<u64> {
+        CACHE_CHILDREN.iter().map(|&(_, kib)| kib * 1024).collect()
+    }
+
     #[test]
     fn compact_view_at_100_by_30_gathers_only_the_smallest_caches() {
-        let weights: Vec<_> = CACHE_CHILDREN.iter().map(|&(_, kib)| kib * 1024).collect();
-        let tiles = mosaic_tiles(&weights, Rect::new(2, 9, 48, 14));
+        let weights = cache_weights();
+        let tiles = mosaic_tiles(&weights, MAP_AT_100_BY_30);
         assert!(tiles.iter().any(|t| t.indices.len() > 1));
         assert_gathers_only_the_tail(&tiles, &weights, "cache at 100×30");
     }
@@ -1263,18 +1268,20 @@ mod tests {
             })
             .collect();
         app.root.bytes = app.root.children.iter().map(|n| n.bytes).sum();
-        let map = contents(&render(&app, 100, 30), Rect::new(2, 9, 48, 14));
+        let map = contents(&render(&app, 100, 30), MAP_AT_100_BY_30);
         println!("Cache Compact view at 100×30:\n{map}");
-        assert!(map.contains("mozilla"), "{map}");
-        if map.contains("go-build") || map.contains("electron") {
-            assert!(map.contains("yay"), "{map}");
-        }
+        // go-build and electron are smaller than yay, so either one drawn means yay is.
+        assert!(
+            map.contains("go-build") || map.contains("electron"),
+            "{map}"
+        );
+        assert!(map.contains("yay"), "{map}");
         assert!(map.matches("smaller items").count() <= 1, "{map}");
     }
 
     #[test]
     fn gathered_tile_holds_only_the_tail_of_the_size_order() {
-        fn weights(shape: &str, count: usize) -> Vec<u64> {
+        fn shaped(shape: &str, count: usize) -> Vec<u64> {
             match shape {
                 "skewed" => {
                     let mut weights = vec![308 * 1024; count];
@@ -1282,19 +1289,20 @@ mod tests {
                     weights
                 }
                 "equal" => vec![1; count],
-                _ => (1..=count as u64).rev().map(|n| n * n).collect(),
+                "descending" => (1..=count as u64).rev().map(|n| n * n).collect(),
+                _ => unreachable!("no weights of shape {shape}"),
             }
         }
         for shape in ["skewed", "equal", "descending"] {
             for count in [1, 13, 31, 64, 500] {
-                let weights = weights(shape, count);
+                let weights = shaped(shape, count);
                 for r in [Rect::new(2, 9, 88, 28), Rect::new(2, 9, 20, 4)] {
                     let tiles = mosaic_tiles(&weights, r);
                     assert_gathers_only_the_tail(&tiles, &weights, &format!("{shape} {count} {r}"));
                 }
             }
             for count in [1, 2, 6, 9, 12] {
-                let weights = weights(shape, count);
+                let weights = shaped(shape, count);
                 for (w, h) in [(30, 4), (30, 5), (30, 9), (30, 10), (49, 4), (110, 28)] {
                     let r = Rect::new(2, 9, w, h);
                     let tiles = sparse_tiles(&weights, r);
@@ -1307,10 +1315,10 @@ mod tests {
     #[test]
     fn metadata_larger_than_children_before_it_stays_out_of_the_gathered_tile() {
         // `sibling_entries` appends "Metadata" last, whatever it weighs.
-        let mut weights: Vec<_> = CACHE_CHILDREN.iter().map(|&(_, kib)| kib * 1024).collect();
+        let mut weights = cache_weights();
         weights.push(6100 * 1024);
         let last = weights.len() - 1;
-        for r in [Rect::new(2, 9, 48, 14), Rect::new(2, 9, 88, 28)] {
+        for r in [MAP_AT_100_BY_30, Rect::new(2, 9, 88, 28)] {
             let tiles = mosaic_tiles(&weights, r);
             assert_gathers_only_the_tail(&tiles, &weights, &format!("metadata {r}"));
             assert!(tiles.iter().any(|t| t.indices == [last]), "{r}");
