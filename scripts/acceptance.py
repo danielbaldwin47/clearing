@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import pty
+import re
 import select
 import signal
 import struct
@@ -19,6 +20,18 @@ import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
 BINARY = ROOT / 'target/release/clearing'
+ANSI = re.compile(rb'\x1b\[[0-9;?]*[A-Za-z]')
+# What the app draws when no cell changed: every 100 ms idle, every 40 ms busy.
+EMPTY_FRAME = b'\x1b[39m\x1b[49m\x1b[59m\x1b[0m\x1b[?25l'
+# Seconds without a changed frame that end a read: the app answers a key in 1 ms.
+SETTLE = 0.05
+# For a send whose case then asserts that nothing happened: no text ends the
+# wait, so a wrongful move or delete gets the whole duration to land.
+NEVER = b'\0'
+# A space map heading. A scan's own screen blanks it, so the app draws it again
+# when the scan ends, whatever message the footer then carries. A dialog opening
+# dims and so redraws it too: the key that opens one goes in a send of its own.
+IDLE = b'LARGEST FIRST'
 
 
 def scan(path):
@@ -60,12 +73,23 @@ class Session:
         fcntl.ioctl(self.master, termios.TIOCSWINSZ, struct.pack('HHHH', rows, cols, 0, 0))
         self.output = bytearray()
         self.closed = False
-        self.read(1)
+        self.read(1, until=IDLE)
 
-    def read(self, duration=0.25):
-        until = time.monotonic() + duration
-        while time.monotonic() < until:
-            if not select.select([self.master], [], [], max(0, until - time.monotonic()))[0]:
+    def read(self, duration=0.25, until=None):
+        """Read until the screen settles, or until `until` shows in the new text.
+
+        `duration` is the ceiling either way, so text that never shows costs the
+        whole wait and fails nothing. Work the app does off the key (a scan, a
+        `gio` move) draws empty frames while it runs, so it needs `until`.
+        """
+        start = len(self.output)
+        ceiling = time.monotonic() + duration
+        settled = None
+        visible = 0
+        while True:
+            deadline = ceiling if until or settled is None else min(ceiling, settled)
+            wait = deadline - time.monotonic()
+            if wait <= 0 or not select.select([self.master], [], [], wait)[0]:
                 break
             try:
                 chunk = os.read(self.master, 65536)
@@ -76,27 +100,48 @@ class Session:
             if not chunk:
                 break
             self.output.extend(chunk)
+            new = bytes(self.output[start:])
+            if until:
+                if until in ANSI.sub(b'', new):
+                    break
+            elif (drawn := len(new.replace(EMPTY_FRAME, b''))) != visible:
+                visible = drawn
+                settled = time.monotonic() + SETTLE
         return bytes(self.output)
 
-    def send(self, data, pause=0.25):
+    def send(self, data, pause=0.25, until=None):
         os.write(self.master, data)
-        return self.read(pause)
+        return self.read(pause, until)
 
     def close(self):
         if self.closed:
             return
         self.closed = True
         try:
-            self.send(b'\x03', 0.2)
-            for _ in range(10):
-                pid, status = os.waitpid(self.pid, os.WNOHANG)
-                if pid:
-                    return os.waitstatus_to_exitcode(status)
-                time.sleep(0.05)
-            os.kill(self.pid, signal.SIGTERM)
-            os.waitpid(self.pid, 0)
+            os.write(self.master, b'\x03')
+            for stop in (None, signal.SIGTERM, signal.SIGKILL):
+                if stop:
+                    os.kill(self.pid, stop)
+                code = self.reap(0.7 if stop is None else 5)
+                if code is not None:
+                    return code
         finally:
             os.close(self.master)
+
+    def reap(self, seconds):
+        """The app's exit code, or None if it outlives `seconds`.
+
+        Reads throughout: a read that ended on its text leaves the rest of the
+        frame in the PTY, and macOS holds an exiting process until that is read.
+        """
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            pid, status = os.waitpid(self.pid, os.WNOHANG)
+            if pid:
+                return os.waitstatus_to_exitcode(status)
+            self.read(0.05)
+            time.sleep(0.01)
+        return None
 
 
 class ScanAcceptance(unittest.TestCase):
@@ -203,9 +248,9 @@ class InteractionAcceptance(ScanAcceptance):
         target.write_bytes(b'x' * 32768)
         session = self.session()
         session.send(b'd')
-        session.send(b'\r')
+        session.send(b'\r', until=NEVER)
         self.assertTrue(target.exists(), 'Enter without exact confirmation deleted a file')
-        session.send(b'wrong\r')
+        session.send(b'wrong\r', until=NEVER)
         self.assertTrue(target.exists(), 'wrong confirmation deleted a file')
         session.send(b'\x1b')
         self.assertTrue(target.exists())
@@ -215,7 +260,7 @@ class InteractionAcceptance(ScanAcceptance):
         target.write_bytes(b'x' * 32768)
         session = self.session()
         session.send(b'd')
-        session.send(b'delete\r', 0.75)
+        session.send(b'delete\r', 0.75, until=IDLE)
         self.assertFalse(target.exists(), 'exact confirmed deletion did not remove selected file')
         self.assertTrue(self.path.exists())
 
@@ -231,7 +276,7 @@ class InteractionAcceptance(ScanAcceptance):
             session.send(b'\r')
             session.send(b'\x7f')
             session.send(b'd')
-            session.send(b'delete\r', 0.75)
+            session.send(b'delete\r', 0.75, until=IDLE)
             self.assertFalse(target.exists(), 'back did not restore original directory selection')
             self.assertEqual(outside.read_bytes(), b'keep')
 
@@ -242,7 +287,7 @@ class InteractionAcceptance(ScanAcceptance):
             (target / f'file-{index:05d}').touch()
         session = self.session()
         session.send(b'd')
-        session.send(b'delete\r\x1b', 1.0)
+        session.send(b'delete\r\x1b', 1.0, until=IDLE)
         self.assertTrue(target.exists(), 'Escape did not stop the recursive deletion')
         self.assertGreater(sum(1 for _ in target.iterdir()), 0, 'all entries removed despite cancellation')
         self.assertTrue(self.path.exists())
@@ -254,7 +299,7 @@ class InteractionAcceptance(ScanAcceptance):
         target.rename(self.path / 'saved-original')
         target.write_bytes(b'replacement')
         session.send(b'd')
-        session.send(b'delete\r', 0.75)
+        session.send(b'delete\r', 0.75, until=IDLE)
         self.assertEqual(target.read_bytes(), b'replacement')
         self.assertTrue((self.path / 'saved-original').exists())
 
@@ -270,7 +315,7 @@ class InteractionAcceptance(ScanAcceptance):
             target.rename(self.path / 'saved-original')
             os.symlink(other, target)
             session.send(b'd')
-            session.send(b'delete\r', 0.75)
+            session.send(b'delete\r', 0.75, until=IDLE)
             self.assertEqual(outside.read_bytes(), b'keep')
             self.assertTrue((self.path / 'saved-original' / 'data').exists())
 

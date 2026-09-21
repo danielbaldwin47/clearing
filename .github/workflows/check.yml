@@ -71,6 +71,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, macos-15-intel]
     runs-on: ${{ matrix.os }}
+    # The slowest runner takes 5; a hung acceptance session would otherwise hold its runner for 6 hours.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       # Pinned: a floating stable turns clippy -D warnings red on a lint release. Bump together with rust-toolchain.toml.
