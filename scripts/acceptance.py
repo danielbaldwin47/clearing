@@ -22,7 +22,7 @@ import unittest
 ROOT = Path(__file__).resolve().parent.parent
 BINARY = ROOT / 'target/release/clearing'
 ANSI = re.compile(rb'\x1b\[[0-9;?]*[A-Za-z]')
-# What the app draws when no cell changed: every 100 ms idle, every 40 ms busy.
+# What a progress screen draws when no cell changed, every 40 ms while busy.
 EMPTY_FRAME = b'\x1b[39m\x1b[49m\x1b[59m\x1b[0m\x1b[?25l'
 # Seconds without a changed frame that end a read: the app answers a key in 1 ms.
 SETTLE = 0.05
@@ -309,11 +309,78 @@ class InteractionAcceptance(ScanAcceptance):
         self.addCleanup(session.close)
         return session
 
-    def make_slow_scan_tree(self):
+    def make_slow_scan_tree(self, entries=20000):
         # Enough directory entries to keep the worker busy while the PTY reads
         # the scan frame and sends Escape; no machine-specific tree or sleep.
-        for index in range(20000):
+        for index in range(entries):
             (self.path / f'file-{index:05d}').touch()
+
+    def assert_idle_silence(self, session):
+        session.read()  # Drain the rest of the frame after the heading matched.
+        start = len(session.output)
+        session.read(2, until=NEVER)  # Observe the full window, including empty frames.
+        self.assertEqual(bytes(session.output[start:]), b'', 'idle screen wrote terminal bytes')
+
+    def test_idle_silence_then_selection_and_resize(self):
+        for name, size in [('Alpha', 32768), ('Zulu', 16384)]:
+            directory = self.path / name
+            directory.mkdir()
+            (directory / f'inside-{name}').write_bytes(b'x' * size)
+        session = self.session()
+        self.assertIn(IDLE, ANSI.sub(b'', session.output), 'initial scan did not finish')
+        self.assert_idle_silence(session)
+
+        start = len(session.output)
+        session.send(b'j')
+        self.assertIn(b'Zulu', ANSI.sub(b'', session.output[start:]), 'selection did not redraw')
+        start = len(session.output)
+        session.send(b'\r')
+        self.assertIn(b'inside-Zulu', ANSI.sub(b'', session.output[start:]), 'selection did not move')
+
+        start = len(session.output)
+        fcntl.ioctl(session.master, termios.TIOCSWINSZ, struct.pack('HHHH', 15, 50, 0, 0))
+        session.read(1)
+        self.assertIn(b'Resize to at least', ANSI.sub(b'', session.output[start:]))
+        start = len(session.output)
+        fcntl.ioctl(session.master, termios.TIOCSWINSZ, struct.pack('HHHH', 40, 120, 0, 0))
+        session.read(1)
+        resized = bytes(session.output[start:])
+        self.assertIn(b'ALLOCATED IN THIS VIEW', ANSI.sub(b'', resized), 'new width was not rendered')
+        self.assertRegex(resized, rb'\x1b\[39;\d+H[^\n]*choose', 'footer did not move to the new height')
+        self.assert_idle_silence(session)
+
+    def test_after_delete_wait_is_silent_and_rescan_responds(self):
+        root = self.path / 'root'
+        root.mkdir()
+        (root / 'candidate').write_bytes(b'x' * 32768)
+        session = Session(root)
+        self.addCleanup(session.close)
+        moved = self.path / 'moved'
+        root.rename(moved)
+        session.send(b'd')
+        start = len(session.output)
+        session.send(b'delete\r', 2, until=b'Rescan failed:')
+        self.assertIn(b'Rescan failed:', ANSI.sub(b'', session.output[start:]))
+        self.assert_idle_silence(session)
+        moved.rename(root)
+        start = len(session.output)
+        session.send(b'r', 2, until=IDLE)
+        self.assertIn(IDLE, ANSI.sub(b'', session.output[start:]), 'retry did not restore browsing')
+        self.assertTrue((root / 'candidate').exists())
+
+    def test_scan_counter_advances_without_input(self):
+        self.make_slow_scan_tree(200000)
+        session = Session(self.path, until=b'entries scanned')
+        self.addCleanup(session.close)
+        self.assertNotIn(IDLE, ANSI.sub(b'', session.output), 'scan finished before progress was observed')
+        session.read(10, until=IDLE)
+        # Keep cursor moves but strip colour codes: ratatui updates only the
+        # changed digits, so subsequent frames need not repeat "entries scanned".
+        output = re.sub(rb'\x1b\[[0-9;]*m', b'', bytes(session.output))
+        updates = re.findall(rb'\x1b\[4;\d+H *(\d+)', output.split(IDLE)[0])
+        self.assertGreater(len(updates), 1, 'scan counter never redrew while scanning')
+        self.assertTrue(any(int(value) > 0 for value in updates[1:]), 'scan counter did not advance')
+        self.assertIn(IDLE, ANSI.sub(b'', session.output), 'scan did not finish')
 
     def test_first_scan_escape_label_and_exit(self):
         self.make_slow_scan_tree()

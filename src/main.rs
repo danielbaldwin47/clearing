@@ -242,9 +242,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 ui::draw(f, &app)
             }
         })?;
-        if !event::poll(Duration::from_millis(100))? {
-            continue;
-        }
+        // No worker is running here; input or resize wakes the next redraw.
         let Event::Key(key) = event::read()? else {
             continue;
         };
@@ -712,9 +710,7 @@ fn rescan_after_delete(
                     area,
                 );
             })?;
-            if !event::poll(Duration::from_millis(100))? {
-                continue;
-            }
+            // The rescan has stopped, so wait for input or resize without polling.
             let Event::Key(k) = event::read()? else {
                 continue;
             };
