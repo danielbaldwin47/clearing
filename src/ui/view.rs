@@ -449,8 +449,9 @@ pub fn draw(f: &mut Frame, app: &App) {
             h - 1,
             w - 4,
             format!(
-                "{} entries inaccessible · partial results · r rescan",
-                node.errors
+                "{} {} inaccessible · partial results · r rescan",
+                node.errors,
+                if node.errors == 1 { "entry" } else { "entries" }
             ),
             DANGER,
             BG,
@@ -1014,6 +1015,26 @@ mod tests {
             let b = render(&app, w, h);
             assert!(contents(&b, Rect::new(0, h - 2, w, 1)).contains(&app.message));
             assert!(contents(&b, Rect::new(0, h - 1, w, 1)).contains("partial results"));
+        }
+    }
+
+    #[test]
+    fn partial_results_count_names_entry_or_entries_at_both_sizes() {
+        for (w, h) in [(140, 44), (60, 20)] {
+            let mut app = dense_app();
+            app.root.errors = 1;
+            let one = contents(&render(&app, w, h), Rect::new(0, h - 1, w, 1));
+            assert!(
+                one.contains("1 entry inaccessible · partial results · r rescan"),
+                "{w}×{h}: {one}"
+            );
+            assert!(!one.contains("entries"), "{w}×{h}: {one}");
+            app.root.errors = 2;
+            let two = contents(&render(&app, w, h), Rect::new(0, h - 1, w, 1));
+            assert!(
+                two.contains("2 entries inaccessible · partial results · r rescan"),
+                "{w}×{h}: {two}"
+            );
         }
     }
 
