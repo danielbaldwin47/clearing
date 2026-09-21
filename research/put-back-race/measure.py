@@ -12,7 +12,8 @@ import time
 
 from ds_store import DSStore
 
-PAUSES = [0.0, 0.5, 1.0, 2.0]
+# (pause between calls, seconds the process stays alive after the last call)
+CONDITIONS = [(0.0, 0.0), (0.5, 0.0), (1.0, 0.0), (2.0, 0.0), (0.0, 5.0), (0.5, 5.0)]
 REPS = 3
 BATCH = 10
 SETTLE = 5
@@ -58,9 +59,9 @@ def count(trashed):
     return {"kept": sum(kept), "of": len(trashed), "which": "".join("1" if k else "0" for k in kept)}
 
 
-def run_swift(label, pause):
+def run_swift(label, pause, linger):
     out = subprocess.run(
-        [TRASHBATCH, str(pause), *make_items(label)], capture_output=True, text=True, timeout=300
+        [TRASHBATCH, str(pause), str(linger), *make_items(label)], capture_output=True, text=True, timeout=300
     ).stdout
     return [line.split("\t")[1] for line in out.splitlines() if "\t" in line]
 
@@ -90,12 +91,12 @@ def main():
 
     runs = []
     for rep in range(REPS):
-        order = PAUSES[rep:] + PAUSES[:rep]
-        for pause in order:
-            label = f"r{rep}-p{str(pause).replace('.', '_')}"
-            trashed = run_swift(label, pause)
+        order = CONDITIONS[rep:] + CONDITIONS[:rep]
+        for pause, linger in order:
+            label = f"r{rep}-p{pause}-l{linger}".replace(".", "_")
+            trashed = run_swift(label, pause, linger)
             time.sleep(SETTLE)
-            runs.append({"method": "trashItem", "pause": pause, "rep": rep, "trashed": trashed,
+            runs.append({"method": "trashItem", "pause": pause, "linger": linger, "rep": rep, "trashed": trashed,
                          "after_settle": count(trashed)})
     for one_call in (True, False):
         label = "finder-list" if one_call else "finder-each"
