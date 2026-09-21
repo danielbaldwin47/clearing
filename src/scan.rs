@@ -92,20 +92,36 @@ pub fn scan_cancellable(
     cancel: Arc<AtomicBool>,
 ) -> io::Result<Node> {
     let started = std::time::Instant::now();
-    let absolute = fs::canonicalize(path)?;
-    let name = CString::new(absolute.as_os_str().as_bytes())
-        .map_err(|_| io::Error::other("invalid path"))?;
-    let raw = unsafe {
-        libc::open(
-            name.as_ptr(),
-            libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK,
-        )
-    };
-    if raw < 0 {
-        return Err(io::Error::last_os_error());
-    }
-    let fd = unsafe { OwnedFd::from_raw_fd(raw) };
-    let stat = stat_fd(fd.as_raw_fd())?;
+    let (absolute, fd, stat) = (|| {
+        let absolute = fs::canonicalize(path)?;
+        let name = CString::new(absolute.as_os_str().as_bytes())
+            .map_err(|_| io::Error::other("invalid path"))?;
+        let raw = unsafe {
+            libc::open(
+                name.as_ptr(),
+                libc::O_RDONLY
+                    | libc::O_DIRECTORY
+                    | libc::O_NOFOLLOW
+                    | libc::O_CLOEXEC
+                    | libc::O_NONBLOCK,
+            )
+        };
+        if raw < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let fd = unsafe { OwnedFd::from_raw_fd(raw) };
+        let stat = stat_fd(fd.as_raw_fd())?;
+        Ok((absolute, fd, stat))
+    })()
+    .map_err(|error| {
+        let path = display_path(path.as_os_str());
+        let message = if error.kind() == io::ErrorKind::NotADirectory {
+            format!("not a directory: {path}")
+        } else {
+            format!("{path}: {error}")
+        };
+        io::Error::new(error.kind(), message)
+    })?;
     let ctx = Context {
         links: Arc::new(Mutex::new(HashSet::new())),
         progress,

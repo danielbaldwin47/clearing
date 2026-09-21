@@ -161,6 +161,22 @@ class CommandLineAcceptance(unittest.TestCase):
         self.assertIn('-V, --version', result.stdout)
         self.assertEqual(result.stderr, '')
 
+    def test_no_mouse_is_an_unknown_option(self):
+        result = subprocess.run([str(BINARY), '--no-mouse', '--scan', '.'], text=True, capture_output=True, timeout=30)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stderr, 'clearing: unknown option: --no-mouse\n')
+        self.assertEqual(result.stdout, '')
+
+    def test_help_lists_navigation_and_trash_once(self):
+        result = subprocess.run([str(BINARY), '--help'], text=True, capture_output=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        keys = result.stdout.split('Keys:', 1)[1].split('\n\n', 1)[0]
+        for key in ['Home', 'End', 'PgUp', 'PgDn']:
+            self.assertIn(key, keys)
+        self.assertEqual(len(re.findall(r'\bt\b', keys)), 1)
+        self.assertIn('t move selected item to Trash', keys)
+        self.assertEqual(result.stderr, '')
+
 
 class ScanAcceptance(unittest.TestCase):
     def setUp(self):
@@ -238,9 +254,35 @@ class ScanAcceptance(unittest.TestCase):
             locked.chmod(0o700)
 
     def test_missing_path_fails_cleanly(self):
-        result = subprocess.run([str(BINARY), '--scan', str(self.path / 'missing')], capture_output=True, timeout=30)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn(b'clearing:', result.stderr)
+        path = self.path / 'missing'
+        result = subprocess.run([str(BINARY), '--scan', str(path)], text=True, capture_output=True, timeout=30)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(f'clearing: {path}: No such file or directory', result.stderr)
+        self.assertEqual(result.stdout, '')
+
+    def test_file_root_is_rejected(self):
+        path = self.path / 'a file'
+        path.write_bytes(b'data')
+        for argument in [str(path), path.name]:
+            with self.subTest(argument=argument):
+                result = subprocess.run([str(BINARY), '--scan', '--json', argument], cwd=self.path, text=True, capture_output=True, timeout=30)
+                self.assertEqual(result.returncode, 1)
+                self.assertEqual(result.stderr, f'clearing: not a directory: {argument}\n')
+                self.assertEqual(result.stdout, '')
+
+    def test_unreadable_root_error_names_path(self):
+        if os.geteuid() == 0:
+            self.skipTest('root bypasses directory permissions')
+        path = self.path / 'locked'
+        path.mkdir()
+        path.chmod(0)
+        try:
+            result = subprocess.run([str(BINARY), '--scan', str(path)], text=True, capture_output=True, timeout=30)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn(f'clearing: {path}: Permission denied', result.stderr)
+            self.assertEqual(result.stdout, '')
+        finally:
+            path.chmod(0o700)
 
     def test_nonterminal_requires_scan_mode(self):
         result = subprocess.run([str(BINARY), str(self.path)], capture_output=True, timeout=30)
