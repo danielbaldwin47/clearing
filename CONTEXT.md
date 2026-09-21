@@ -37,8 +37,24 @@ What colour on the Map currently encodes; exactly one Lens is active. The Lenses
 _Avoid_: colour mode, colour mapping, theme
 
 **Kind**:
-The content category of something on disk (for example regenerable output, media, archives), always carried with the evidence for it.
+The content category of something on disk, always carried with the Evidence for it. The seven Kinds, in Legend order: Media, Code and documents, Archives and images, Applications, App data, Regenerable, Other.
 _Avoid_: type, file type, category
+
+**Evidence**:
+How the app knows a Kind, said in plain words beside it: the producer declared it, a marker file sits beside it, or it sits in a conventional cache location. A name alone is not Evidence.
+_Avoid_: confidence, score, heuristic
+
+**Regenerable**:
+The Kind of caches, build output and downloaded dependencies: something its producer brings back. A folder is Regenerable only on its own Evidence, whatever it contains or sits inside.
+_Avoid_: safe to delete, junk, reclaimable, cleanable
+
+**Other**:
+The Kind of a folder with no Kind reaching two-thirds of its bytes, and of a file nothing recognises.
+_Avoid_: mixed, unknown, misc
+
+**Only-copy list**:
+The things that look like caches or bulk data but may hold the only copy of what is in them (a Docker volume, a phone backup). A listed item is told what it is and that it may be the only copy, and is never Regenerable.
+_Avoid_: never-suggest list, never-offer list, blocklist
 
 **Age**:
 How long something has gone unmodified.
