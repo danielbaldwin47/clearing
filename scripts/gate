@@ -35,14 +35,17 @@ STEPS = [
     ("acceptance", [sys.executable, "scripts/acceptance.py"]),
     ("collector", [sys.executable, "scripts/collector_acceptance.py"]),
 ]
-# The one step that reads the [package] keys of METADATA, which no step of STEPS does.
-# --allow-dirty: the gate checks the tree `git add -A` would commit, and cargo refuses an uncommitted manifest.
-PACKAGE_STEP = ("publish", ["cargo", "publish", "--dry-run", "--locked", "--allow-dirty"])
+MANIFEST = "Cargo.toml"
+# The [package] keys of the manifest that no step of STEPS reads: packaging reads them, the build does not.
 METADATA = (
     "description", "keywords", "categories", "repository", "homepage", "documentation",
     "readme", "license", "include", "exclude", "authors",
 )
-MANIFEST = "Cargo.toml"
+# The exception: cargo hands these of METADATA to the build, and a source that names one reads the manifest whole.
+METADATA_ENV = "CARGO_PKG_(DESCRIPTION|AUTHORS|REPOSITORY|HOMEPAGE|LICENSE|README)"
+# The one step that reads METADATA. --allow-dirty: the gate checks the tree `git add -A` would
+# commit, and cargo refuses to package an uncommitted manifest.
+PACKAGE_STEP = ("publish", ["cargo", "publish", "--dry-run", "--locked", "--allow-dirty"])
 STEP_TIMEOUT_S = 900
 # Every path a step reads, a directory ending in "/". A tree that differs from a passed one
 # nowhere here has passed too. The paths not yet in the repo are here so that adding one is checked.
@@ -108,10 +111,19 @@ def is_read(name, read):
 def built_from(rev):
     """The manifest of a tree or commit as the build reads it: parsed, with the METADATA keys removed."""
     manifest = tomllib.loads(git("show", f"{rev}:{MANIFEST}"))
-    package = manifest.get("package", {})
-    for key in METADATA:
-        package.pop(key, None)
+    package = manifest.get("package")
+    if isinstance(package, dict):
+        for key in METADATA:
+            package.pop(key, None)
     return manifest
+
+
+def build_reads_metadata(rev):
+    """Whether a source of this tree names a METADATA_ENV variable; a git grep that fails counts as yes."""
+    found = subprocess.run(
+        ["git", "grep", "-qE", METADATA_ENV, rev, "--", "src/", "build.rs"], cwd=ROOT, capture_output=True
+    )
+    return found.returncode != 1
 
 
 def covered(current, passed, read=READ):
@@ -121,6 +133,7 @@ def covered(current, passed, read=READ):
     read path that differs is the manifest, and only in its METADATA; (None, False) otherwise.
     """
     but_metadata = None
+    by_key = not build_reads_metadata(current)
     for old in reversed(passed):
         try:
             # A read file renamed out of READ shows as its deletion too.
@@ -128,7 +141,7 @@ def covered(current, passed, read=READ):
             differs = [name for name in changed if is_read(name, read)]
             if not differs:
                 return old, False
-            if but_metadata is None and differs == [MANIFEST] and built_from(old) == built_from(current):
+            if by_key and but_metadata is None and differs == [MANIFEST] and built_from(old) == built_from(current):
                 but_metadata = old
         except (OSError, tomllib.TOMLDecodeError):
             continue
@@ -149,10 +162,10 @@ def covered_by(commits):
     the workflow's `package` job runs PACKAGE_STEP in place of the check jobs.
     """
     try:
-        old, package = covered(tree(), commits, READ + READ_BY_CI)
+        old, metadata_only = covered(tree(), commits, READ + READ_BY_CI)
     except OSError:
-        old, package = None, False
-    if package:
+        old, metadata_only = None, False
+    if metadata_only:
         say(f"gate: covered by {old[:7]} but for {MANIFEST}'s package metadata; the package job checks it")
         if os.environ.get("GITHUB_OUTPUT"):
             with open(os.environ["GITHUB_OUTPUT"], "a") as out:
@@ -179,14 +192,14 @@ def check(force):
     LOGS.mkdir(parents=True, exist_ok=True)
     began = time.monotonic()
     try:
-        old, package = (None, False) if force else covered(tree(), passed_trees())
+        old, metadata_only = (None, False) if force else covered(tree(), passed_trees())
     except OSError:
-        old, package = None, False
-    if old and not package:
+        old, metadata_only = None, False
+    if old and not metadata_only:
         say(f"gate: pass (no step reads what changed since tree {old[:7]} passed; --force runs the steps)")
         return 0
-    steps = [PACKAGE_STEP] if package else STEPS
-    if package:
+    steps = [PACKAGE_STEP] if metadata_only else STEPS
+    if metadata_only:
         say(f"gate: only {MANIFEST}'s package metadata changed since tree {old[:7]} passed; --force runs every step")
     for name, command in steps:
         before = worktree_state() if name == "fmt" else {}
