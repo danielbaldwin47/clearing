@@ -532,10 +532,10 @@ impl MapTile {
     }
 }
 
-/// Keep the largest siblings that stay readable and reserve one full-width strip
-/// for the rest. Repartition after gathering: the strip can make another sibling too small.
+/// Keep as many of the largest siblings as stay readable and reserve one
+/// full-width strip for the rest.
 fn mosaic_tiles(weights: &[u64], r: Rect) -> Vec<MapTile> {
-    readable_tiles(weights, r, COMPACT_LABEL_MINIMUM, compact_grid)
+    largest_readable_count_tiles(weights, r, COMPACT_LABEL_MINIMUM, compact_grid)
 }
 
 fn sparse_tiles(weights: &[u64], r: Rect) -> Vec<MapTile> {
@@ -554,32 +554,102 @@ fn sparse_tiles(weights: &[u64], r: Rect) -> Vec<MapTile> {
     }
 }
 
-/// Missing partition entries count as unreadable too: a one-cell leaf can hold
-/// multiple siblings but the sparse partition returns only its first index.
+/// The gathered Tile holds the fewest children that leave every other Tile readable.
+/// Readability is not monotone in the kept count, so every count is tried, from the
+/// most `r` can hold downwards: the passes follow `r`, not the child count.
+fn largest_readable_count_tiles(
+    weights: &[u64],
+    r: Rect,
+    minimum: (u16, u16),
+    layout: fn(&[u64], Rect) -> Vec<Tile>,
+) -> Vec<MapTile> {
+    let Some(gathering) = Gathering::new(weights, r, minimum, layout) else {
+        return Vec::new();
+    };
+    let capacity = (r.width / minimum.0) as usize * (r.height / minimum.1) as usize;
+    (0..=capacity.min(gathering.by_weight.len()))
+        .rev()
+        .find_map(|keep| gathering.keeping(keep).ok())
+        .unwrap_or_default()
+}
+
+/// Lay out every candidate, keep as many as came out readable, and repeat: the
+/// narrow rendering shows the first readable count reached that way.
 fn readable_tiles(
     weights: &[u64],
     r: Rect,
     minimum: (u16, u16),
     layout: fn(&[u64], Rect) -> Vec<Tile>,
 ) -> Vec<MapTile> {
-    if r.is_empty() {
+    let Some(gathering) = Gathering::new(weights, r, minimum, layout) else {
         return Vec::new();
-    }
-    let total = weights.iter().map(|&n| n as f64).sum::<f64>();
-    if total == 0.0 {
-        return Vec::new();
-    }
-    // What is gathered is the tail of the size order, whichever Tiles the layout
-    // made unreadable: `by_weight` splits into the kept head and the gathered tail.
-    let mut by_weight: Vec<_> = (0..weights.len()).filter(|&i| weights[i] > 0).collect();
-    by_weight.sort_by_key(|&i| std::cmp::Reverse(weights[i]));
-    let mut keep = by_weight.len();
+    };
+    let mut keep = gathering.by_weight.len();
     loop {
+        match gathering.keeping(keep) {
+            Ok(tiles) => return tiles,
+            // Gather as many of the smallest as there were unreadable Tiles.
+            Err(readable) => keep = readable,
+        }
+    }
+}
+
+/// One Map rectangle split into the kept head of the size order, each child on
+/// its own Tile, and the gathered tail on one strip below them.
+struct Gathering<'a> {
+    weights: &'a [u64],
+    r: Rect,
+    minimum: (u16, u16),
+    layout: fn(&[u64], Rect) -> Vec<Tile>,
+    total: f64,
+    /// What is gathered is the tail of the size order, whichever Tiles the layout
+    /// made unreadable: `by_weight` splits into the kept head and the gathered tail.
+    by_weight: Vec<usize>,
+    /// `tail_bytes[keep]` is what `by_weight[keep..]` weighs: exact, like a sum
+    /// made per pass, while the folder is under 2^53 bytes.
+    tail_bytes: Vec<f64>,
+}
+
+impl<'a> Gathering<'a> {
+    /// `None` when there is nothing to draw: an empty rectangle or no bytes.
+    fn new(
+        weights: &'a [u64],
+        r: Rect,
+        minimum: (u16, u16),
+        layout: fn(&[u64], Rect) -> Vec<Tile>,
+    ) -> Option<Self> {
+        let total = weights.iter().map(|&n| n as f64).sum::<f64>();
+        if r.is_empty() || total == 0.0 {
+            return None;
+        }
+        let mut by_weight: Vec<_> = (0..weights.len()).filter(|&i| weights[i] > 0).collect();
+        by_weight.sort_by_key(|&i| std::cmp::Reverse(weights[i]));
+        let mut tail_bytes = vec![0.0; by_weight.len() + 1];
+        for (keep, &i) in by_weight.iter().enumerate().rev() {
+            tail_bytes[keep] = tail_bytes[keep + 1] + weights[i] as f64;
+        }
+        Some(Self {
+            weights,
+            r,
+            minimum,
+            layout,
+            total,
+            by_weight,
+            tail_bytes,
+        })
+    }
+
+    /// The Tiles when the `keep` largest stay on their own, or how many of them
+    /// came out readable. Missing partition entries count as unreadable too: a
+    /// one-cell leaf can hold multiple siblings but the sparse partition returns
+    /// only its first index.
+    fn keeping(&self, keep: usize) -> Result<Vec<MapTile>, usize> {
+        let (weights, r, minimum) = (self.weights, self.r, self.minimum);
+        let (total, gathered_bytes) = (self.total, self.tail_bytes[keep]);
         // The kept candidates are laid out in the order they arrived.
-        let mut indices = by_weight[..keep].to_vec();
+        let mut indices = self.by_weight[..keep].to_vec();
         indices.sort_unstable();
-        let smaller = &by_weight[keep..];
-        let gathered_bytes = smaller.iter().map(|&i| weights[i] as f64).sum::<f64>();
+        let smaller = &self.by_weight[keep..];
         let gathered_height = if smaller.is_empty() {
             0
         } else {
@@ -594,7 +664,7 @@ fn readable_tiles(
         };
         let own_rect = Rect::new(r.x, r.y, r.width, r.height - gathered_height);
         let own_weights: Vec<_> = indices.iter().map(|&i| weights[i]).collect();
-        let mut out: Vec<_> = layout(&own_weights, own_rect)
+        let mut out: Vec<_> = (self.layout)(&own_weights, own_rect)
             .into_iter()
             .filter(|tile| tile.rect.width >= minimum.0 && tile.rect.height >= minimum.1)
             .map(|tile| MapTile {
@@ -602,17 +672,16 @@ fn readable_tiles(
                 indices: vec![indices[tile.idx]],
             })
             .collect();
-        if out.len() == keep {
-            if !smaller.is_empty() {
-                out.push(MapTile {
-                    rect: Rect::new(r.x, own_rect.bottom(), r.width, gathered_height),
-                    indices: smaller.to_vec(),
-                });
-            }
-            return out;
+        if out.len() != keep {
+            return Err(out.len());
         }
-        // Gather as many of the smallest as there were unreadable Tiles.
-        keep = out.len();
+        if !smaller.is_empty() {
+            out.push(MapTile {
+                rect: Rect::new(r.x, own_rect.bottom(), r.width, gathered_height),
+                indices: smaller.to_vec(),
+            });
+        }
+        Ok(out)
     }
 }
 
@@ -1256,6 +1325,18 @@ mod tests {
     }
 
     #[test]
+    fn compact_view_at_100_by_30_keeps_every_cache_that_stays_readable() {
+        let tiles = mosaic_tiles(&cache_weights(), MAP_AT_100_BY_30);
+        let own = tiles.iter().filter(|t| t.indices.len() == 1).count();
+        let gathered: Vec<_> = tiles
+            .iter()
+            .filter(|t| t.indices.len() > 1)
+            .map(|t| t.indices.len())
+            .collect();
+        assert_eq!((own, gathered), (10, vec![27]));
+    }
+
+    #[test]
     fn cache_map_at_100_by_30_names_yay_beside_smaller_caches() {
         let mut app = dense_app();
         app.root.children = CACHE_CHILDREN
@@ -1277,6 +1358,10 @@ mod tests {
         );
         assert!(map.contains("yay"), "{map}");
         assert!(map.matches("smaller items").count() <= 1, "{map}");
+        // Ten own Tiles are all readable here, so the two after thumbnails are named.
+        for shown in ["google-chrome", "spotify", "27 smaller items"] {
+            assert!(map.contains(shown), "no {shown} in:\n{map}");
+        }
     }
 
     #[test]
@@ -1318,20 +1403,72 @@ mod tests {
         }
     }
 
+    fn shaped(shape: &str, count: usize) -> Vec<u64> {
+        match shape {
+            "skewed" => {
+                let mut weights = vec![308 * 1024; count];
+                weights[0] = 64 * 1024 * 1024;
+                weights
+            }
+            "equal" => vec![1; count],
+            "descending" => (1..=count as u64).rev().map(|n| n * n).collect(),
+            _ => unreachable!("no weights of shape {shape}"),
+        }
+    }
+
     #[test]
-    fn gathered_tile_holds_only_the_tail_of_the_size_order() {
-        fn shaped(shape: &str, count: usize) -> Vec<u64> {
-            match shape {
-                "skewed" => {
-                    let mut weights = vec![308 * 1024; count];
-                    weights[0] = 64 * 1024 * 1024;
-                    weights
+    fn compact_view_keeps_the_largest_readable_count() {
+        let mut cases = vec![("cache".to_string(), cache_weights(), MAP_AT_100_BY_30)];
+        for shape in ["skewed", "equal", "descending"] {
+            // 168 equal weights fill 88 by 28 exactly: the one case that keeps as
+            // many as the rectangle holds, so a bound set too low fails here.
+            for count in [1, 13, 31, 64, 168, 500] {
+                for r in [Rect::new(2, 9, 88, 28), Rect::new(2, 9, 20, 4)] {
+                    cases.push((format!("{shape} {count} {r}"), shaped(shape, count), r));
                 }
-                "equal" => vec![1; count],
-                "descending" => (1..=count as u64).rev().map(|n| n * n).collect(),
-                _ => unreachable!("no weights of shape {shape}"),
             }
         }
+        for (case, weights, r) in cases {
+            let tiles = mosaic_tiles(&weights, r);
+            let kept = tiles.iter().filter(|t| t.indices.len() == 1).count();
+            // Brute force: one pass for every kept count, whatever the rectangle holds.
+            let gathering = Gathering::new(&weights, r, COMPACT_LABEL_MINIMUM, compact_grid)
+                .unwrap_or_else(|| panic!("{case}: nothing to draw"));
+            let largest = (0..=weights.len())
+                .rev()
+                .find(|&keep| gathering.keeping(keep).is_ok());
+            assert_eq!(Some(kept), largest, "{case}");
+            assert_eq!(
+                tiles.iter().map(|t| t.indices.len()).sum::<usize>(),
+                weights.len(),
+                "{case}"
+            );
+        }
+    }
+
+    #[test]
+    fn compact_view_passes_follow_the_rectangle_not_the_child_count() {
+        thread_local! {
+            static PASSES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+        }
+        fn counted_grid(weights: &[u64], r: Rect) -> Vec<Tile> {
+            PASSES.set(PASSES.get() + 1);
+            compact_grid(weights, r)
+        }
+        let weights = vec![1; 50_000];
+        let r = Rect::new(2, 9, 88, 28);
+        let tiles = largest_readable_count_tiles(&weights, r, COMPACT_LABEL_MINIMUM, counted_grid);
+        let counted: usize = tiles.iter().map(|t| t.indices.len()).sum();
+        assert_eq!(counted, 50_000);
+        // What the rectangle holds: 6 columns of the minimum width, 28 rows of its height.
+        let (width, height) = COMPACT_LABEL_MINIMUM;
+        let capacity = (r.width / width) as usize * (r.height / height) as usize;
+        assert_eq!(capacity, 168);
+        assert!(PASSES.get() <= capacity + 1, "{} passes", PASSES.get());
+    }
+
+    #[test]
+    fn gathered_tile_holds_only_the_tail_of_the_size_order() {
         for shape in ["skewed", "equal", "descending"] {
             for count in [1, 13, 31, 64, 500] {
                 let weights = shaped(shape, count);
