@@ -21,7 +21,38 @@ permissions:
   contents: read
 
 jobs:
+  # paths-ignore reads a pull request's whole diff, so a Markdown-only commit on a code branch still
+  # arrives here. It is checked already when it differs only in Markdown from the branch's last green commit.
+  changed:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      unread: ${{ steps.diff.outputs.unread }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - id: diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          for green in $(gh run list --workflow check.yml --branch "$BRANCH" --status success --limit 5 --json headSha --jq '.[].headSha'); do
+            if names=$(git diff --name-only --no-renames "$green" HEAD) && ! grep -qv '\.md$' <<<"$names"; then
+              echo "only Markdown changed since $green passed"
+              echo "unread=true" >> "$GITHUB_OUTPUT"
+              break
+            fi
+          done
+
   check:
+    needs: changed
+    # !cancelled(): a push to main skips `changed`, and a `changed` that failed decides nothing; both still check.
+    if: ${{ !cancelled() && needs.changed.outputs.unread != 'true' }}
     strategy:
       fail-fast: false
       matrix:
