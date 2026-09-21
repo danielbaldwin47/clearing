@@ -29,6 +29,8 @@ jobs:
       contents: read
     outputs:
       covered: ${{ steps.covered.outputs.covered }}
+      # Written by `scripts/gate covered` itself: covered but for Cargo.toml's package metadata (METADATA there).
+      package: ${{ steps.covered.outputs.package }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -49,6 +51,16 @@ jobs:
           if scripts/gate covered $green $grew_from; then
             echo "covered=true" >> "$GITHUB_OUTPUT"
           fi
+
+  # No check job reads the package metadata of Cargo.toml; packaging does, so it stands in for them.
+  package:
+    needs: changed
+    if: needs.changed.outputs.package == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.98.0
+      - run: cargo publish --dry-run --locked
 
   check:
     needs: changed
