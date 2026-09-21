@@ -187,16 +187,35 @@ pub fn draw(f: &mut Frame, app: &App) {
             false,
         )
     }
-    let map_tiles = if dense_map {
-        mosaic_tiles(&weights, map)
+    if dense_map {
+        for tile in mosaic_tiles(&weights, map) {
+            let selected = tile
+                .indices
+                .iter()
+                .any(|&i| entries[i].index == Some(app.selected));
+            if tile.indices.len() == 1 {
+                draw_mosaic_tile(b, tile.rect, &entries[tile.indices[0]], app, selected);
+            } else {
+                let count = tile
+                    .indices
+                    .iter()
+                    .filter(|&&i| entries[i].index.is_some())
+                    .count();
+                let entry = MapEntry {
+                    node: None,
+                    index: None,
+                    bytes: tile.indices.iter().map(|&i| entries[i].bytes).sum(),
+                    label: format!("{count} smaller items"),
+                };
+                draw_mosaic_tile(b, tile.rect, &entry, app, selected);
+            }
+        }
+    }
+    for tile in if dense_map {
+        Vec::new()
     } else {
         tiles(&weights, map)
-    };
-    for tile in map_tiles {
-        if dense_map {
-            draw_mosaic_tile(b, tile.rect, &entries[tile.idx], app);
-            continue;
-        }
+    } {
         let entry = &entries[tile.idx];
         let selected = entry.index == Some(app.selected)
             || (entry.index.is_none()
@@ -465,9 +484,64 @@ fn sibling_entries(node: &crate::scan::Node) -> Vec<MapEntry<'_>> {
     entries
 }
 
-/// Horizontal strips favor names over square tiles. Both strip heights and tile
-/// widths follow byte weights, with cumulative rounding to avoid gaps or overlap.
-fn mosaic_tiles(weights: &[u64], r: Rect) -> Vec<Tile> {
+struct MosaicTile {
+    rect: Rect,
+    indices: Vec<usize>,
+}
+
+/// Keep readable siblings and reserve one full-width strip for everything too
+/// small. Repartition after gathering: the strip can make another sibling too small.
+fn mosaic_tiles(weights: &[u64], r: Rect) -> Vec<MosaicTile> {
+    if r.is_empty() {
+        return Vec::new();
+    }
+    let total = weights.iter().map(|&n| n as f64).sum::<f64>();
+    if total == 0.0 {
+        return Vec::new();
+    }
+    let mut indices: Vec<_> = (0..weights.len()).filter(|&i| weights[i] > 0).collect();
+    let mut smaller = Vec::new();
+    loop {
+        let gathered_bytes = smaller.iter().map(|&i| weights[i] as f64).sum::<f64>();
+        let gathered_height = if smaller.is_empty() {
+            0
+        } else {
+            ((r.height as f64 * gathered_bytes / total).round() as u16).clamp(1, r.height)
+        };
+        let own_rect = Rect::new(r.x, r.y, r.width, r.height - gathered_height);
+        let own_weights: Vec<_> = indices.iter().map(|&i| weights[i]).collect();
+        let candidates = mosaic_grid(&own_weights, own_rect);
+        let mut kept = Vec::new();
+        let mut out = Vec::new();
+        for tile in candidates {
+            let index = indices[tile.idx];
+            // Twelve label cells plus the colored edge and a trailing space.
+            if tile.rect.width < 14 || tile.rect.height == 0 {
+                smaller.push(index);
+            } else {
+                kept.push(index);
+                out.push(MosaicTile {
+                    rect: tile.rect,
+                    indices: vec![index],
+                });
+            }
+        }
+        if kept.len() == indices.len() {
+            if !smaller.is_empty() {
+                out.push(MosaicTile {
+                    rect: Rect::new(r.x, own_rect.bottom(), r.width, gathered_height),
+                    indices: smaller,
+                });
+            }
+            return out;
+        }
+        indices = kept;
+    }
+}
+
+/// Horizontal strips follow byte weights, including zero-sized candidates so
+/// the caller can gather them. Cumulative rounding covers even a partial last row.
+fn mosaic_grid(weights: &[u64], r: Rect) -> Vec<Tile> {
     // Prefer name-plus-size tiles, but add columns until every strip can be two
     // cells tall, so labels sit on a regular grid instead of ragged single rows.
     let two_tall = (r.height / 2).max(1) as usize;
@@ -493,14 +567,11 @@ fn mosaic_tiles(weights: &[u64], r: Rect) -> Vec<Tile> {
         let mut x = r.x;
         for (col, &weight) in group.iter().enumerate() {
             prefix += weight as f64;
-            let scale = sum * columns as f64 / group.len() as f64;
-            let right = r.x + (r.width as f64 * prefix / scale).round() as u16;
-            if right > x && bottom > y {
-                out.push(Tile {
-                    idx: start + col,
-                    rect: Rect::new(x, y, right - x, bottom - y),
-                });
-            }
+            let right = r.x + (r.width as f64 * prefix / sum).round() as u16;
+            out.push(Tile {
+                idx: start + col,
+                rect: Rect::new(x, y, right - x, bottom - y),
+            });
             x = right;
         }
         y = bottom;
@@ -520,8 +591,7 @@ fn map_label(name: &str, width: u16) -> Option<&str> {
         .find(|s| !s.is_empty() && s.width() <= width as usize)
 }
 
-fn draw_mosaic_tile(b: &mut Buffer, r: Rect, entry: &MapEntry<'_>, app: &App) {
-    let selected = entry.index == Some(app.selected);
+fn draw_mosaic_tile(b: &mut Buffer, r: Rect, entry: &MapEntry<'_>, app: &App, selected: bool) {
     let color = entry.index.map(|i| color_for(app, i)).unwrap_or(MUTED);
     let bg = if selected { SURFACE } else { tint(color, 0.14) };
     fill(b, r, bg);
@@ -921,7 +991,7 @@ mod tests {
         let weights = entries.iter().map(|e| e.bytes).collect::<Vec<_>>();
         let tile = mosaic_tiles(&weights, Rect::new(2, 9, 88, 28))
             .into_iter()
-            .find(|t| t.idx == 63)
+            .find(|t| t.indices == [63])
             .unwrap();
         assert_eq!(b[(tile.rect.x, tile.rect.y)].symbol(), "▌");
         assert_eq!(b[(tile.rect.x, tile.rect.y)].bg, SURFACE);
@@ -933,7 +1003,8 @@ mod tests {
         let r = Rect::new(0, 0, 78, 24);
         let mut occupied = vec![false; 78 * 24];
         for tile in mosaic_tiles(&weights, r) {
-            let expected = (78 * 24) as f64 * weights[tile.idx] as f64 / 24.0;
+            assert_eq!(tile.indices.len(), 1);
+            let expected = (78 * 24) as f64 * weights[tile.indices[0]] as f64 / 24.0;
             assert!((tile.rect.area() as f64 - expected).abs() <= 12.0);
             for y in tile.rect.y..tile.rect.bottom() {
                 for x in tile.rect.x..tile.rect.right() {
@@ -944,6 +1015,139 @@ mod tests {
             }
         }
         assert!(occupied.into_iter().all(|cell| cell));
+    }
+
+    #[test]
+    fn skewed_mosaic_represents_every_index_and_covers_canvas() {
+        let mut weights = vec![308 * 1024; 31];
+        weights[0] = 64 * 1024 * 1024;
+        let r = Rect::new(2, 9, 88, 28);
+        let tiles = mosaic_tiles(&weights, r);
+        assert_eq!(tiles.iter().filter(|t| t.indices.len() > 1).count(), 1);
+        assert!(tiles.iter().any(|t| t.indices == [0]));
+        let mut represented: Vec<_> = tiles
+            .iter()
+            .flat_map(|t| t.indices.iter().copied())
+            .collect();
+        represented.sort_unstable();
+        assert_eq!(represented, (0..31).collect::<Vec<_>>());
+        assert_mosaic_covers(&tiles, r);
+    }
+
+    fn assert_mosaic_covers(tiles: &[MosaicTile], r: Rect) {
+        let mut occupied = vec![false; r.width as usize * r.height as usize];
+        for tile in tiles {
+            assert!(!tile.rect.is_empty());
+            assert_eq!(tile.rect.intersection(r), tile.rect);
+            for y in tile.rect.y..tile.rect.bottom() {
+                for x in tile.rect.x..tile.rect.right() {
+                    let cell = &mut occupied[((y - r.y) * r.width + x - r.x) as usize];
+                    assert!(!*cell, "overlap at {x},{y}");
+                    *cell = true;
+                }
+            }
+        }
+        assert!(occupied.into_iter().all(|cell| cell));
+    }
+
+    #[test]
+    fn mosaic_covers_partial_rows_and_gathers_over_capacity() {
+        for count in [1, 13, 31, 64, 500] {
+            for r in [Rect::new(2, 9, 88, 28), Rect::new(2, 9, 20, 4)] {
+                let tiles = mosaic_tiles(&vec![1; count], r);
+                let mut represented: Vec<_> = tiles
+                    .iter()
+                    .flat_map(|t| t.indices.iter().copied())
+                    .collect();
+                represented.sort_unstable();
+                assert_eq!(represented, (0..count).collect::<Vec<_>>());
+                assert!(tiles.iter().filter(|t| t.indices.len() > 1).count() <= 1);
+                assert_mosaic_covers(&tiles, r);
+            }
+        }
+        assert!(mosaic_tiles(&[1], Rect::default()).is_empty());
+        assert!(mosaic_tiles(&[0, 0], Rect::new(0, 0, 88, 28)).is_empty());
+    }
+
+    fn skewed_app() -> App {
+        let mut app = dense_app();
+        app.root.children.truncate(31);
+        for (i, child) in app.root.children.iter_mut().enumerate() {
+            child.bytes = if i == 0 { 64 * 1024 * 1024 } else { 308 * 1024 };
+        }
+        app.root.bytes = app.root.children.iter().map(|n| n.bytes).sum();
+        app
+    }
+
+    #[test]
+    fn skewed_dense_map_counts_and_highlights_every_child() {
+        let mut app = skewed_app();
+        let r = Rect::new(2, 9, 88, 28);
+        let b = render(&app, 140, 44);
+        let map = contents(&b, r);
+        println!("Skewed Compact view at 140×44:\n{map}");
+        assert_eq!(map.matches("smaller items").count(), 1);
+        let gathered = map
+            .split(" smaller items")
+            .next()
+            .unwrap()
+            .split_whitespace()
+            .last()
+            .unwrap()
+            .trim_start_matches(['▏', '▌'])
+            .parse::<usize>()
+            .unwrap();
+        let named = app
+            .root
+            .children
+            .iter()
+            .filter(|child| map.contains(&child.name))
+            .count();
+        assert_eq!(named + gathered, 31);
+
+        // A zero-byte child breaks the equality between entry and child indices;
+        // directory metadata is represented but must not add to the item count.
+        let mut empty = app.root.children[0].clone();
+        empty.name = "empty".into();
+        empty.bytes = 0;
+        app.root.children.insert(0, empty);
+        app.root.bytes += 4096;
+        let entries = sibling_entries(app.current());
+        let weights: Vec<_> = entries.iter().map(|e| e.bytes).collect();
+        let tiles = mosaic_tiles(&weights, r);
+        let expected: Vec<_> = (1..32)
+            .map(|selected| {
+                tiles
+                    .iter()
+                    .find(|tile| {
+                        tile.indices
+                            .iter()
+                            .any(|&i| entries[i].index == Some(selected))
+                    })
+                    .unwrap()
+                    .rect
+            })
+            .collect();
+        for (i, tile) in expected.iter().enumerate() {
+            app.selected = i + 1;
+            let b = render(&app, 140, 44);
+            assert_eq!(b[(tile.x, tile.y)].symbol(), "▌");
+            assert_eq!(b[(tile.x, tile.y)].bg, SURFACE);
+        }
+        let map = contents(&render(&app, 140, 44), r);
+        let gathered = map
+            .split(" smaller items")
+            .next()
+            .unwrap()
+            .split_whitespace()
+            .last()
+            .unwrap()
+            .trim_start_matches(['▏', '▌'])
+            .parse::<usize>()
+            .unwrap();
+        assert_eq!(map.matches("workspace-").count() + gathered, 31);
+        app.selected = 0;
+        assert!(!contents(&render(&app, 140, 44), r).contains('▌'));
     }
 
     #[test]
