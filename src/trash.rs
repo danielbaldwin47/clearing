@@ -300,25 +300,27 @@ impl Executor for DesktopTrash {
 
 /// The first non-empty line of `stderr` without its `gio: <uri>: ` prefix. GIO
 /// repeats the raw path inside the message, so a newline within that repeated
-/// path does not end the line.
+/// path does not end the line; a repeat that starts on a later line is not part
+/// of the message and changes nothing. Empty stderr gives a fallback naming the
+/// exit code or the signal.
 #[cfg(any(target_os = "linux", test))]
 fn gio_failure_reason(stderr: &str, path: &Path, code: Option<i32>) -> String {
-    let mut start = 0;
+    let mut first_line_at = 0;
     for line in stderr.split_inclusive('\n') {
         if !line.trim().is_empty() {
             break;
         }
-        start += line.len();
+        first_line_at += line.len();
     }
-    let text = &stderr[start..];
-    if !text.is_empty() {
-        let message = text
+    let from_first_line = &stderr[first_line_at..];
+    if !from_first_line.is_empty() {
+        let message = from_first_line
             .strip_prefix(&format!("gio: {}: ", gio_uri(path)))
-            .unwrap_or(text);
+            .unwrap_or(from_first_line);
         let first_newline = message.find('\n').unwrap_or(message.len());
-        let raw = path.to_string_lossy();
-        let after_path = match message.find(&*raw) {
-            Some(at) if at < first_newline => at + raw.len(),
+        let repeated_path = path.to_string_lossy();
+        let after_path = match message.find(&*repeated_path) {
+            Some(at) if at < first_newline => at + repeated_path.len(),
             _ => 0,
         };
         let reason = match message[after_path..].find('\n') {
