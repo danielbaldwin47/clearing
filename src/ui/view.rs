@@ -391,11 +391,6 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
     let footer = if !app.message.is_empty() {
         app.message.clone()
-    } else if node.errors > 0 {
-        format!(
-            "{} entries inaccessible · partial results · r rescan",
-            node.errors
-        )
     } else if w < 80 {
         "t Trash  d delete  Space add  c review  ? help  q quit".into()
     } else if w < 108 {
@@ -403,20 +398,22 @@ pub fn draw(f: &mut Frame, app: &App) {
     } else {
         "↑↓ choose   ↵ open   ⌫ back   Space collect   c review   t Trash   d delete   r rescan   ? help   q quit".into()
     };
-    text(
-        b,
-        2,
-        h - 2,
-        w - 4,
-        footer,
-        if node.errors > 0 && app.message.is_empty() {
-            DANGER
-        } else {
-            MUTED
-        },
-        BG,
-        false,
-    );
+    text(b, 2, h - 2, w - 4, footer, MUTED, BG, false);
+    if node.errors > 0 {
+        text(
+            b,
+            2,
+            h - 1,
+            w - 4,
+            format!(
+                "{} entries inaccessible · partial results · r rescan",
+                node.errors
+            ),
+            DANGER,
+            BG,
+            false,
+        );
+    }
     if app.confirm {
         draw_confirm(f, app)
     } else if app.single_trash.is_some() {
@@ -819,6 +816,40 @@ mod tests {
             })
             .collect::<Vec<_>>()
             .join("\n")
+    }
+
+    #[test]
+    fn partial_results_preserve_legend_and_detail_at_both_sizes() {
+        for (w, h) in [(140, 44), (60, 20)] {
+            let mut app = dense_app();
+            let complete = render(&app, w, h);
+            app.root.errors = 1;
+            let partial = render(&app, w, h);
+            println!(
+                "Partial results at {w}×{h}:\n{}",
+                contents(&partial, Rect::new(0, h - 6, w, 6))
+            );
+            assert!(contents(&partial, Rect::new(0, h - 2, w, 1)).contains("q quit"));
+            assert!(contents(&partial, Rect::new(0, h - 1, w, 1)).contains("partial results"));
+            for y in h - 6..h - 1 {
+                for x in 0..w {
+                    assert_eq!(partial[(x, y)], complete[(x, y)], "cell {x},{y} at {w}×{h}");
+                }
+            }
+            assert_eq!(partial[(2, h - 1)].fg, DANGER);
+        }
+    }
+
+    #[test]
+    fn partial_results_remain_visible_during_transient_messages() {
+        for (w, h) in [(140, 44), (60, 20)] {
+            let mut app = dense_app();
+            app.root.errors = 1;
+            app.message = "Rescan complete".into();
+            let b = render(&app, w, h);
+            assert!(contents(&b, Rect::new(0, h - 2, w, 1)).contains(&app.message));
+            assert!(contents(&b, Rect::new(0, h - 1, w, 1)).contains("partial results"));
+        }
     }
 
     #[test]
