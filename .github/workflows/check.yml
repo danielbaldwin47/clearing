@@ -79,6 +79,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.98.0
         with:
           components: clippy, rustfmt
+      # Keyed on the runner, the toolchain above and Cargo.lock. A pull request restores and never saves, so a
+      # branch cannot fill the repository's 10 GB; a miss or a failed restore compiles from cold and stays green.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name != 'pull_request' }}
       - name: gio, which the Trash acceptance checks move files with
         if: runner.os == 'Linux'
         run: command -v gio || (sudo apt-get update && sudo apt-get install -y libglib2.0-bin)
