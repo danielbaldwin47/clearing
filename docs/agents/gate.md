@@ -15,7 +15,7 @@ What must be true before work lands. The owner judges what a user sees and feels
 - **The acceptance scripts need a PTY, `/usr/bin/gio` (glib2) and a checkout on the same filesystem as the home Trash; no display.** While iterating, `cargo clippy --all-targets -q --message-format=short -- -D warnings` and `cargo test <name>` are the fast loop; the whole check runs once, before the PR.
 - An `#[allow(...)]` carries its reason on the same line.
 
-CI runs the same check on Linux, installing `gio` when the runner lacks it, then `git diff --exit-code` to catch a commit that skipped it; the macOS runners keep `cargo test`, the release build and `scripts/macos_acceptance.py`. A pull request gets one run per commit, a newer commit cancels the run before it, and a merge to `main` gets its own run. A change to `.md` files alone starts no run, on a pull request or on `main`: `gh pr checks` prints `no checks reported` and exits 1, and that PR is green on its `gate: pass` alone.
+CI runs the same check on Linux, installing `gio` when the runner lacks it, then `git diff --exit-code` to catch a commit that skipped it; the macOS runners keep `cargo test`, the release build and `scripts/macos_acceptance.py`. A pull request gets one run per commit, a newer commit cancels the run before it, and a merge to `main` gets its own run. A commit that differs only in `.md` files from the branch's last green commit skips the three `check` jobs: its run is the `changed` job alone, about 10 seconds. A pull request whose whole diff is `.md` files starts no run, and neither does its merge to `main`: `gh pr checks` prints `no checks reported` and exits 1, and that PR is green on its `gate: pass` alone.
 
 Done when: `scripts/gate check` prints `gate: pass`.
 
