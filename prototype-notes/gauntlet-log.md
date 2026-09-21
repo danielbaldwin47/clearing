@@ -32,3 +32,12 @@ Bar re-captured after `main` fixed the Compact view gathering defect (#51, merge
 | E round 2 against E round 1 | 2 | round 2, 5 of 6, both critics (round 1 took projects-140x44) |
 
 Landed: honest nesting (atlas 52.1 containing target 41.8), proportional remainder Tiles, rank order, calm Compact view with flat gapped leaves and only the selection outlined, stable selection, Documents named at the root. Gaps: outline rule changes with terminal size (only the selection is outlined at 100 by 30), selected outline too close to resting outlines at the root, nesting chrome distorts cousin areas, glued units and four remainder wordings, staggered label baselines, the "9 smaller items" Tile regressed to a blank slab, tall thin Compact columns.
+
+## Round 3 (2026-09-21): E revised against nine findings; the owner stopped the gauntlet here
+
+| Match | Critics | Result |
+|---|---|---|
+| E round 3 against today's screen | 1 | E, 6 of 6 |
+| E round 3 against E round 2 | 2 | split: one critic round 3 (4 of 6), one critic round 2 (3 of 6 each, round 2 overall) |
+
+Both critics agree on where each wins. Round 3: root-100x30 (every top-level Tile outlined, one child line), select-local (near-white selection outline), projects-140x44 ("9 smaller items" opened). Round 2: readable nesting at root-140x44 (children inset inside the parent with gaps, against round 3's full-width same-tone bands) and the Compact selection outline drawn inside the Tile. Round 3's remaining faults: nesting reads as a striped list; Compact selection outline drawn outside the Tile; notches under google-chrome and electron; percent on some titles only; Documents and "15 smaller items" as unframed bars. Round 2 is kept as variant F.
