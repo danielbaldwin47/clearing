@@ -225,7 +225,7 @@ def main() -> int:
     }
     write_json(provenance_path, provenance)
     (run / "prompt.txt").write_text(prompt)
-    with tempfile.TemporaryDirectory(prefix="spacemap-astra-") as temp_name:
+    with tempfile.TemporaryDirectory(prefix="clearing-astra-") as temp_name:
         temp = Path(temp_name)
         schema = temp / "schema.json"
         write_json(schema, schema_value)

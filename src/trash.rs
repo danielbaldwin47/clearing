@@ -428,7 +428,7 @@ mod tests {
         fn new(tag: &str) -> Self {
             static NEXT: AtomicU64 = AtomicU64::new(0);
             let base = std::env::temp_dir().join(format!(
-                "spacemap-trash-{tag}-{}-{}",
+                "clearing-trash-{tag}-{}-{}",
                 std::process::id(),
                 NEXT.fetch_add(1, Ordering::SeqCst)
             ));

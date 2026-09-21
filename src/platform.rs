@@ -1,6 +1,6 @@
 //! Small Unix differences used by the scanner and filesystem guards.
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-compile_error!("spacemap currently supports Linux and macOS");
+compile_error!("clearing currently supports Linux and macOS");
 use std::path::PathBuf;
 
 #[allow(clippy::unnecessary_cast)] // st_dev is i32 on macOS; u64 only on Linux

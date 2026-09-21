@@ -9,7 +9,7 @@ What must be true before work lands. The owner judges what a user sees and feels
 `scripts/gate check`, about 70 seconds on a built tree. What the script's shape means for a session:
 
 - **`cargo fmt` is applied.** The `fmt` line names any file it changed, and that change is committed with the rest.
-- **The release build precedes the acceptance scripts**, because `scripts/acceptance.py` and `scripts/collector_acceptance.py` run `target/release/spacemap` and would otherwise test the last build. Run either script alone only after `cargo build --release --locked`.
+- **The release build precedes the acceptance scripts**, because `scripts/acceptance.py` and `scripts/collector_acceptance.py` run `target/release/clearing` and would otherwise test the last build. Run either script alone only after `cargo build --release --locked`.
 - **A green run is its step lines and the `pass` line.** A failed step prints its log above a `FAIL` line naming `target/gate/<step>.log`; that log is the whole reading.
 - **The acceptance scripts need a PTY, `/usr/bin/gio` (glib2) and a checkout on the same filesystem as the home Trash; no display.** While iterating, `cargo clippy --all-targets -q --message-format=short -- -D warnings` and `cargo test <name>` are the fast loop; the whole check runs once, before the PR.
 - An `#[allow(...)]` carries its reason on the same line.
@@ -20,7 +20,7 @@ Done when: `scripts/gate check` prints `gate: pass`.
 
 ## Ticket tier: a ticket that changes a screen
 
-For each screen the change touches, `scripts/gate snapshot <state> [--width N] [--height N]` renders that state over the story fixture as plain text, and the text goes on the PR in a fenced block, beside the same state from `main` when the change is a fix. `spacemap --help` lists the states. A bug that shows only at one size is shot at that size (#15: `--width 60 --height 20`).
+For each screen the change touches, `scripts/gate snapshot <state> [--width N] [--height N]` renders that state over the story fixture as plain text, and the text goes on the PR in a fenced block, beside the same state from `main` when the change is a fix. `clearing --help` lists the states. A bug that shows only at one size is shot at that size (#15: `--width 60 --height 20`).
 
 - The fixture is `fixtures/ssd-story`, ignored by git: the script reads this checkout's, then the main checkout's, and exits 3 naming the command that makes it.
 - A snapshot shows layout and wording. Colour, motion and how a key feels are the Hand test's.

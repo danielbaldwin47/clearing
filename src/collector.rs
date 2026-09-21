@@ -273,7 +273,7 @@ mod tests {
     fn fixture(tag: &str) -> PathBuf {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let base = std::env::temp_dir().join(format!(
-            "spacemap-collector-{tag}-{}-{}",
+            "clearing-collector-{tag}-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::SeqCst)
         ));

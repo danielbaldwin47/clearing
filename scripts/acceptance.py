@@ -18,7 +18,7 @@ import time
 import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
-BINARY = ROOT / 'target/release/spacemap'
+BINARY = ROOT / 'target/release/clearing'
 
 
 def scan(path):
@@ -101,7 +101,7 @@ class Session:
 
 class ScanAcceptance(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix='spacemap-accept-')
+        self.tmp = tempfile.TemporaryDirectory(prefix='clearing-accept-')
         self.path = Path(self.tmp.name)
 
     def tearDown(self):
@@ -177,7 +177,7 @@ class ScanAcceptance(unittest.TestCase):
     def test_missing_path_fails_cleanly(self):
         result = subprocess.run([str(BINARY), '--scan', str(self.path / 'missing')], capture_output=True, timeout=30)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn(b'spacemap:', result.stderr)
+        self.assertIn(b'clearing:', result.stderr)
 
     def test_nonterminal_requires_scan_mode(self):
         result = subprocess.run([str(BINARY), str(self.path)], capture_output=True, timeout=30)
@@ -223,7 +223,7 @@ class InteractionAcceptance(ScanAcceptance):
         target = self.path / 'candidate'
         target.mkdir()
         (target / 'data').write_bytes(b'x' * 32768)
-        with tempfile.TemporaryDirectory(prefix='spacemap-outside-') as other:
+        with tempfile.TemporaryDirectory(prefix='clearing-outside-') as other:
             outside = Path(other) / 'must-survive'
             outside.write_bytes(b'keep')
             os.symlink(other, target / 'outside')
@@ -262,7 +262,7 @@ class InteractionAcceptance(ScanAcceptance):
         target = self.path / 'candidate'
         target.mkdir()
         (target / 'data').write_bytes(b'old' * 32768)
-        with tempfile.TemporaryDirectory(prefix='spacemap-outside-') as other:
+        with tempfile.TemporaryDirectory(prefix='clearing-outside-') as other:
             outside = Path(other) / 'data'
             outside.write_bytes(b'keep')
             session = self.session()

@@ -36,6 +36,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
+name = "clearing"
+version = "0.1.0"
+dependencies = [
+ "crossterm",
+ "libc",
+ "ratatui",
+ "rayon",
+ "serde",
+ "serde_json",
+ "trash",
+ "unicode-width 0.2.0",
+]
+
+[[package]]
 name = "compact_str"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -519,20 +533,6 @@ name = "smallvec"
 version = "1.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba467056f1b547ed52077911161fc86985becbc60e8e1857c8a144dab0def891"
-
-[[package]]
-name = "spacemap"
-version = "0.1.0"
-dependencies = [
- "crossterm",
- "libc",
- "ratatui",
- "rayon",
- "serde",
- "serde_json",
- "trash",
- "unicode-width 0.2.0",
-]
 
 [[package]]
 name = "static_assertions"

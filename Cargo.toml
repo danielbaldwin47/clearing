@@ -1,5 +1,5 @@
 [package]
-name = "spacemap"
+name = "clearing"
 version = "0.1.0"
 edition = "2024"
 description = "A visual disk usage explorer for Linux and macOS"

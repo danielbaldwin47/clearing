@@ -89,7 +89,7 @@ def prepare(args):
     command(["gcc", "-static", "-O2", f"-DTRIALS={args.trials}",
              f"-DGDU_FULL_TREE={int(args.gdu_engine == 'full')}",
              ROOT / "scripts/benchmark_guest.c", "-o", initroot / "init"])
-    install_binary(args.binary, "/bin/spacemap", initroot)
+    install_binary(args.binary, "/bin/clearing", initroot)
     install_binary(shutil.which("gdu"), "/bin/gdu", initroot)
     # cpio receives deterministic sorted names, all owned by root in the guest.
     names = ["."] + sorted(str(p.relative_to(initroot)) for p in initroot.rglob("*"))
@@ -105,18 +105,18 @@ def parse_output(raw):
     if not audit_match:
         raise RuntimeError("Missing independent file/directory allocation audit")
     audit = json.loads(audit_match.group(1))
-    pattern = r"BENCH_RESULT (gdu|spacemap) (cold|warm) (\d+) (\d+)\r?\nBENCH_OUTPUT_BEGIN\r?\n(.*?)\r?\nBENCH_OUTPUT_END"
+    pattern = r"BENCH_RESULT (gdu|clearing) (cold|warm) (\d+) (\d+)\r?\nBENCH_OUTPUT_BEGIN\r?\n(.*?)\r?\nBENCH_OUTPUT_END"
     measurements = []
     for app, cache, trial, nanos, output in re.findall(pattern, raw, re.S):
         output = output.strip()
-        if app == "spacemap":
+        if app == "clearing":
             summary = json.loads(output)
             total = summary["bytes"]
             if summary["errors"]:
-                raise RuntimeError(f"spacemap reported scan errors: {summary}")
+                raise RuntimeError(f"clearing reported scan errors: {summary}")
             expected = audit["file_bytes"] + audit["directory_bytes"]
             if summary["files"] != audit["files"] or summary["directories"] != audit["directories"]:
-                raise RuntimeError("spacemap file/directory counts disagree with independent audit")
+                raise RuntimeError("clearing file/directory counts disagree with independent audit")
         else:
             if output.startswith("["):
                 gdu_root = json.loads(output)[3][0]
@@ -139,7 +139,7 @@ def parse_output(raw):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--binary", type=Path, default=ROOT / "target/release/spacemap")
+    parser.add_argument("--binary", type=Path, default=ROOT / "target/release/clearing")
     parser.add_argument("--trials", type=int, default=7)
     parser.add_argument("--cpus", type=int, default=20)
     parser.add_argument("--fixture", choices=("broad", "ui"), default="broad",
@@ -170,13 +170,13 @@ def main():
         return
     # Freeze provenance BEFORE launch; builder may replace the release binary
     # during a run. The VM reads only this staged image, never the live source.
-    measured_hashes = {app: sha256(WORK / "initroot/bin" / app) for app in ("spacemap", "gdu")}
+    measured_hashes = {app: sha256(WORK / "initroot/bin" / app) for app in ("clearing", "gdu")}
     archive_hash = sha256(archive)
     evidence = WORK / "evidence"
     evidence.mkdir(exist_ok=True)
-    snapshot = evidence / f"spacemap-{measured_hashes['spacemap']}"
+    snapshot = evidence / f"clearing-{measured_hashes['clearing']}"
     if not snapshot.exists():
-        shutil.copy2(WORK / "initroot/bin/spacemap", snapshot)
+        shutil.copy2(WORK / "initroot/bin/clearing", snapshot)
     qemu = WORK / "qemu/usr/bin/qemu-system-x86_64"
     kernel = Path("/usr/lib/modules/7.2.3-arch1-3/vmlinuz")
     if not qemu.exists() or not kernel.exists():
@@ -206,12 +206,12 @@ def main():
     summary = {}
     for cache in ("cold", "warm"):
         values = {app: [m["seconds"] for m in measurements if m["app"] == app and m["cache"] == cache]
-                  for app in ("gdu", "spacemap")}
+                  for app in ("gdu", "clearing")}
         medians = {app: statistics.median(v) for app, v in values.items()}
-        paired_wins = sum(a < b for a, b in zip(values["spacemap"], values["gdu"]))
-        summary[cache] = {"median_seconds": medians, "speedup": medians["gdu"] / medians["spacemap"],
+        paired_wins = sum(a < b for a, b in zip(values["clearing"], values["gdu"]))
+        summary[cache] = {"median_seconds": medians, "speedup": medians["gdu"] / medians["clearing"],
                           "paired_wins": paired_wins, "trials": args.trials,
-                          "won": medians["spacemap"] < medians["gdu"] and paired_wins > args.trials / 2}
+                          "won": medians["clearing"] < medians["gdu"] and paired_wins > args.trials / 2}
     result = {"schema": 1, "author_role": "independent benchmark author", "unix_started": started,
               "environment": {"kind": "isolated KVM Linux guest", "cpus": args.cpus,
                               "ram_mib": 4096, "filesystem": "ext4", "host_filesystem": "btrfs",
@@ -219,9 +219,9 @@ def main():
                               "host_image_cache": "QEMU cache=none (O_DIRECT)",
                               "warm": "immediately follows untimed scan by same executable",
                               "scope": "directory-tree metadata and allocator usage; file data is not read by either scanner"},
-              "binaries": {"spacemap": {"path": str(args.binary), "sha256": measured_hashes["spacemap"],
+              "binaries": {"clearing": {"path": str(args.binary), "sha256": measured_hashes["clearing"],
                                          "measured_snapshot": str(snapshot),
-                                         "current_binary_matches_measured": sha256(args.binary) == measured_hashes["spacemap"]},
+                                         "current_binary_matches_measured": sha256(args.binary) == measured_hashes["clearing"]},
                            "gdu": {"path": shutil.which("gdu"), "sha256": measured_hashes["gdu"]}},
               "measured_initramfs_sha256": archive_hash,
               "freeze_deadline_utc": "2026-09-20T00:46:22Z",
@@ -233,7 +233,7 @@ def main():
               "fixture_image": str(disk),
               "independent_allocation_audit": audit,
               "allocation_semantics": {"gdu": "regular-file allocated blocks only",
-                                       "spacemap": "regular-file plus directory allocated blocks"},
+                                       "clearing": "regular-file plus directory allocated blocks"},
               "gate": "lower median and strict majority of paired wins in both cache states",
               "summary": summary, "won": all(s["won"] for s in summary.values()),
               "measurements": measurements, "raw_log": str(log)}
