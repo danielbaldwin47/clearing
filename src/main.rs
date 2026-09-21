@@ -230,7 +230,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     let guard = TerminalGuard::enter()?;
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
-    let Some((root, seconds)) = scan_in_terminal(&mut terminal, &path, false)? else {
+    let Some((root, seconds)) = scan_in_terminal(&mut terminal, &path, ScanKind::Initial)? else {
         return Ok(());
     };
     let mut app = ui::App::new(root, seconds);
@@ -255,6 +255,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         if app.confirm {
             if app.delete_confirm_key(key.code) {
                 let name = app.selection().map(|n| n.name.clone()).unwrap_or_default();
+                let acted_on = app.selection().map(|node| node.path.clone());
                 let root_path = app.root.path.clone();
                 let outcome = match delete_in_terminal(&mut terminal, &app, &name) {
                     Ok(outcome) => outcome,
@@ -265,7 +266,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 };
                 let summary = delete_message(&name, &outcome);
-                if matches!(outcome.status, delete::Status::Completed) && app.remove_selection() {
+                if matches!(outcome.status, delete::Status::Completed)
+                    && acted_on
+                        .as_deref()
+                        .is_some_and(|path| app.remove_selection(path))
+                {
                     app.message = summary;
                     continue;
                 }
@@ -324,7 +329,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             let summary = single_trash_summary(&label, outcome);
             if matches!(outcome, Some(trash::Outcome::Trashed))
                 && !report.cancelled
-                && app.remove_selection()
+                && app.remove_selection(&record.path)
             {
                 app.message = summary;
                 continue;
@@ -411,7 +416,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             KeyCode::Char('?') => app.help = true,
             KeyCode::Char('r') => {
                 let root_path = app.root.path.clone();
-                match scan_in_terminal(&mut terminal, &root_path, true) {
+                match scan_in_terminal(&mut terminal, &root_path, ScanKind::Rescan) {
                     Ok(Some((root, seconds))) => app = app.rebuild(root, seconds),
                     Ok(None) => app.message = "Rescan cancelled; previous results retained".into(),
                     Err(e) => app.message = format!("Rescan failed: {e}"),
@@ -531,10 +536,15 @@ fn trash_frame(
     }
     Ok(())
 }
+enum ScanKind {
+    Initial,
+    Rescan,
+}
+
 fn scan_in_terminal(
     terminal: &mut AppTerminal,
     path: &Path,
-    is_rescan: bool,
+    kind: ScanKind,
 ) -> io::Result<Option<(scan::Node, f64)>> {
     let (tx, rx) = mpsc::sync_channel(1);
     let progress = Arc::new(AtomicU64::new(0));
@@ -562,7 +572,10 @@ fn scan_in_terminal(
                 Paragraph::new(format!(
                     "\n  Reading disk allocation\n\n  {} entries scanned\n\n  Esc {}",
                     progress.load(Ordering::Relaxed),
-                    if is_rescan { "cancel" } else { "quit" }
+                    match kind {
+                        ScanKind::Initial => "quit",
+                        ScanKind::Rescan => "cancel",
+                    }
                 ))
                 .style(Style::default().fg(theme::FG).bg(theme::BG)),
                 area,
@@ -687,7 +700,7 @@ fn rescan_after_delete(
     summary: &str,
 ) -> io::Result<Option<(scan::Node, f64)>> {
     loop {
-        let problem = match scan_in_terminal(terminal, root_path, true) {
+        let problem = match scan_in_terminal(terminal, root_path, ScanKind::Rescan) {
             Ok(Some(fresh)) => return Ok(Some(fresh)),
             Ok(None) => "Rescan cancelled".to_string(),
             Err(e) => format!("Rescan failed: {e}"),

@@ -475,7 +475,16 @@ pub(super) fn draw_trash_confirm(f: &mut Frame, app: &App) {
         false,
     );
     text(b, x, r.y + 13, 10, "Esc cancel", MUTED, PANEL, true);
-    text(b, x, r.y + 14, w, app.trash_feedback, DANGER, PANEL, false);
+    text(
+        b,
+        x,
+        r.y + 14,
+        w,
+        app.confirm_feedback,
+        DANGER,
+        PANEL,
+        false,
+    );
     if app.typed == "trash" {
         let go = "Enter move to Trash";
         let gw = go.width() as u16;

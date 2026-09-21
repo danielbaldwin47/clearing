@@ -12,6 +12,8 @@ mod view;
 pub use foundation::size;
 pub use view::{draw, draw_wireframe};
 
+const TRASH_CONFIRM_FEEDBACK: &str = "Not moved: type trash to confirm";
+
 pub struct App {
     pub root: Node,
     pub route: Vec<usize>,
@@ -19,7 +21,7 @@ pub struct App {
     pub previous: Vec<usize>,
     pub confirm: bool,
     pub typed: String,
-    pub delete_feedback: &'static str,
+    pub confirm_feedback: &'static str,
     pub message: String,
     pub help: bool,
     /// Items picked for the Trash. It outlives the scan tree: see `rebuild`.
@@ -27,7 +29,6 @@ pub struct App {
     pub review: bool,
     pub review_selected: usize,
     pub trash_confirm: bool,
-    pub trash_feedback: &'static str,
     /// An isolated direct action; never includes the cross-directory collector.
     pub single_trash: Option<Record>,
 }
@@ -43,14 +44,13 @@ impl App {
             previous: vec![],
             confirm: false,
             typed: String::new(),
-            delete_feedback: "",
+            confirm_feedback: "",
             message: String::new(),
             help: false,
             collector,
             review: false,
             review_selected: 0,
             trash_confirm: false,
-            trash_feedback: "",
             single_trash: None,
         }
     }
@@ -73,8 +73,10 @@ impl App {
     }
     /// Apply a completed single action, retaining the route and selected row.
     /// False asks the caller to rescan instead.
-    pub fn remove_selection(&mut self) -> bool {
-        if !self.root.remove(&self.route, self.selected) {
+    pub fn remove_selection(&mut self, acted_on: &std::path::Path) -> bool {
+        if !self.selection().is_some_and(|node| node.path == acted_on)
+            || !self.root.remove(&self.route, self.selected)
+        {
             return false;
         }
         self.selected = self
@@ -123,7 +125,7 @@ impl App {
     }
     /// Returns true only when the exact word authorizes permanent deletion.
     pub fn delete_confirm_key(&mut self, code: KeyCode) -> bool {
-        self.delete_feedback = "";
+        self.confirm_feedback = "";
         match code {
             KeyCode::Esc => {
                 self.confirm = false;
@@ -138,7 +140,7 @@ impl App {
                 self.typed.clear();
                 return true;
             }
-            KeyCode::Enter => self.delete_feedback = "Not deleted: type delete to confirm",
+            KeyCode::Enter => self.confirm_feedback = "Not deleted: type delete to confirm",
             _ => {}
         }
         false
@@ -172,7 +174,7 @@ impl App {
             Toggle::Added { .. } => {
                 self.single_trash = isolated.remove(0);
                 self.typed.clear();
-                self.trash_feedback = "";
+                self.confirm_feedback = "";
                 self.message.clear();
             }
             Toggle::Refused(why) => self.message = format!("Cannot move to Trash: {why}"),
@@ -181,7 +183,7 @@ impl App {
     }
     /// Keep the captured record untouched until the exact word is confirmed.
     pub fn single_trash_key(&mut self, code: KeyCode) -> bool {
-        self.trash_feedback = "";
+        self.confirm_feedback = "";
         match code {
             KeyCode::Esc => {
                 self.single_trash = None;
@@ -195,7 +197,7 @@ impl App {
                 self.typed.clear();
                 return true;
             }
-            KeyCode::Enter => self.trash_feedback = "Not moved: type trash to confirm",
+            KeyCode::Enter => self.confirm_feedback = TRASH_CONFIRM_FEEDBACK,
             _ => {}
         }
         false
@@ -231,7 +233,7 @@ impl App {
     /// Keys while the review or its Trash confirmation is open. Returns true
     /// once the user has typed the confirmation and the batch should run.
     pub fn review_key(&mut self, code: KeyCode) -> bool {
-        self.trash_feedback = "";
+        self.confirm_feedback = "";
         if self.trash_confirm {
             match code {
                 KeyCode::Esc => {
@@ -251,7 +253,7 @@ impl App {
                     self.typed.clear();
                     return true;
                 }
-                KeyCode::Enter => self.trash_feedback = "Not moved: type trash to confirm",
+                KeyCode::Enter => self.confirm_feedback = TRASH_CONFIRM_FEEDBACK,
                 _ => {}
             }
             return false;
@@ -360,14 +362,58 @@ mod tests {
         let previous = app.previous.clone();
         for (name, selected, next) in [("b", 1, Some("c")), ("c", 0, Some("a")), ("a", 0, None)] {
             fs::remove_file(base.join("nested").join(name)).unwrap();
-            assert!(app.remove_selection());
+            assert!(app.remove_selection(&base.join("nested").join(name)));
             assert_eq!(app.route, route);
             assert_eq!(app.previous, previous);
             assert_eq!(app.selected, selected);
             assert_eq!(app.selection().map(|n| n.name.as_str()), next);
             assert!(app.collector.records()[0].stale.is_some());
         }
-        assert!(!app.remove_selection());
+        assert!(!app.remove_selection(&base.join("nested/a")));
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn removal_refuses_a_different_selection_without_changing_the_tree() {
+        let base = fixture("remove-mismatch");
+        let mut app = app(&base);
+        select(&mut app, "file");
+        app.toggle_collect();
+        let acted_on = app.selection().unwrap().path.clone();
+        fs::remove_file(&acted_on).unwrap();
+        select(&mut app, "dir");
+        let before = serde_json::to_string(&app.root).unwrap();
+        let selected = app.selected;
+        assert!(!app.remove_selection(&acted_on));
+        assert_eq!(serde_json::to_string(&app.root).unwrap(), before);
+        assert_eq!(app.selected, selected);
+        assert!(app.collector.records()[0].stale.is_none());
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn delete_confirmation_keeps_the_filename_on_a_deep_path_row() {
+        let base = fixture("delete-deep-path");
+        let parent = base.join("first-long-folder/second-long-folder/third-long-folder/fourth-long-folder/fifth-long-folder");
+        fs::create_dir_all(&parent).unwrap();
+        let path = parent.join("important-file.txt");
+        fs::write(&path, [1; 4096]).unwrap();
+        let mut app = app(&base);
+        app.restore_path(&parent);
+        select(&mut app, "important-file.txt");
+        app.confirm = true;
+        assert!(
+            unicode_width::UnicodeWidthStr::width(
+                crate::scan::display_path(path.as_os_str()).as_str()
+            ) > 70
+        );
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|frame| draw(frame, &app)).unwrap();
+        // The centered 76×16 dialog's path row spans x=5..75 at y=9.
+        let buffer = terminal.backend().buffer();
+        let row: String = (5..75).map(|x| buffer[(x, 9)].symbol()).collect();
+        assert!(row.starts_with('…'), "{row}");
+        assert!(row.ends_with("important-file.txt"), "{row}");
         fs::remove_dir_all(base).unwrap();
     }
 
@@ -389,9 +435,9 @@ mod tests {
             assert!(!app.delete_confirm_key(KeyCode::Enter));
             assert!(app.confirm);
             assert_eq!(app.typed, "delet");
-            assert_eq!(app.delete_feedback, "Not deleted: type delete to confirm");
+            assert_eq!(app.confirm_feedback, "Not deleted: type delete to confirm");
             assert!(!app.delete_confirm_key(next));
-            assert!(app.delete_feedback.is_empty());
+            assert!(app.confirm_feedback.is_empty());
         }
         assert!(!app.confirm);
         assert!(app.typed.is_empty());
@@ -455,11 +501,11 @@ mod tests {
             assert_eq!(pending.path, captured.path);
             assert_eq!(pending.identity, captured.identity);
             assert_eq!(app.typed, "tras");
-            assert_eq!(app.trash_feedback, "Not moved: type trash to confirm");
+            assert_eq!(app.confirm_feedback, "Not moved: type trash to confirm");
             assert_eq!(app.collector.len(), 1);
             assert!(captured.path.exists());
             assert!(!app.single_trash_key(next));
-            assert!(app.trash_feedback.is_empty());
+            assert!(app.confirm_feedback.is_empty());
         }
         assert!(app.single_trash.is_none());
         assert!(app.typed.is_empty());
@@ -469,7 +515,7 @@ mod tests {
         }
         assert!(app.single_trash_key(KeyCode::Enter));
         assert!(app.typed.is_empty());
-        assert!(app.trash_feedback.is_empty());
+        assert!(app.confirm_feedback.is_empty());
         fs::remove_dir_all(base).unwrap();
     }
 
@@ -494,12 +540,12 @@ mod tests {
             assert!(!app.review_key(KeyCode::Enter));
             assert!(app.review && app.trash_confirm);
             assert_eq!(app.typed, "tras");
-            assert_eq!(app.trash_feedback, "Not moved: type trash to confirm");
+            assert_eq!(app.confirm_feedback, "Not moved: type trash to confirm");
             assert_eq!(app.collector.len(), 1);
             assert_eq!(app.collector.records()[0].path, base.join("file"));
             assert!(base.join("file").exists());
             assert!(!app.review_key(next));
-            assert!(app.trash_feedback.is_empty());
+            assert!(app.confirm_feedback.is_empty());
         }
         assert!(app.review && !app.trash_confirm);
         assert!(app.typed.is_empty());
@@ -510,7 +556,7 @@ mod tests {
         assert!(app.review_key(KeyCode::Enter));
         assert!(!app.trash_confirm);
         assert!(app.typed.is_empty());
-        assert!(app.trash_feedback.is_empty());
+        assert!(app.confirm_feedback.is_empty());
         fs::remove_dir_all(base).unwrap();
     }
 

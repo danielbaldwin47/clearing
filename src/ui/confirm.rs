@@ -104,7 +104,7 @@ pub(super) fn draw_confirm(f: &mut Frame, app: &App) {
         r.x + 3,
         r.y + 14,
         r.width - 6,
-        app.delete_feedback,
+        app.confirm_feedback,
         DANGER,
         PANEL,
         false,
