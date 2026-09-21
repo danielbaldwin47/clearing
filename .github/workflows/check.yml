@@ -1,9 +1,19 @@
 name: Check
 
+# One run per commit: a branch is checked as its pull request, main as its push.
+# No step reads Markdown (UNREAD in scripts/gate), so a change to nothing else starts no run.
 on:
   push:
+    branches: [main]
+    paths-ignore: ["**.md"]
   pull_request:
+    paths-ignore: ["**.md"]
   workflow_dispatch:
+
+# A push to a pull request replaces the run of the commit before it.
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read

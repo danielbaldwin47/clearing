@@ -256,14 +256,17 @@ mod tests {
         sync::Arc,
         time::{SystemTime, UNIX_EPOCH},
     };
+    // Tests run in parallel and a macOS clock ticks in microseconds, so the counter keeps two names apart.
+    static DIRS: AtomicU64 = AtomicU64::new(0);
     fn dir() -> std::path::PathBuf {
         let p = std::env::temp_dir().join(format!(
-            "clearing-delete-{}-{}",
+            "clearing-delete-{}-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+            DIRS.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir(&p).unwrap();
         p

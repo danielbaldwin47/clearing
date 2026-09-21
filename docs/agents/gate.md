@@ -8,13 +8,14 @@ What must be true before work lands. The owner judges what a user sees and feels
 
 `scripts/gate check`, about 70 seconds on a built tree. What the script's shape means for a session:
 
+- **A pass is remembered by tree**, in one file shared by the main checkout and every worktree. A tree that differs from a passed one only in `.md` files prints `gate: pass (no step reads what changed since tree <sha> passed; ...)` in under a second: the run after a merge that `main` had not moved under, a reviewer's run on the tree the author passed, a docs change. So the check is run wherever a step asks for it, and costs its 70 seconds only on a tree it has not seen. `--force` runs the steps regardless.
 - **`cargo fmt` is applied.** The `fmt` line names any file it changed, and that change is committed with the rest.
 - **The release build precedes the acceptance scripts**, because `scripts/acceptance.py` and `scripts/collector_acceptance.py` run `target/release/clearing` and would otherwise test the last build. Run either script alone only after `cargo build --release --locked`.
 - **A green run is its step lines and the `pass` line.** A failed step prints its log above a `FAIL` line naming `target/gate/<step>.log`; that log is the whole reading.
 - **The acceptance scripts need a PTY, `/usr/bin/gio` (glib2) and a checkout on the same filesystem as the home Trash; no display.** While iterating, `cargo clippy --all-targets -q --message-format=short -- -D warnings` and `cargo test <name>` are the fast loop; the whole check runs once, before the PR.
 - An `#[allow(...)]` carries its reason on the same line.
 
-CI runs the same check on Linux, installing `gio` when the runner lacks it, then `git diff --exit-code` to catch a commit that skipped it; the macOS runners keep `cargo test`, the release build and `scripts/macos_acceptance.py`.
+CI runs the same check on Linux, installing `gio` when the runner lacks it, then `git diff --exit-code` to catch a commit that skipped it; the macOS runners keep `cargo test`, the release build and `scripts/macos_acceptance.py`. A pull request gets one run per commit, a newer commit cancels the run before it, and `main` gets one run per merge. A pull request that changes only `.md` files starts no run: `gh pr checks` answers `no checks reported`, and that PR is green on its `gate: pass` alone.
 
 Done when: `scripts/gate check` prints `gate: pass`.
 

@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
 """The gate: what must pass before work lands. docs/agents/gate.md names the tiers.
 
-  scripts/gate check                      the Commit tier, ending in one pass or FAIL line
+  scripts/gate check [--force]            the Commit tier, ending in one pass or FAIL line
   scripts/gate snapshot STATE [--width N] [--height N]
                                           a screen as plain text, for a ticket's evidence
 
+A pass is recorded by tree in the shared git directory, and a tree that differs
+from a passed one only in Markdown passes at once; --force runs the steps.
 Each check step's output waits in target/gate/<step>.log and is printed only
 for the step that fails. Exit codes: 0 pass, 1 a step failed, 2 usage,
 3 the story fixture is missing.
 """
 import argparse
+import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -29,6 +33,9 @@ STEPS = [
     ("collector", [sys.executable, "scripts/collector_acceptance.py"]),
 ]
 STEP_TIMEOUT_S = 900
+# No step reads Markdown, so a tree that differs from a passed one only there has passed too.
+UNREAD = (".md",)
+PASSED_KEPT = 50
 
 
 def say(line):
@@ -52,9 +59,64 @@ def worktree_state():
     return state
 
 
-def check():
+def git(*args, **env):
+    done = subprocess.run(
+        ["git", *args], cwd=ROOT, capture_output=True, text=True, env={**os.environ, **env}
+    )
+    if done.returncode != 0:
+        raise OSError(done.stderr.strip())
+    return done.stdout.strip()
+
+
+def tree():
+    """The tree `git add -A` would commit from this checkout, written through a scratch index."""
+    LOGS.mkdir(parents=True, exist_ok=True)
+    index = LOGS / "index"
+    shutil.copyfile(git("rev-parse", "--path-format=absolute", "--git-path", "index"), index)
+    git("add", "-A", GIT_INDEX_FILE=str(index))
+    return git("write-tree", GIT_INDEX_FILE=str(index))
+
+
+def passed_file():
+    """One file for the main checkout and every worktree, so a pass in one is known to the rest."""
+    return Path(git("rev-parse", "--path-format=absolute", "--git-common-dir")) / "gate-passed"
+
+
+def covered(current):
+    """The passed tree that differs from this one in nothing a step reads, or None."""
+    try:
+        passed = passed_file().read_text().split()
+    except OSError:
+        return None
+    for old in reversed(passed):
+        try:
+            changed = git("diff", "--name-only", old, current).splitlines()
+        except OSError:
+            continue
+        if all(name.endswith(UNREAD) for name in changed):
+            return old
+    return None
+
+
+def record(current):
+    path = passed_file()
+    try:
+        passed = path.read_text().split()
+    except OSError:
+        passed = []
+    path.write_text("\n".join([t for t in passed if t != current][-PASSED_KEPT + 1:] + [current]) + "\n")
+
+
+def check(force):
     LOGS.mkdir(parents=True, exist_ok=True)
     began = time.monotonic()
+    try:
+        old = None if force else covered(tree())
+    except OSError:
+        old = None
+    if old:
+        say(f"gate: pass (no step reads what changed since tree {old[:7]} passed; --force runs the steps)")
+        return 0
     for name, command in STEPS:
         before = worktree_state() if name == "fmt" else {}
         started = time.monotonic()
@@ -82,6 +144,10 @@ def check():
             if formatted:
                 note = "  formatted: " + " ".join(formatted)
         say(f"gate: {name} ok {seconds:.1f}s{note}")
+    try:
+        record(tree())
+    except OSError:
+        pass
     say(f"gate: pass ({len(STEPS)} steps, {time.monotonic() - began:.0f}s)")
     return 0
 
@@ -154,14 +220,16 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser("check")
+    commands.add_parser("check").add_argument(
+        "--force", action="store_true", help="run every step on a tree that has already passed"
+    )
     shot = commands.add_parser("snapshot")
     shot.add_argument("state", help="one of: " + ", ".join(STATES))
     shot.add_argument("--width", type=int, default=140)
     shot.add_argument("--height", type=int, default=44)
     args = parser.parse_args()
     if args.command == "check":
-        return check()
+        return check(args.force)
     return snapshot(args.state, args.width, args.height)
 
 
