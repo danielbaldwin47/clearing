@@ -91,7 +91,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 variant = Some(
                     args.next()
                         .and_then(|v| ui::prototype::Variant::parse(&v.to_string_lossy()))
-                        .ok_or("--variant requires a to i")?,
+                        .ok_or("--variant requires a to l")?,
                 )
             }
             "--wireframe" => wireframe = true,
