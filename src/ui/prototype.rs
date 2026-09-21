@@ -38,6 +38,7 @@ pub enum Variant {
     C,
     D,
     E,
+    F,
 }
 impl Variant {
     pub fn parse(s: &str) -> Option<Self> {
@@ -47,6 +48,7 @@ impl Variant {
             "c" | "C" => Some(Variant::C),
             "d" | "D" => Some(Variant::D),
             "e" | "E" => Some(Variant::E),
+            "f" | "F" => Some(Variant::F),
             _ => None,
         }
     }
@@ -94,7 +96,8 @@ impl Proto {
             Variant::B => Variant::C,
             Variant::C => Variant::D,
             Variant::D => Variant::E,
-            Variant::E => Variant::A,
+            Variant::E => Variant::F,
+            Variant::F => Variant::A,
         }
     }
     /// The mock-up's state: three collected items and the nested selection.
@@ -182,15 +185,17 @@ pub fn draw(f: &mut Frame, app: &App, proto: &Proto) {
         Variant::C => super::proto_c::draw(f, app),
         Variant::D => super::proto_d::draw(f, app),
         Variant::E => super::proto_e::draw(f, app),
+        Variant::F => super::proto_f::draw(f, app),
     }
     // So nobody mistakes either variant for the product.
     let area = f.area();
     let (label, bg) = match proto.variant {
         Variant::A => ("PROTOTYPE · variant A (today) · F2 switches", hex(0x10141a)),
         Variant::B => ("PROTOTYPE · variant B (first proposal) · F2 switches", BG),
-        Variant::C => ("PROTOTYPE · variant C · F2 switches", hex(0x10141a)),
-        Variant::D => ("PROTOTYPE · variant D · F2 switches", hex(0x10141a)),
-        Variant::E => ("PROTOTYPE · variant E · F2 switches", hex(0x10141a)),
+        Variant::C => ("PROTOTYPE · variant C (outlines carried down) · F2 switches", hex(0x10141a)),
+        Variant::D => ("PROTOTYPE · variant D (flat gapped contents) · F2 switches", hex(0x10141a)),
+        Variant::E => ("PROTOTYPE · variant E (folder windows, round 3) · F2 switches", hex(0x10141a)),
+        Variant::F => ("PROTOTYPE · variant F (folder windows, round 2) · F2 switches", hex(0x10141a)),
     };
     let width = label.chars().count() as i32;
     if area.width as i32 > width + 4 && area.height > 1 {

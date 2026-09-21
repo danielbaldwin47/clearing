@@ -1,4 +1,4 @@
-//! PROTOTYPE (ticket #3), variant D: starts as a copy of today's main screen (view.rs at the merge of main); throwaway.
+//! PROTOTYPE D: rounded containers, gapped flat contents, three tones of depth; throwaway.
 #![allow(dead_code)]
 use super::{
     App,
@@ -17,16 +17,6 @@ use ratatui::{
 use unicode_width::UnicodeWidthStr;
 
 const NARROW_MAP_WIDTH: u16 = 80;
-// A framed 5×3 label plus a horizontal gutter; add a vertical gutter when it fits.
-const SPARSE_LABEL_MINIMUM: (u16, u16) = (6, 3);
-// Twelve label cells plus the colored edge and trailing space; one row carries a label.
-const COMPACT_LABEL_MINIMUM: (u16, u16) = (14, 1);
-
-fn sparse_label_minimum(height: u16) -> (u16, u16) {
-    // Keep a framed label and the gathered row even in a four-row Map.
-    let gutter = u16::from(height > SPARSE_LABEL_MINIMUM.1 + COMPACT_LABEL_MINIMUM.1);
-    (SPARSE_LABEL_MINIMUM.0, SPARSE_LABEL_MINIMUM.1 + gutter)
-}
 
 pub fn draw(f: &mut Frame, app: &App) {
     let area = f.area();
@@ -183,13 +173,8 @@ pub fn draw(f: &mut Frame, app: &App) {
     text(b, list_x, 7, side, " LARGEST FIRST ", FG, BG, true);
     let dense_map = node.children.iter().filter(|n| n.bytes > 0).count() > 12;
     let narrow_map = w < NARROW_MAP_WIDTH;
-    let entries = if dense_map || narrow_map {
-        sibling_entries(node)
-    } else {
-        map_entries(node)
-    };
-    let weights = entries.iter().map(|n| n.bytes).collect::<Vec<_>>();
-    if weights.is_empty() {
+    let entries = sibling_entries(node);
+    if entries.is_empty() {
         text(
             b,
             map.x + 2,
@@ -199,76 +184,19 @@ pub fn draw(f: &mut Frame, app: &App) {
             MUTED,
             BG,
             false,
-        )
+        );
     }
-    let sparse_minimum = sparse_label_minimum(map.height);
-    let map_tiles = if dense_map {
-        mosaic_tiles(&weights, map)
-    } else if narrow_map {
-        sparse_tiles(&weights, map)
-    } else {
-        tiles(&weights, map)
-            .into_iter()
-            .map(|tile| MapTile {
-                rect: tile.rect,
-                indices: vec![tile.idx],
-            })
-            .collect()
-    };
-    for tile in map_tiles {
-        let gathered = tile.gathered_entry(&entries);
-        let entry = gathered
-            .as_ref()
-            .unwrap_or_else(|| &entries[tile.indices[0]]);
+    for tile in d_layout(&entries, map, !dense_map, 0) {
+        let gathered = d_gather(&tile, &entries);
+        let entry = gathered.as_ref().unwrap_or(&entries[tile.indices[0]]);
         let selected = tile
             .indices
             .iter()
             .any(|&i| entries[i].index == Some(app.selected));
-        if dense_map
-            || (narrow_map && (tile.indices.len() > 1 || tile.rect.height < sparse_minimum.1))
-        {
-            draw_mosaic_tile(b, tile.rect, entry, app, selected, narrow_map);
-            continue;
-        }
-        let selected = selected
-            || (!narrow_map
-                && entry.index.is_none()
-                && app.selected >= 9
-                && app.selection().is_some_and(|n| n.bytes > 0));
-        let color = entry.index.map(|i| color_for(app, i)).unwrap_or(DIM);
-        // The partition includes every byte; a one-cell gutter separates category surfaces.
-        let r = Rect::new(
-            tile.rect.x,
-            tile.rect.y,
-            tile.rect.width.saturating_sub(1).max(1),
-            tile.rect
-                .height
-                .saturating_sub(if narrow_map {
-                    sparse_minimum.1 - SPARSE_LABEL_MINIMUM.1
-                } else {
-                    1
-                })
-                .max(1),
+        let color = entry.index.map(|i| color_for(app, i)).unwrap_or(MUTED);
+        d_draw(
+            b, tile.rect, map, entry, color, selected, !dense_map, 0, node.bytes, app,
         );
-        draw_tile(b, r, entry, color, selected, node.bytes);
-        if let Some((glyph, fg)) = entry.node.and_then(|n| collected_glyph(app, n)) {
-            let bg = tint(color, if selected { 0.14 } else { 0.075 });
-            if r.width >= 5 && r.height >= 3 {
-                let pad = if r.width > 20 { 2 } else { 1 };
-                text(
-                    b,
-                    r.right() - 2 - pad,
-                    r.y + 1,
-                    2,
-                    format!(" {glyph}"),
-                    fg,
-                    bg,
-                    true,
-                )
-            } else if r.width > 0 && r.height > 0 {
-                text(b, r.x, r.y, 1, glyph, fg, bg, true)
-            }
-        }
     }
     let row_height = if compact { 1 } else { spacious_row_height };
     let max_rows = (map.height / row_height).max(1) as usize;
@@ -513,235 +441,392 @@ fn sibling_entries(node: &crate::scan::Node) -> Vec<MapEntry<'_>> {
 struct MapTile {
     rect: Rect,
     indices: Vec<usize>,
+    gathered: bool,
 }
 
-impl MapTile {
-    fn gathered_entry<'a>(&self, entries: &[MapEntry<'a>]) -> Option<MapEntry<'a>> {
-        (self.indices.len() > 1).then(|| {
-            let count = self
-                .indices
-                .iter()
-                .filter(|&&i| entries[i].index.is_some())
-                .count();
-            MapEntry {
-                node: None,
-                index: None,
-                bytes: self.indices.iter().map(|&i| entries[i].bytes).sum(),
-                label: format!("{count} smaller items"),
-            }
-        })
-    }
-}
-
-/// Keep readable siblings and reserve one full-width strip for everything too
-/// small. Repartition after gathering: the strip can make another sibling too small.
-fn mosaic_tiles(weights: &[u64], r: Rect) -> Vec<MapTile> {
-    readable_tiles(weights, r, COMPACT_LABEL_MINIMUM, compact_grid)
-}
-
-fn sparse_tiles(weights: &[u64], r: Rect) -> Vec<MapTile> {
-    let candidates = readable_tiles(weights, r, SPARSE_LABEL_MINIMUM, tiles);
-    let minimum = sparse_label_minimum(r.height);
-    // Gathering can enlarge the remaining Tiles. Check the final partition
-    // before gathering any more children to make room for the vertical gutter.
-    if candidates.iter().any(|tile| {
-        tile.indices.len() == 1
-            && tile.rect.height >= SPARSE_LABEL_MINIMUM.1
-            && tile.rect.height < minimum.1
-    }) {
-        readable_tiles(weights, r, minimum, tiles)
-    } else {
-        candidates
-    }
-}
-
-/// Missing partition entries must be gathered too: a one-cell leaf can hold
-/// multiple siblings but the sparse partition returns only its first index.
-fn readable_tiles(
-    weights: &[u64],
-    r: Rect,
-    minimum: (u16, u16),
-    layout: fn(&[u64], Rect) -> Vec<Tile>,
-) -> Vec<MapTile> {
-    if r.is_empty() {
+// The allocated rectangle includes its trailing gutter. Small siblings are
+// repartitioned into one byte-weighted footer, never erased by cell rounding.
+fn d_layout(entries: &[MapEntry<'_>], r: Rect, framed: bool, depth: usize) -> Vec<MapTile> {
+    if r.is_empty() || entries.is_empty() {
         return Vec::new();
     }
-    let total = weights.iter().map(|&n| n as f64).sum::<f64>();
+    let total = entries.iter().map(|e| e.bytes as f64).sum::<f64>();
     if total == 0.0 {
         return Vec::new();
     }
-    let mut indices: Vec<_> = (0..weights.len()).filter(|&i| weights[i] > 0).collect();
+    let mut indices: Vec<usize> = (0..entries.len()).collect();
     let mut smaller = Vec::new();
     loop {
-        let gathered_bytes = smaller.iter().map(|&i| weights[i] as f64).sum::<f64>();
-        let gathered_height = if smaller.is_empty() {
+        let small_bytes = smaller
+            .iter()
+            .map(|&i: &usize| entries[i].bytes as f64)
+            .sum::<f64>();
+        let small_h = if smaller.is_empty() {
             0
         } else {
-            // The gathered label needs only one row. Reserve enough height for
-            // a remaining framed Tile before assigning the strip its byte share.
-            let maximum = if minimum.1 > 1 && !indices.is_empty() {
-                r.height.saturating_sub(minimum.1).max(1)
+            let count = smaller.iter().map(|&i| d_count(&entries[i])).sum::<usize>();
+            let caption = format!("{count} smaller {}", size(small_bytes as u64));
+            let min = if caption.width() + 2 <= r.width as usize {
+                1
             } else {
-                r.height
+                2
             };
-            ((r.height as f64 * gathered_bytes / total).round() as u16).clamp(1, maximum)
+            ((r.height as f64 * small_bytes / total).round() as u16)
+                .max(min)
+                .min(r.height)
         };
-        let own_rect = Rect::new(r.x, r.y, r.width, r.height - gathered_height);
-        let own_weights: Vec<_> = indices.iter().map(|&i| weights[i]).collect();
-        let candidates = layout(&own_weights, own_rect);
-        let mut readable = vec![false; indices.len()];
-        let mut kept = Vec::new();
+        let own = Rect::new(r.x, r.y, r.width, r.height - small_h);
+        let weights: Vec<_> = indices.iter().map(|&i| entries[i].bytes).collect();
+        let candidates = [0.28, 0.36, 0.44, 0.52, 0.60, 0.72, 0.22, 0.18]
+            .into_iter()
+            .map(|aspect| {
+                let mut out = Vec::new();
+                d_partition(&weights, own, 0, aspect, &mut out);
+                out
+            })
+            .min_by_key(|candidate| {
+                let mut readable = vec![false; indices.len()];
+                for tile in candidate {
+                    let rr = d_inset_gap(tile.rect, r);
+                    readable[tile.idx] = d_fits(&entries[indices[tile.idx]], rr, framed, depth);
+                }
+                indices
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| !readable[*i])
+                    .map(|(_, &i)| entries[i].bytes)
+                    .sum::<u64>()
+            })
+            .unwrap_or_default();
+        let mut seen = vec![false; indices.len()];
         let mut out = Vec::new();
+        let mut kept = Vec::new();
         for tile in candidates {
-            let index = indices[tile.idx];
-            if tile.rect.width >= minimum.0 && tile.rect.height >= minimum.1 {
-                readable[tile.idx] = true;
-                kept.push(index);
+            let i = indices[tile.idx];
+            let rr = d_inset_gap(tile.rect, r);
+            if d_fits(&entries[i], rr, framed, depth) {
+                seen[tile.idx] = true;
+                kept.push(i);
                 out.push(MapTile {
                     rect: tile.rect,
-                    indices: vec![index],
+                    indices: vec![i],
+                    gathered: false,
                 });
             }
         }
-        smaller.extend(
-            indices
-                .iter()
-                .enumerate()
-                .filter(|(i, _)| !readable[*i])
-                .map(|(_, &index)| index),
-        );
         if kept.len() == indices.len() {
             if !smaller.is_empty() {
                 out.push(MapTile {
-                    rect: Rect::new(r.x, own_rect.bottom(), r.width, gathered_height),
+                    rect: Rect::new(r.x, own.bottom(), r.width, small_h),
                     indices: smaller,
+                    gathered: true,
                 });
             }
             return out;
         }
-        indices = kept;
+        // Gather the smallest sibling first, even if its short name fits.
+        // This preserves the large folders instead of penalizing long names.
+        let remove = indices
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, i)| entries[**i].bytes)
+            .map(|(i, _)| i)
+            .unwrap();
+        smaller.push(indices.remove(remove));
     }
 }
 
-/// Horizontal strips follow byte weights, including zero-sized candidates so
-/// the caller can gather them. Cumulative rounding covers even a partial last row.
-fn compact_grid(weights: &[u64], r: Rect) -> Vec<Tile> {
-    // Prefer name-plus-size tiles, but add columns until every strip can be two
-    // cells tall, so labels sit on a regular grid instead of ragged single rows.
-    let two_tall = (r.height / 2).max(1) as usize;
-    let columns = ((r.width / 26).max(1) as usize)
-        .max(weights.len().div_ceil(two_tall))
-        .min((r.width / 14).max(1) as usize);
-    let total = weights.iter().map(|&n| n as f64).sum::<f64>();
-    if total == 0.0 {
-        return Vec::new();
+fn d_fits(entry: &MapEntry<'_>, r: Rect, framed: bool, depth: usize) -> bool {
+    let pad = if framed && r.width > 20 { 4 } else { 2 };
+    let label = entry.label.replace(" smaller items", " smaller");
+    let minimum_width = label.width().max(size(entry.bytes).width()) + pad;
+    let inline = format!("{}  {}", entry.label, size(entry.bytes));
+    let minimum_height = if depth > 0 && inline.width() + 2 <= r.width as usize {
+        1
+    } else if framed {
+        3
+    } else if depth == 0 {
+        3
+    } else {
+        2
+    };
+    r.width as usize >= minimum_width && r.height >= minimum_height
+}
+
+fn d_partition(w: &[u64], r: Rect, offset: usize, aspect: f64, out: &mut Vec<Tile>) {
+    if w.is_empty() || r.is_empty() {
+        return;
     }
-    let mut out = Vec::new();
-    let mut before = 0.0;
-    let mut y = r.y;
-    let rows = weights.len().div_ceil(columns);
-    for row in 0..rows {
-        let start = row * columns;
-        let end = ((row + 1) * columns).min(weights.len());
-        let group = &weights[start..end];
-        let sum = group.iter().map(|&n| n as f64).sum::<f64>();
-        before += sum;
-        let bottom = r.y + (r.height as f64 * before / total).round() as u16;
-        let mut prefix = 0.0;
-        let mut x = r.x;
-        for (col, &weight) in group.iter().enumerate() {
-            prefix += weight as f64;
-            let right = r.x + (r.width as f64 * prefix / sum).round() as u16;
-            out.push(Tile {
-                idx: start + col,
-                rect: Rect::new(x, y, right - x, bottom - y),
-            });
-            x = right;
+    if w.len() == 1 {
+        out.push(Tile {
+            idx: offset,
+            rect: r,
+        });
+        return;
+    }
+    let total = w.iter().map(|&n| n as f64).sum::<f64>();
+    let mut prefix = 0.0;
+    let mut best = f64::MAX;
+    let mut split = 1;
+    for (i, &weight) in w.iter().enumerate().take(w.len() - 1) {
+        prefix += weight as f64;
+        if (total / 2.0 - prefix).abs() < best {
+            best = (total / 2.0 - prefix).abs();
+            split = i + 1;
         }
-        y = bottom;
     }
-    out
-}
-
-/// Never send an overflowing map label to the ellipsizing foundation helper.
-/// A whole suffix component is a deliberate short form; otherwise omit text.
-fn map_label(name: &str, width: u16) -> Option<&str> {
-    if name.width() <= width as usize {
-        return Some(name);
-    }
-    name.char_indices()
-        .filter(|(_, c)| matches!(c, '-' | '_' | '.' | ' '))
-        .map(|(i, c)| &name[i + c.len_utf8()..])
-        .find(|s| !s.is_empty() && s.width() <= width as usize)
-}
-
-fn draw_mosaic_tile(
-    b: &mut Buffer,
-    r: Rect,
-    entry: &MapEntry<'_>,
-    app: &App,
-    selected: bool,
-    narrow: bool,
-) {
-    let color = entry.index.map(|i| color_for(app, i)).unwrap_or(MUTED);
-    let bg = if selected { SURFACE } else { tint(color, 0.14) };
-    fill(b, r, bg);
-    // A colored edge identifies even a tile too small for text, without grey holes.
-    for y in r.y..r.bottom() {
-        text(
-            b,
-            r.x,
-            y,
-            1,
-            if selected { "▌" } else { "▏" },
-            color,
-            bg,
-            selected,
+    let fraction = w[..split].iter().map(|&n| n as f64).sum::<f64>() / total.max(1.0);
+    if r.width as f64 * aspect > r.height as f64 && r.width > 1 {
+        let cut = ((r.width as f64 * fraction).round() as u16).clamp(1, r.width - 1);
+        d_partition(
+            &w[..split],
+            Rect::new(r.x, r.y, cut, r.height),
+            offset,
+            aspect,
+            out,
         );
+        d_partition(
+            &w[split..],
+            Rect::new(r.x + cut, r.y, r.width - cut, r.height),
+            offset + split,
+            aspect,
+            out,
+        );
+    } else if r.height > 1 {
+        let cut = ((r.height as f64 * fraction).round() as u16).clamp(1, r.height - 1);
+        d_partition(
+            &w[..split],
+            Rect::new(r.x, r.y, r.width, cut),
+            offset,
+            aspect,
+            out,
+        );
+        d_partition(
+            &w[split..],
+            Rect::new(r.x, r.y + cut, r.width, r.height - cut),
+            offset + split,
+            aspect,
+            out,
+        );
+    } else {
+        out.push(Tile {
+            idx: offset,
+            rect: r,
+        });
     }
-    let width = r.width.saturating_sub(2);
+}
+
+fn d_count(entry: &MapEntry<'_>) -> usize {
+    entry
+        .node
+        .and_then(|n| crate::sample::meta(&n.path))
+        .and_then(|m| m.tail_count)
+        .unwrap_or(usize::from(entry.node.is_some()))
+}
+
+fn d_gather<'a>(tile: &MapTile, entries: &[MapEntry<'a>]) -> Option<MapEntry<'a>> {
+    let first = &entries[tile.indices[0]];
+    let small = tile.gathered || first.label.ends_with("smaller items") || first.node.is_none();
+    small.then(|| MapEntry {
+        node: None,
+        index: None,
+        bytes: tile.indices.iter().map(|&i| entries[i].bytes).sum(),
+        label: {
+            let count = tile
+                .indices
+                .iter()
+                .map(|&i| d_count(&entries[i]))
+                .sum::<usize>();
+            if count > 0 {
+                format!("{count} smaller items")
+            } else {
+                "Metadata".into()
+            }
+        },
+    })
+}
+
+fn d_inset_gap(r: Rect, bounds: Rect) -> Rect {
+    Rect::new(
+        r.x,
+        r.y,
+        r.width
+            .saturating_sub(u16::from(r.right() < bounds.right())),
+        r.height
+            .saturating_sub(u16::from(r.bottom() < bounds.bottom())),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn d_draw(
+    b: &mut Buffer,
+    allocated: Rect,
+    bounds: Rect,
+    entry: &MapEntry<'_>,
+    color: Color,
+    selected: bool,
+    framed: bool,
+    depth: usize,
+    total: u64,
+    app: &App,
+) {
+    let small = entry.node.is_none() || entry.label.ends_with("smaller items");
+    let r = if small && allocated.height <= 2 {
+        allocated
+    } else {
+        d_inset_gap(allocated, bounds)
+    };
+    if r.is_empty() {
+        return;
+    }
+    let bg = if small {
+        tint(color, 0.085)
+    } else {
+        tint(color, [0.10, 0.22, 0.37][depth.min(2)])
+    };
+    fill(b, r, bg);
+    let outline = (framed && !small) || selected;
+    if outline && r.width >= 3 {
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(
+                Style::default()
+                    .fg(if selected {
+                        app.route
+                            .first()
+                            .map(|&i| COLORS[i % COLORS.len()])
+                            .unwrap_or(color)
+                    } else {
+                        tint(color, 0.40)
+                    })
+                    .bg(bg),
+            )
+            .render(r, b);
+    }
+    let pad = if framed && !small && r.width > 20 {
+        2
+    } else {
+        1
+    };
+    let ypad = u16::from(
+        outline && r.height > 3 || !outline && !framed && depth == 0 && !small && r.height >= 3,
+    );
+    let width = r.width.saturating_sub(2 * pad);
     if width == 0 {
         return;
     }
+    let x = r.x + pad;
+    let y = r.y + ypad;
     let bytes = size(entry.bytes);
-    let combined = format!("{}  {}", entry.label, bytes);
-    let y = r.y;
-    if r.height < 2 && combined.width() <= width as usize {
-        text(
-            b,
-            r.x + 1,
-            y,
-            width,
-            combined,
-            if selected { FG } else { color },
-            bg,
-            true,
-        );
-    } else if let Some(label) = if narrow {
-        // Narrow maps use the usual ellipsis, retaining the gathered count and
-        // giving even an unbroken long name a visible label.
-        Some(entry.label.as_str())
+    let ink = if selected {
+        FG
+    } else if depth == 0 && !small {
+        color
+    } else if small {
+        MUTED
     } else {
-        map_label(&entry.label, width)
-    } {
-        text(
-            b,
-            r.x + 1,
-            y,
-            width,
-            label,
-            if selected { FG } else { color },
-            bg,
-            true,
-        );
-        if y + 1 < r.bottom() && bytes.width() <= width as usize {
-            text(b, r.x + 1, y + 1, width, bytes, color, bg, false);
+        Color::Rgb(180, 192, 200)
+    };
+    let compact = format!("{}  {}", entry.label, bytes);
+    let compact = if small && compact.width() > width as usize {
+        compact.replace(" smaller items  ", " smaller ")
+    } else {
+        compact
+    };
+    let inline = (depth > 0 || small || framed && (6..9).contains(&r.height))
+        && compact.width() <= width as usize;
+    if inline {
+        text(b, x, y, width, compact, ink, bg, selected);
+    } else {
+        let label = if entry.label.width() <= width as usize {
+            Some(entry.label.clone())
+        } else if small {
+            Some(entry.label.replace(" smaller items", " smaller"))
+        } else {
+            None
+        };
+        if let Some(label) = label.filter(|s| s.width() <= width as usize) {
+            text(
+                b,
+                x,
+                y,
+                width,
+                label,
+                ink,
+                bg,
+                selected || depth == 0 && !small,
+            );
+        }
+        if y + 1 < r.bottom().saturating_sub(u16::from(outline)) && bytes.width() <= width as usize
+        {
+            let figures = format!("{}  ·  {}", bytes, percent(entry.bytes, total));
+            text(
+                b,
+                x,
+                y + 1,
+                width,
+                if framed && figures.width() <= width as usize {
+                    figures
+                } else {
+                    bytes
+                },
+                color,
+                bg,
+                depth == 0 && !small,
+            );
         }
     }
-    if r.height >= 3
-        && let Some((glyph, fg)) = entry.node.and_then(|n| collected_glyph(app, n))
+    if let Some((glyph, fg)) = entry.node.and_then(|n| collected_glyph(app, n))
+        && entry.label.width() + 3 <= width as usize
+        && !inline
     {
-        text(b, r.right() - 2, r.y, 1, glyph, fg, bg, true);
+        text(b, r.right() - pad - 1, y, 1, glyph, fg, bg, false);
+    }
+    if depth >= 2 || small {
+        return;
+    }
+    let Some(node) = entry.node else {
+        return;
+    };
+    if node.children.is_empty() {
+        return;
+    }
+    let top = y + if inline && r.height < 9 {
+        1
+    } else if inline || r.height < 9 {
+        2
+    } else {
+        3
+    };
+    let bottom = r.bottom().saturating_sub(u16::from(framed));
+    if top + 2 > bottom || width < 12 {
+        return;
+    }
+    let inner = Rect::new(x, top, width, bottom - top);
+    let children = sibling_entries(node);
+    let child_tiles = d_layout(&children, inner, false, depth + 1);
+    if !child_tiles
+        .iter()
+        .any(|t| t.indices.len() == 1 && children[t.indices[0]].node.is_some())
+    {
+        return;
+    }
+    for tile in child_tiles {
+        let gathered = d_gather(&tile, &children);
+        let child = gathered.as_ref().unwrap_or(&children[tile.indices[0]]);
+        d_draw(
+            b,
+            tile.rect,
+            inner,
+            child,
+            color,
+            false,
+            false,
+            depth + 1,
+            node.bytes,
+            app,
+        );
     }
 }
 
@@ -934,4 +1019,3 @@ pub fn draw_wireframe(f: &mut Frame, app: &App) {
         );
     }
 }
-

@@ -12,6 +12,7 @@ pub mod prototype;
 mod proto_c;
 mod proto_d;
 mod proto_e;
+mod proto_f;
 mod review;
 mod view;
 pub use foundation::size;
