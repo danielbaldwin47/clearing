@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import pty
+import re
 import select
 import signal
 import struct
@@ -19,6 +20,13 @@ import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
 BINARY = ROOT / 'target/release/clearing'
+ANSI = re.compile(rb'\x1b\[[0-9;?]*[A-Za-z]')
+# What the app draws when no cell changed: every 100 ms idle, every 40 ms busy.
+EMPTY_FRAME = b'\x1b[39m\x1b[49m\x1b[59m\x1b[0m\x1b[?25l'
+SETTLE = 0.05
+# A space map heading. A scan's own screen blanks it, so the app draws it again
+# when the scan ends, whatever message the footer then carries.
+IDLE = b'LARGEST FIRST'
 
 
 def scan(path):
@@ -60,12 +68,22 @@ class Session:
         fcntl.ioctl(self.master, termios.TIOCSWINSZ, struct.pack('HHHH', rows, cols, 0, 0))
         self.output = bytearray()
         self.closed = False
-        self.read(1)
+        self.read(1, until=IDLE)
 
-    def read(self, duration=0.25):
-        until = time.monotonic() + duration
-        while time.monotonic() < until:
-            if not select.select([self.master], [], [], max(0, until - time.monotonic()))[0]:
+    def read(self, duration=0.25, until=None):
+        """Read until the screen settles, or until `until` shows in the new text.
+
+        `duration` is the ceiling either way, so text that never shows costs the
+        whole wait and fails nothing. Work the app does off the key (a scan, a
+        `gio` move) draws empty frames while it runs, so it needs `until`.
+        """
+        start = len(self.output)
+        ceiling = time.monotonic() + duration
+        settled = None
+        visible = 0
+        while True:
+            wait = (ceiling if until or settled is None else min(ceiling, settled)) - time.monotonic()
+            if wait <= 0 or not select.select([self.master], [], [], wait)[0]:
                 break
             try:
                 chunk = os.read(self.master, 65536)
@@ -76,11 +94,18 @@ class Session:
             if not chunk:
                 break
             self.output.extend(chunk)
+            new = bytes(self.output[start:])
+            if until:
+                if until in ANSI.sub(b'', new):
+                    break
+            elif len(new.replace(EMPTY_FRAME, b'')) != visible:
+                visible = len(new.replace(EMPTY_FRAME, b''))
+                settled = time.monotonic() + SETTLE
         return bytes(self.output)
 
-    def send(self, data, pause=0.25):
+    def send(self, data, pause=0.25, until=None):
         os.write(self.master, data)
-        return self.read(pause)
+        return self.read(pause, until)
 
     def close(self):
         if self.closed:
@@ -215,7 +240,7 @@ class InteractionAcceptance(ScanAcceptance):
         target.write_bytes(b'x' * 32768)
         session = self.session()
         session.send(b'd')
-        session.send(b'delete\r', 0.75)
+        session.send(b'delete\r', 0.75, until=IDLE)
         self.assertFalse(target.exists(), 'exact confirmed deletion did not remove selected file')
         self.assertTrue(self.path.exists())
 
@@ -231,7 +256,7 @@ class InteractionAcceptance(ScanAcceptance):
             session.send(b'\r')
             session.send(b'\x7f')
             session.send(b'd')
-            session.send(b'delete\r', 0.75)
+            session.send(b'delete\r', 0.75, until=IDLE)
             self.assertFalse(target.exists(), 'back did not restore original directory selection')
             self.assertEqual(outside.read_bytes(), b'keep')
 
@@ -242,7 +267,7 @@ class InteractionAcceptance(ScanAcceptance):
             (target / f'file-{index:05d}').touch()
         session = self.session()
         session.send(b'd')
-        session.send(b'delete\r\x1b', 1.0)
+        session.send(b'delete\r\x1b', 1.0, until=IDLE)
         self.assertTrue(target.exists(), 'Escape did not stop the recursive deletion')
         self.assertGreater(sum(1 for _ in target.iterdir()), 0, 'all entries removed despite cancellation')
         self.assertTrue(self.path.exists())
@@ -254,7 +279,7 @@ class InteractionAcceptance(ScanAcceptance):
         target.rename(self.path / 'saved-original')
         target.write_bytes(b'replacement')
         session.send(b'd')
-        session.send(b'delete\r', 0.75)
+        session.send(b'delete\r', 0.75, until=IDLE)
         self.assertEqual(target.read_bytes(), b'replacement')
         self.assertTrue((self.path / 'saved-original').exists())
 
@@ -270,7 +295,7 @@ class InteractionAcceptance(ScanAcceptance):
             target.rename(self.path / 'saved-original')
             os.symlink(other, target)
             session.send(b'd')
-            session.send(b'delete\r', 0.75)
+            session.send(b'delete\r', 0.75, until=IDLE)
             self.assertEqual(outside.read_bytes(), b'keep')
             self.assertTrue((self.path / 'saved-original' / 'data').exists())
 

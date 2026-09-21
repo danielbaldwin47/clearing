@@ -6,9 +6,9 @@ What must be true before work lands. The owner judges what a user sees and feels
 
 ## Commit tier: every commit
 
-`scripts/gate check`, about 70 seconds on a built tree. What the script's shape means for a session:
+`scripts/gate check`, about 11 seconds on a built tree. What the script's shape means for a session:
 
-- **A pass is remembered by tree**, in one file shared by the main checkout and every worktree. `READ` in `scripts/gate` lists every path a step reads: `src/`, the manifest and lock, the toolchain pin, the gate and its acceptance scripts. A tree that differs from a passed one in none of them prints `gate: pass (no step reads what changed since tree <sha> passed; ...)` in under a second: the run after a merge that `main` had not moved under, a reviewer's run on the tree the author passed, a change to docs, `judging/` or `benchmarks/`. So the check is run wherever a step asks for it, and costs its 70 seconds only on a tree it has not seen. `--force` runs the steps regardless. A change that gives a step a new file to read adds its path to `READ`.
+- **A pass is remembered by tree**, in one file shared by the main checkout and every worktree. `READ` in `scripts/gate` lists every path a step reads: `src/`, the manifest and lock, the toolchain pin, the gate and its acceptance scripts. A tree that differs from a passed one in none of them prints `gate: pass (no step reads what changed since tree <sha> passed; ...)` in under a second: the run after a merge that `main` had not moved under, a reviewer's run on the tree the author passed, a change to docs, `judging/` or `benchmarks/`. So the check is run wherever a step asks for it, and costs its steps only on a tree it has not seen. `--force` runs the steps regardless. A change that gives a step a new file to read adds its path to `READ`.
 - **`cargo fmt` is applied.** The `fmt` line names any file it changed, and that change is committed with the rest.
 - **The release build precedes the acceptance scripts**, because `scripts/acceptance.py` and `scripts/collector_acceptance.py` run `target/release/clearing` and would otherwise test the last build. Run either script alone only after `cargo build --release --locked`.
 - **A green run is its step lines and the `pass` line.** A failed step prints its log above a `FAIL` line naming `target/gate/<step>.log`; that log is the whole reading.
