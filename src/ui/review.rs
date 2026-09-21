@@ -25,23 +25,6 @@ pub(super) fn collector_status(app: &App, width: u16) -> (String, bool) {
         (format!("◆ {} · {}", c.len(), size(c.total_bytes())), true)
     }
 }
-/// Keep the end of a path, which is the part that tells rows apart.
-pub(super) fn tail(s: &str, w: usize) -> String {
-    if s.width() <= w || w < 2 {
-        return s.to_owned();
-    }
-    let mut kept = Vec::new();
-    let mut width = 1;
-    for c in s.chars().rev() {
-        let cw = c.width().unwrap_or(0);
-        if width + cw > w {
-            break;
-        }
-        kept.push(c);
-        width += cw;
-    }
-    std::iter::once('…').chain(kept.into_iter().rev()).collect()
-}
 fn wrap(s: &str, w: usize, lines: usize) -> Vec<String> {
     let mut out = vec![String::new()];
     let mut width = 0;

@@ -34,13 +34,25 @@ pub(super) fn draw_confirm(f: &mut Frame, app: &App) {
         PANEL,
         true,
     );
-    text(b, r.x + 3, r.y + 4, r.width - 6, &n.name, FG, PANEL, true);
+    text(
+        b,
+        r.x + 3,
+        r.y + 4,
+        r.width - 6,
+        tail(&n.name, (r.width - 6) as usize),
+        FG,
+        PANEL,
+        true,
+    );
     text(
         b,
         r.x + 3,
         r.y + 5,
         r.width - 6,
-        crate::scan::display_path(n.path.as_os_str()),
+        tail(
+            &crate::scan::display_path(n.path.as_os_str()),
+            (r.width - 6) as usize,
+        ),
         MUTED,
         PANEL,
         false,

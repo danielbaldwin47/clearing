@@ -1,4 +1,4 @@
-//! Drawing primitives shared by every screen: `text`, fills, sizes and percents, the treemap partition and one Tile.
+//! Drawing primitives shared by every screen: `text`, path tails, fills, sizes and percents, the treemap partition and one Tile.
 use super::App;
 use crate::{scan::Node, theme::*};
 use ratatui::{
@@ -66,6 +66,23 @@ pub(super) fn text(
         safe
     };
     b.set_stringn(x, y, display, w as usize, style);
+}
+/// Keep the end of a path, which is the part that tells rows apart.
+pub(super) fn tail(s: &str, w: usize) -> String {
+    if s.width() <= w || w < 2 {
+        return s.to_owned();
+    }
+    let mut kept = Vec::new();
+    let mut width = 1;
+    for c in s.chars().rev() {
+        let cw = c.width().unwrap_or(0);
+        if width + cw > w {
+            break;
+        }
+        kept.push(c);
+        width += cw;
+    }
+    std::iter::once('…').chain(kept.into_iter().rev()).collect()
 }
 pub(super) fn fill(b: &mut Buffer, r: Rect, color: Color) {
     for y in r.y..r.bottom() {
@@ -360,6 +377,31 @@ pub(super) fn draw_tile(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tail_leaves_fitting_strings_unchanged() {
+        for s in ["", "report.txt", "資料.txt"] {
+            assert_eq!(tail(s, s.width()), s);
+            assert_eq!(tail(s, s.width() + 1), s);
+        }
+    }
+
+    #[test]
+    fn tail_keeps_the_last_characters_with_a_leading_ellipsis() {
+        let result = tail("/a/long/path/report.txt", 12);
+        assert_eq!(result, "…/report.txt");
+        assert_eq!(result.width(), 12);
+    }
+
+    #[test]
+    fn tail_counts_wide_characters_by_cells() {
+        let result = tail("/a/long/path/資料.txt", 9);
+        assert_eq!(result, "…資料.txt");
+        assert_eq!(result.width(), 9);
+        // A two-cell character cannot fill the single spare cell.
+        assert_eq!(tail("/a/long/path/資料.txt", 8), "…料.txt");
+    }
+
     #[test]
     fn treemap_tiles_cover_entire_space_without_overlap() {
         let r = Rect::new(0, 0, 100, 30);

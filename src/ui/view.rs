@@ -3,7 +3,7 @@ use super::{
     App,
     confirm::draw_confirm,
     foundation::*,
-    review::{collector_status, draw_review, draw_trash_confirm, tail},
+    review::{collector_status, draw_review, draw_trash_confirm},
 };
 use crate::{collector::Mark, theme::*};
 use ratatui::{
