@@ -569,9 +569,16 @@ fn readable_tiles(
     if total == 0.0 {
         return Vec::new();
     }
-    let mut indices: Vec<_> = (0..weights.len()).filter(|&i| weights[i] > 0).collect();
-    let mut smaller = Vec::new();
+    // What is gathered is the tail of the size order, whichever Tiles the layout
+    // made unreadable: `by_weight` splits into the kept head and the gathered tail.
+    let mut by_weight: Vec<_> = (0..weights.len()).filter(|&i| weights[i] > 0).collect();
+    by_weight.sort_by_key(|&i| std::cmp::Reverse(weights[i]));
+    let mut keep = by_weight.len();
     loop {
+        // The kept candidates are laid out in the order they arrived.
+        let mut indices = by_weight[..keep].to_vec();
+        indices.sort_unstable();
+        let smaller = &by_weight[keep..];
         let gathered_bytes = smaller.iter().map(|&i| weights[i] as f64).sum::<f64>();
         let gathered_height = if smaller.is_empty() {
             0
@@ -588,37 +595,26 @@ fn readable_tiles(
         let own_rect = Rect::new(r.x, r.y, r.width, r.height - gathered_height);
         let own_weights: Vec<_> = indices.iter().map(|&i| weights[i]).collect();
         let candidates = layout(&own_weights, own_rect);
-        let mut readable = vec![false; indices.len()];
-        let mut kept = Vec::new();
         let mut out = Vec::new();
         for tile in candidates {
-            let index = indices[tile.idx];
             if tile.rect.width >= minimum.0 && tile.rect.height >= minimum.1 {
-                readable[tile.idx] = true;
-                kept.push(index);
                 out.push(MapTile {
                     rect: tile.rect,
-                    indices: vec![index],
+                    indices: vec![indices[tile.idx]],
                 });
             }
         }
-        smaller.extend(
-            indices
-                .iter()
-                .enumerate()
-                .filter(|(i, _)| !readable[*i])
-                .map(|(_, &index)| index),
-        );
-        if kept.len() == indices.len() {
+        if out.len() == keep {
             if !smaller.is_empty() {
                 out.push(MapTile {
                     rect: Rect::new(r.x, own_rect.bottom(), r.width, gathered_height),
-                    indices: smaller,
+                    indices: smaller.to_vec(),
                 });
             }
             return out;
         }
-        indices = kept;
+        // Gather as many of the smallest as there were unreadable Tiles.
+        keep = out.len();
     }
 }
 
@@ -1183,6 +1179,147 @@ mod tests {
         }
         assert!(mosaic_tiles(&[1], Rect::default()).is_empty());
         assert!(mosaic_tiles(&[0, 0], Rect::new(0, 0, 88, 28)).is_empty());
+    }
+
+    /// The 37 children of ticket #51's folder, in KiB: six large caches, electron,
+    /// 28 small caches and two one-block files.
+    const CACHE_CHILDREN: [(&str, u64); 37] = [
+        ("mozilla", 10035),
+        ("pip", 7885),
+        ("yay", 6246),
+        ("JetBrains", 6042),
+        ("huggingface", 5325),
+        ("go-build", 4506),
+        ("electron", 2247),
+        ("thumbnails", 1434),
+        ("google-chrome", 1126),
+        ("spotify", 870),
+        ("mesa_shader_cache", 635),
+        ("yarn", 492),
+        ("pnpm", 420),
+        ("ms-playwright", 369),
+        ("typescript", 297),
+        ("pre-commit", 246),
+        ("vscode-cpptools", 195),
+        ("bazel", 154),
+        ("deno", 123),
+        ("fontconfig", 92),
+        ("nvidia", 72),
+        ("tracker3", 56),
+        ("gstreamer-1.0", 41),
+        ("ibus", 31),
+        ("flatpak", 26),
+        ("pylint", 20),
+        ("black", 15),
+        ("mypy", 12),
+        ("zoom", 10),
+        ("babl", 8),
+        ("gegl-0.4", 6),
+        ("matplotlib", 5),
+        ("nim", 4),
+        ("rclone", 3),
+        ("wal", 2),
+        ("event-sound-cache.tdb.x86_64", 4),
+        ("motd.legal-displayed", 4),
+    ];
+
+    fn assert_gathers_only_the_tail(tiles: &[MapTile], weights: &[u64], case: &str) {
+        let gathered = tiles
+            .iter()
+            .filter(|t| t.indices.len() > 1)
+            .flat_map(|t| t.indices.iter().map(|&i| weights[i]))
+            .max();
+        let own = tiles
+            .iter()
+            .filter(|t| t.indices.len() == 1)
+            .map(|t| weights[t.indices[0]])
+            .min();
+        if let (Some(gathered), Some(own)) = (gathered, own) {
+            assert!(
+                gathered <= own,
+                "{case}: gathered {gathered} beside own Tile {own}"
+            );
+        }
+    }
+
+    #[test]
+    fn compact_view_at_100_by_30_gathers_only_the_smallest_caches() {
+        let weights: Vec<_> = CACHE_CHILDREN.iter().map(|&(_, kib)| kib * 1024).collect();
+        let tiles = mosaic_tiles(&weights, Rect::new(2, 9, 48, 14));
+        assert!(tiles.iter().any(|t| t.indices.len() > 1));
+        assert_gathers_only_the_tail(&tiles, &weights, "cache at 100×30");
+    }
+
+    #[test]
+    fn cache_map_at_100_by_30_names_yay_beside_smaller_caches() {
+        let mut app = dense_app();
+        app.root.children = CACHE_CHILDREN
+            .iter()
+            .map(|&(name, kib)| Node {
+                name: name.into(),
+                path: format!("/fixture/{name}").into(),
+                bytes: kib * 1024,
+                ..app.root.children[0].clone()
+            })
+            .collect();
+        app.root.bytes = app.root.children.iter().map(|n| n.bytes).sum();
+        let map = contents(&render(&app, 100, 30), Rect::new(2, 9, 48, 14));
+        println!("Cache Compact view at 100×30:\n{map}");
+        assert!(map.contains("mozilla"), "{map}");
+        if map.contains("go-build") || map.contains("electron") {
+            assert!(map.contains("yay"), "{map}");
+        }
+        assert!(map.matches("smaller items").count() <= 1, "{map}");
+    }
+
+    #[test]
+    fn gathered_tile_holds_only_the_tail_of_the_size_order() {
+        fn weights(shape: &str, count: usize) -> Vec<u64> {
+            match shape {
+                "skewed" => {
+                    let mut weights = vec![308 * 1024; count];
+                    weights[0] = 64 * 1024 * 1024;
+                    weights
+                }
+                "equal" => vec![1; count],
+                _ => (1..=count as u64).rev().map(|n| n * n).collect(),
+            }
+        }
+        for shape in ["skewed", "equal", "descending"] {
+            for count in [1, 13, 31, 64, 500] {
+                let weights = weights(shape, count);
+                for r in [Rect::new(2, 9, 88, 28), Rect::new(2, 9, 20, 4)] {
+                    let tiles = mosaic_tiles(&weights, r);
+                    assert_gathers_only_the_tail(&tiles, &weights, &format!("{shape} {count} {r}"));
+                }
+            }
+            for count in [1, 2, 6, 9, 12] {
+                let weights = weights(shape, count);
+                for (w, h) in [(30, 4), (30, 5), (30, 9), (30, 10), (49, 4), (110, 28)] {
+                    let r = Rect::new(2, 9, w, h);
+                    let tiles = sparse_tiles(&weights, r);
+                    assert_gathers_only_the_tail(&tiles, &weights, &format!("{shape} {count} {r}"));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn metadata_larger_than_children_before_it_stays_out_of_the_gathered_tile() {
+        // `sibling_entries` appends "Metadata" last, whatever it weighs.
+        let mut weights: Vec<_> = CACHE_CHILDREN.iter().map(|&(_, kib)| kib * 1024).collect();
+        weights.push(6100 * 1024);
+        let last = weights.len() - 1;
+        for r in [Rect::new(2, 9, 48, 14), Rect::new(2, 9, 88, 28)] {
+            let tiles = mosaic_tiles(&weights, r);
+            assert_gathers_only_the_tail(&tiles, &weights, &format!("metadata {r}"));
+            assert!(tiles.iter().any(|t| t.indices == [last]), "{r}");
+        }
+        let weights = [9000, 40, 30, 20, 10, 5000];
+        for (w, h) in [(30, 4), (30, 9), (49, 4)] {
+            let tiles = sparse_tiles(&weights, Rect::new(2, 9, w, h));
+            assert_gathers_only_the_tail(&tiles, &weights, &format!("metadata {w}×{h}"));
+        }
     }
 
     fn skewed_app() -> App {
