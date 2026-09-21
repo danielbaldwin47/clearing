@@ -39,6 +39,9 @@ pub enum Variant {
     D,
     E,
     F,
+    G,
+    H,
+    I,
 }
 impl Variant {
     pub fn parse(s: &str) -> Option<Self> {
@@ -49,6 +52,9 @@ impl Variant {
             "d" | "D" => Some(Variant::D),
             "e" | "E" => Some(Variant::E),
             "f" | "F" => Some(Variant::F),
+            "g" | "G" => Some(Variant::G),
+            "h" | "H" => Some(Variant::H),
+            "i" | "I" => Some(Variant::I),
             _ => None,
         }
     }
@@ -97,7 +103,10 @@ impl Proto {
             Variant::C => Variant::D,
             Variant::D => Variant::E,
             Variant::E => Variant::F,
-            Variant::F => Variant::A,
+            Variant::F => Variant::G,
+            Variant::G => Variant::H,
+            Variant::H => Variant::I,
+            Variant::I => Variant::A,
         }
     }
     /// The mock-up's state: three collected items and the nested selection.
@@ -186,6 +195,9 @@ pub fn draw(f: &mut Frame, app: &App, proto: &Proto) {
         Variant::D => super::proto_d::draw(f, app),
         Variant::E => super::proto_e::draw(f, app),
         Variant::F => super::proto_f::draw(f, app),
+        Variant::G => super::proto_g::draw(f, app),
+        Variant::H => super::proto_h::draw(f, app),
+        Variant::I => super::proto_i::draw(f, app),
     }
     // So nobody mistakes either variant for the product.
     let area = f.area();
@@ -196,6 +208,9 @@ pub fn draw(f: &mut Frame, app: &App, proto: &Proto) {
         Variant::D => ("PROTOTYPE · variant D (flat gapped contents) · F2 switches", hex(0x10141a)),
         Variant::E => ("PROTOTYPE · variant E (folder windows, round 3) · F2 switches", hex(0x10141a)),
         Variant::F => ("PROTOTYPE · variant F (folder windows, round 2) · F2 switches", hex(0x10141a)),
+        Variant::G => ("PROTOTYPE · variant G (shared walls) · F2 switches", hex(0x10141a)),
+        Variant::H => ("PROTOTYPE · variant H (bricks and mortar) · F2 switches", hex(0x10141a)),
+        Variant::I => ("PROTOTYPE · variant I (frames and fills) · F2 switches", hex(0x10141a)),
     };
     let width = label.chars().count() as i32;
     if area.width as i32 > width + 4 && area.height > 1 {
