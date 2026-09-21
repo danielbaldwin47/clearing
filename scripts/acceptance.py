@@ -16,6 +16,7 @@ import subprocess
 import tempfile
 import termios
 import time
+import tomllib
 import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -142,6 +143,23 @@ class Session:
             self.read(0.05)
             time.sleep(0.01)
         return None
+
+
+class CommandLineAcceptance(unittest.TestCase):
+    def test_version_flags(self):
+        package = tomllib.loads((ROOT / 'Cargo.toml').read_text())['package']
+        for flag in ['--version', '-V']:
+            with self.subTest(flag=flag):
+                result = subprocess.run([str(BINARY), flag], text=True, capture_output=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, f"clearing {package['version']}\n")
+                self.assertEqual(result.stderr, '')
+
+    def test_help_lists_version(self):
+        result = subprocess.run([str(BINARY), '--help'], text=True, capture_output=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('-V, --version', result.stdout)
+        self.assertEqual(result.stderr, '')
 
 
 class ScanAcceptance(unittest.TestCase):
@@ -330,7 +348,8 @@ if __name__ == '__main__':
         raise SystemExit('Frozen at user deadline; refusing further work.')
     original_hash = hashlib.sha256(BINARY.read_bytes()).hexdigest()
     print(f'Release SHA-256: {original_hash}', flush=True)
-    suite = unittest.defaultTestLoader.loadTestsFromTestCase(ScanAcceptance)
+    suite = unittest.defaultTestLoader.loadTestsFromTestCase(CommandLineAcceptance)
+    suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(ScanAcceptance))
     if not args.scan_only:
         for name in InteractionAcceptance.__dict__:
             if name.startswith('test_'):
