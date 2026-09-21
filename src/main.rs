@@ -75,7 +75,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
             "--help" | "-h" => {
                 println!(
-                    "clearing — find what ate your disk\n\nUsage: clearing [OPTIONS] [PATH]\n\n  --scan             Scan and exit without starting the terminal interface\n  --json, --summary   Print a summary JSON object (with --scan)\n  --snapshot STATE   Render overview, drilled, delete, trash, or collector as ANSI\n                     (also collector-browse, collector-confirm,\n                     collector-errors, collector-empty)\n  --width N          Snapshot columns (default 140)\n  --height N         Snapshot rows (default 44)\n  -V, --version      Show the package version\n  -h, --help         Show this help\n\nKeys: ↑↓ / jk select · Enter open · Backspace back · d delete\n      Home / End first / last · PgUp / PgDn move eight entries\n      t move selected item to Trash · Space collect · c review collector\n      r rescan · ? help · q quit · Esc cancels a scan or dialog\n\nSizes include allocated file and directory blocks. Symlinks are not followed.\nHard links count once. Deletion is permanent and requires typing delete.\nCollected items use the desktop Trash after typing trash; space is freed\nwhen Trash is emptied. A failed move never falls back to deletion."
+                    "clearing — find what ate your disk\n\nUsage: clearing [OPTIONS] [PATH]\n\n  --scan             Scan and exit without starting the terminal interface\n  --json, --summary   Print a summary JSON object (with --scan)\n  --snapshot STATE   Render overview, drilled, delete, trash, or collector as ANSI\n                     (also collector-browse, collector-confirm,\n                     collector-errors, collector-empty)\n  --width N          Snapshot columns (default 140)\n  --height N         Snapshot rows (default 44)\n  -V, --version      Show the package version\n  -h, --help         Show this help\n\nKeys: ↑↓ / jk select · Enter open · Backspace back · d delete\n      Home / End first / last · PgUp / PgDn move eight entries\n      t move selected item to Trash · Space collect · c review collector\n      r rescan · ? help · q quit\n      Esc cancels a rescan or dialog; quits otherwise\n\nSizes include allocated file and directory blocks. Symlinks are not followed.\nHard links count once. Deletion is permanent and requires typing delete.\nCollected items use the desktop Trash after typing trash; space is freed\nwhen Trash is emptied. A failed move never falls back to deletion."
                 );
                 return Ok(());
             }
@@ -230,7 +230,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     let guard = TerminalGuard::enter()?;
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
-    let Some((root, seconds)) = scan_in_terminal(&mut terminal, &path)? else {
+    let Some((root, seconds)) = scan_in_terminal(&mut terminal, &path, false)? else {
         return Ok(());
     };
     let mut app = ui::App::new(root, seconds);
@@ -420,7 +420,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             KeyCode::Char('?') => app.help = true,
             KeyCode::Char('r') => {
                 let root_path = app.root.path.clone();
-                match scan_in_terminal(&mut terminal, &root_path) {
+                match scan_in_terminal(&mut terminal, &root_path, true) {
                     Ok(Some((root, seconds))) => app = app.rebuild(root, seconds),
                     Ok(None) => app.message = "Rescan cancelled; previous results retained".into(),
                     Err(e) => app.message = format!("Rescan failed: {e}"),
@@ -543,6 +543,7 @@ fn trash_frame(
 fn scan_in_terminal(
     terminal: &mut AppTerminal,
     path: &Path,
+    is_rescan: bool,
 ) -> io::Result<Option<(scan::Node, f64)>> {
     let (tx, rx) = mpsc::sync_channel(1);
     let progress = Arc::new(AtomicU64::new(0));
@@ -568,8 +569,9 @@ fn scan_in_terminal(
             let area = f.area();
             f.render_widget(
                 Paragraph::new(format!(
-                    "\n  Reading disk allocation\n\n  {} entries scanned\n\n  Esc cancel",
-                    progress.load(Ordering::Relaxed)
+                    "\n  Reading disk allocation\n\n  {} entries scanned\n\n  Esc {}",
+                    progress.load(Ordering::Relaxed),
+                    if is_rescan { "cancel" } else { "quit" }
                 ))
                 .style(Style::default().fg(theme::FG).bg(theme::BG)),
                 area,
@@ -694,7 +696,7 @@ fn rescan_after_delete(
     summary: &str,
 ) -> io::Result<Option<(scan::Node, f64)>> {
     loop {
-        let problem = match scan_in_terminal(terminal, root_path) {
+        let problem = match scan_in_terminal(terminal, root_path, true) {
             Ok(Some(fresh)) => return Ok(Some(fresh)),
             Ok(None) => "Rescan cancelled".to_string(),
             Err(e) => format!("Rescan failed: {e}"),

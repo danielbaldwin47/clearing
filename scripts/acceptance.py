@@ -66,7 +66,7 @@ def expected(path):
 
 
 class Session:
-    def __init__(self, path, cols=100, rows=34):
+    def __init__(self, path, cols=100, rows=34, until=IDLE):
         self.pid, self.master = pty.fork()
         if not self.pid:
             os.environ.update(TERM='xterm-256color', COLORTERM='truecolor')
@@ -74,7 +74,7 @@ class Session:
         fcntl.ioctl(self.master, termios.TIOCSWINSZ, struct.pack('HHHH', rows, cols, 0, 0))
         self.output = bytearray()
         self.closed = False
-        self.read(1, until=IDLE)
+        self.read(1, until=until)
 
     def read(self, duration=0.25, until=None):
         """Read until the screen settles, or until `until` shows in the new text.
@@ -166,6 +166,12 @@ class CommandLineAcceptance(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stderr, 'clearing: unknown option: --no-mouse\n')
         self.assertEqual(result.stdout, '')
+
+    def test_help_explains_escape_by_scan_context(self):
+        result = subprocess.run([str(BINARY), '--help'], text=True, capture_output=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('Esc cancels a rescan or dialog; quits otherwise', result.stdout)
+        self.assertNotIn('Esc cancels a scan or dialog', result.stdout)
 
     def test_help_lists_navigation_and_trash_once(self):
         result = subprocess.run([str(BINARY), '--help'], text=True, capture_output=True, timeout=30)
@@ -302,6 +308,40 @@ class InteractionAcceptance(ScanAcceptance):
         session = Session(self.path)
         self.addCleanup(session.close)
         return session
+
+    def make_slow_scan_tree(self):
+        # Enough directory entries to keep the worker busy while the PTY reads
+        # the scan frame and sends Escape; no machine-specific tree or sleep.
+        for index in range(20000):
+            (self.path / f'file-{index:05d}').touch()
+
+    def test_first_scan_escape_label_and_exit(self):
+        self.make_slow_scan_tree()
+        session = Session(self.path, until=b'Esc ')
+        self.addCleanup(session.close)
+        screen = ANSI.sub(b'', session.output)
+        self.assertIn(b'Esc quit', screen)
+        self.assertNotIn(b'Esc cancel', screen)
+        self.assertNotIn(IDLE, screen, 'first scan finished before Escape could be tested')
+        session.send(b'\x1b')
+        code = session.reap(2)
+        if code is not None:
+            session.closed = True
+            os.close(session.master)
+        self.assertEqual(code, 0, 'Escape during the first scan did not quit cleanly')
+
+    def test_rescan_escape_label_and_retained_results(self):
+        session = self.session()
+        self.make_slow_scan_tree()
+        start = len(session.output)
+        session.send(b'r', 2, until=b'Esc ')
+        screen = ANSI.sub(b'', session.output[start:])
+        self.assertIn(b'Esc cancel', screen)
+        self.assertNotIn(b'Esc quit', screen)
+        start = len(session.output)
+        session.send(b'\x1b', 2, until=b'Rescan cancelled; previous results retained')
+        self.assertIn(b'Rescan cancelled; previous results retained', ANSI.sub(b'', session.output[start:]))
+        self.assertIsNone(session.reap(0.1), 'Escape during a rescan exited the app')
 
     def test_cancel_and_wrong_confirmation_preserve_data(self):
         target = self.path / 'candidate.bin'
