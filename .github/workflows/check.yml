@@ -1,7 +1,7 @@
 name: Check
 
 # One run per commit: a branch is checked as its pull request, main as its push.
-# No step reads Markdown (UNREAD in scripts/gate), so a change to nothing else starts no run.
+# No step reads Markdown (UNREAD_SUFFIXES in scripts/gate), so a change to nothing else starts no run.
 on:
   push:
     branches: [main]
