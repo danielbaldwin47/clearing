@@ -62,6 +62,16 @@ jobs:
             echo "[ssh exit status $?]"
             bash "$SCRIPT" after after-ssh "$BIN"
           } 2>&1 | tee -a "$LOG"
+      - name: Pass 3, a zsh-only probe over SSH
+        run: |
+          set +e
+          {
+            bash "$SCRIPT" seed zshseed "$BIN"
+            ssh -i ~/.ssh/id_ett -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes \
+              "$(id -un)@localhost" "EMPTY_TRASH_RESEARCH_CI=1 /bin/zsh '$GITHUB_WORKSPACE/research/empty-macos-trash/probe.zsh' '$(cat ~/ett-known-home)'"
+            echo "[ssh exit status $?]"
+            bash "$SCRIPT" after after-zsh-ssh "$BIN"
+          } 2>&1 | tee -a "$LOG"
       - name: Results
         if: always()
         run: grep '^RESULT' "$LOG" || true
