@@ -294,21 +294,43 @@ impl Executor for DesktopTrash {
             return Ok(());
         }
         let stderr = String::from_utf8_lossy(&output.stderr);
-        Err(gio_failure_reason(
-            &stderr,
-            &gio_uri(path),
-            output.status.code(),
-        ))
+        Err(gio_failure_reason(&stderr, path, output.status.code()))
     }
 }
 
+/// The first non-empty line of `stderr` without its `gio: <uri>: ` prefix. GIO
+/// repeats the raw path inside the message, so a newline within that repeated
+/// path does not end the line; a repeat that starts on a later line is not part
+/// of the message and changes nothing. Empty stderr gives a fallback naming the
+/// exit code or the signal.
 #[cfg(any(target_os = "linux", test))]
-fn gio_failure_reason(stderr: &str, uri: &str, code: Option<i32>) -> String {
-    if let Some(line) = stderr.lines().find(|line| !line.trim().is_empty()) {
-        return line
-            .strip_prefix(&format!("gio: {uri}: "))
-            .unwrap_or(line)
-            .into();
+fn gio_failure_reason(stderr: &str, path: &Path, code: Option<i32>) -> String {
+    let mut first_line_at = 0;
+    for line in stderr.split_inclusive('\n') {
+        if !line.trim().is_empty() {
+            break;
+        }
+        first_line_at += line.len();
+    }
+    let from_first_line = &stderr[first_line_at..];
+    if !from_first_line.is_empty() {
+        let message = from_first_line
+            .strip_prefix(&format!("gio: {}: ", gio_uri(path)))
+            .unwrap_or(from_first_line);
+        let first_newline = message.find('\n').unwrap_or(message.len());
+        let repeated_path = path.to_string_lossy();
+        let after_path = match message.find(&*repeated_path) {
+            Some(at) if at < first_newline => at + repeated_path.len(),
+            _ => 0,
+        };
+        let reason = match message[after_path..].find('\n') {
+            Some(newline) => {
+                let line = &message[..after_path + newline];
+                line.strip_suffix('\r').unwrap_or(line)
+            }
+            None => message,
+        };
+        return reason.into();
     }
     match code {
         Some(code) => format!("gio trash failed ({code}): "),
@@ -454,8 +476,48 @@ mod tests {
         let uri = "file:///tmp/a/b.bin";
         let reason = "Trashing on system internal mounts is not supported";
         assert_eq!(
-            gio_failure_reason(&format!("gio: {uri}: {reason}"), uri, Some(1)),
+            gio_failure_reason(
+                &format!("gio: {uri}: {reason}"),
+                Path::new("/tmp/a/b.bin"),
+                Some(1)
+            ),
             reason
+        );
+    }
+
+    #[test]
+    fn trash_failure_reason_keeps_a_newline_inside_the_repeated_path() {
+        assert_eq!(
+            gio_failure_reason(
+                "gio: file:///tmp/ro/a%0Ab.bin: Unable to trash file /tmp/ro/a\nb.bin: Permission denied\n",
+                Path::new("/tmp/ro/a\nb.bin"),
+                Some(1)
+            ),
+            "Unable to trash file /tmp/ro/a\nb.bin: Permission denied"
+        );
+    }
+
+    #[test]
+    fn trash_failure_reason_keeps_every_newline_of_one_name() {
+        assert_eq!(
+            gio_failure_reason(
+                "gio: file:///tmp/a%0Ab%0Ac: Error trashing file /tmp/a\nb\nc: No such file or directory\n",
+                Path::new("/tmp/a\nb\nc"),
+                Some(1)
+            ),
+            "Error trashing file /tmp/a\nb\nc: No such file or directory"
+        );
+    }
+
+    #[test]
+    fn trash_failure_reason_ends_at_the_first_newline_after_the_path() {
+        assert_eq!(
+            gio_failure_reason(
+                "gio: file:///tmp/ro/a%0Ab.bin: Unable to trash file /tmp/ro/a\nb.bin: Permission denied\nmore detail",
+                Path::new("/tmp/ro/a\nb.bin"),
+                Some(1)
+            ),
+            "Unable to trash file /tmp/ro/a\nb.bin: Permission denied"
         );
     }
 
@@ -467,7 +529,7 @@ mod tests {
             "  unfamiliar error  ",
         ] {
             assert_eq!(
-                gio_failure_reason(line, "file:///tmp/a/b.bin", Some(1)),
+                gio_failure_reason(line, Path::new("/tmp/a/b.bin"), Some(1)),
                 line
             );
         }
@@ -477,11 +539,11 @@ mod tests {
     fn trash_failure_reason_keeps_empty_stderr_fallbacks() {
         for stderr in ["", "\n  \n"] {
             assert_eq!(
-                gio_failure_reason(stderr, "file:///tmp/a", Some(1)),
+                gio_failure_reason(stderr, Path::new("/tmp/a"), Some(1)),
                 "gio trash failed (1): "
             );
             assert_eq!(
-                gio_failure_reason(stderr, "file:///tmp/a", None),
+                gio_failure_reason(stderr, Path::new("/tmp/a"), None),
                 "gio trash was killed by a signal: "
             );
         }
@@ -492,7 +554,7 @@ mod tests {
         assert_eq!(
             gio_failure_reason(
                 "\n  \ngio: file:///tmp/a: denied\nmore detail",
-                "file:///tmp/a",
+                Path::new("/tmp/a"),
                 Some(1)
             ),
             "denied"
@@ -510,10 +572,10 @@ mod tests {
             ),
             (b"/tmp/bad\xFFutf8\n", "file:///tmp/bad%FFutf8%0A"),
         ] {
-            let uri = gio_uri(Path::new(OsStr::from_bytes(raw)));
-            assert_eq!(uri, expected);
+            let path = Path::new(OsStr::from_bytes(raw));
+            assert_eq!(gio_uri(path), expected);
             assert_eq!(
-                gio_failure_reason(&format!("gio: {expected}: denied"), &uri, Some(1)),
+                gio_failure_reason(&format!("gio: {expected}: denied"), path, Some(1)),
                 "denied"
             );
         }
