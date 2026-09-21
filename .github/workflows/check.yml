@@ -1,15 +1,12 @@
 name: Check
 
 # One run per commit: a branch is checked as its pull request, main as its push.
-# No step reads Markdown (UNREAD_SUFFIXES in scripts/gate), so a change to nothing else starts no run.
 on:
   push:
     branches: [main]
-    paths-ignore: ["**.md"]
   # A ticket's pull request into a spec branch starts no run: the spec's own pull request is its check.
   pull_request:
     branches: [main]
-    paths-ignore: ["**.md"]
   workflow_dispatch:
 
 # A push to a pull request replaces the run of the commit before it.
@@ -21,38 +18,42 @@ permissions:
   contents: read
 
 jobs:
-  # paths-ignore reads a pull request's whole diff, so a Markdown-only commit on a code branch still
-  # arrives here. It is checked already when it differs only in Markdown from the branch's last green commit.
+  # The check jobs run only for a commit that changes a path they read: READ and READ_BY_CI in
+  # scripts/gate are the list. A commit that differs in none of them from a green commit (this
+  # branch's green runs, or the commit of main it grew from) is covered, and this job is its whole run.
   changed:
-    if: github.event_name == 'pull_request'
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       actions: read
       contents: read
     outputs:
-      unread: ${{ steps.diff.outputs.unread }}
+      covered: ${{ steps.covered.outputs.covered }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
-      - id: diff
+      - id: covered
         env:
           GH_TOKEN: ${{ github.token }}
-          BRANCH: ${{ github.event.pull_request.head.ref }}
+          BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          BEFORE: ${{ github.event.before }}
         run: |
-          for green in $(gh run list --workflow check.yml --branch "$BRANCH" --status success --limit 5 --json headSha --jq '.[].headSha'); do
-            if names=$(git diff --name-only --no-renames "$green" HEAD) && ! grep -qv '\.md$' <<<"$names"; then
-              echo "only Markdown changed since $green passed"
-              echo "unread=true" >> "$GITHUB_OUTPUT"
-              break
-            fi
-          done
+          green=$(gh run list --workflow check.yml --branch "$BRANCH" --status success --limit 10 --json headSha --jq '.[].headSha')
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            grew_from=$(git merge-base origin/main HEAD)
+          else
+            grew_from=$BEFORE
+          fi
+          if scripts/gate covered $green $grew_from; then
+            echo "covered=true" >> "$GITHUB_OUTPUT"
+          fi
 
   check:
     needs: changed
-    # !cancelled(): a push to main skips `changed`, and a `changed` that failed decides nothing; both still check.
-    if: ${{ !cancelled() && needs.changed.outputs.unread != 'true' }}
+    # !cancelled(): a dispatched run skips `changed`, and a `changed` that failed decides nothing; both still check.
+    if: ${{ !cancelled() && needs.changed.outputs.covered != 'true' }}
     strategy:
       fail-fast: false
       matrix:

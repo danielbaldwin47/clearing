@@ -4,12 +4,13 @@
   scripts/gate check [--force]            the Commit tier, ending in one pass or FAIL line
   scripts/gate snapshot STATE [--width N] [--height N]
                                           a screen as plain text, for a ticket's evidence
+  scripts/gate covered COMMIT...          for CI: 0 when a green commit covers this checkout
 
 A pass is recorded by tree in the shared git directory, and a tree that differs
-from a passed one only in Markdown or .github/ passes at once; --force runs the steps.
+from a passed one in no path of READ passes at once; --force runs the steps.
 Each check step's output waits in target/gate/<step>.log and is printed only
-for the step that fails. Exit codes: 0 pass, 1 a step failed, 2 usage,
-3 the story fixture is missing.
+for the step that fails. Exit codes: 0 pass or covered, 1 a step failed or
+not covered, 2 usage, 3 the story fixture is missing.
 """
 import argparse
 import os
@@ -33,9 +34,15 @@ STEPS = [
     ("collector", [sys.executable, "scripts/collector_acceptance.py"]),
 ]
 STEP_TIMEOUT_S = 900
-# No step reads Markdown or a workflow, so a tree that differs from a passed one only there has passed too.
-UNREAD_SUFFIXES = (".md",)
-UNREAD_PREFIXES = (".github/",)
+# Every path a step reads, a directory ending in "/". A tree that differs from a passed one
+# nowhere here has passed too. The paths not yet in the repo are here so that adding one is checked.
+READ = (
+    "src/", "tests/", "benches/", ".cargo/", "build.rs", "Cargo.toml", "Cargo.lock",
+    "rust-toolchain.toml", "rustfmt.toml", "clippy.toml",
+    "scripts/gate", "scripts/acceptance.py", "scripts/collector_acceptance.py",
+)
+# What only CI's jobs read (.github/workflows/check.yml asks `scripts/gate covered`).
+READ_BY_CI = (".github/workflows/check.yml", "scripts/macos_acceptance.py")
 PASSED_KEPT = 50
 
 
@@ -84,21 +91,38 @@ def passed_file():
     return Path(git("rev-parse", "--path-format=absolute", "--git-common-dir")) / "gate-passed"
 
 
-def covered(current):
-    """The passed tree that differs from this one in nothing a step reads, or None."""
-    try:
-        passed = passed_file().read_text().split()
-    except OSError:
-        return None
+def is_read(name, read):
+    return any(name.startswith(path) if path.endswith("/") else name == path for path in read)
+
+
+def covered(current, passed, read=READ):
+    """The newest of the passed trees or commits that differs from this tree in nothing read, or None."""
     for old in reversed(passed):
         try:
-            # A source file renamed to Markdown shows as its deletion too.
+            # A read file renamed out of READ shows as its deletion too.
             changed = git("diff", "--name-only", "--no-renames", old, current).splitlines()
         except OSError:
             continue
-        if all(n.endswith(UNREAD_SUFFIXES) or n.startswith(UNREAD_PREFIXES) for n in changed):
+        if not any(is_read(name, read) for name in changed):
             return old
     return None
+
+
+def passed_trees():
+    try:
+        return passed_file().read_text().split()
+    except OSError:
+        return []
+
+
+def covered_by(commits):
+    """For CI: exit 0 when one of these green commits covers this checkout, 1 when the jobs must run."""
+    try:
+        old = covered(tree(), commits, READ + READ_BY_CI)
+    except OSError:
+        old = None
+    say(f"gate: covered by {old[:7]}" if old else "gate: not covered; a read path changed")
+    return 0 if old else 1
 
 
 def record(current):
@@ -118,7 +142,7 @@ def check(force):
     LOGS.mkdir(parents=True, exist_ok=True)
     began = time.monotonic()
     try:
-        old = None if force else covered(tree())
+        old = None if force else covered(tree(), passed_trees())
     except OSError:
         old = None
     if old:
@@ -230,6 +254,7 @@ def main():
     commands.add_parser("check").add_argument(
         "--force", action="store_true", help="run every step on a tree that has already passed"
     )
+    commands.add_parser("covered").add_argument("commits", nargs="*", help="commits whose checks were green")
     shot = commands.add_parser("snapshot")
     shot.add_argument("state", help="one of: " + ", ".join(STATES))
     shot.add_argument("--width", type=int, default=140)
@@ -237,6 +262,8 @@ def main():
     args = parser.parse_args()
     if args.command == "check":
         return check(args.force)
+    if args.command == "covered":
+        return covered_by(args.commits)
     return snapshot(args.state, args.width, args.height)
 
 
