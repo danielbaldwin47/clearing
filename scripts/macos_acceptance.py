@@ -43,10 +43,10 @@ class NativeTrashAcceptance(unittest.TestCase):
         path = self.item()
         content = path.read_bytes()
         session = self.session()
-        session.send(b't\rwrong\r')
+        session.send(b't\rwrong\r', until=acceptance.NEVER)
         self.assertTrue(path.exists(), 'wrong confirmation moved an item')
         session.send(b'\x1b')
-        session.send(b'ttrash\r', 2.0)
+        session.send(b'ttrash\r', 2.0, until=acceptance.IDLE)
         self.assertFalse(path.exists(), 'confirmed native Trash did not move the item')
         trashed = self.trash / path.name
         self.assertEqual(trashed.read_bytes(), content, 'native Trash lost the payload')
@@ -60,7 +60,7 @@ class NativeTrashAcceptance(unittest.TestCase):
         link.symlink_to(target)
         self.items.append(link)
         session = self.session()
-        session.send(b'ttrash\r', 2.0)
+        session.send(b'ttrash\r', 2.0, until=acceptance.IDLE)
         self.assertFalse(link.is_symlink())
         self.assertEqual(target.read_bytes(), b'keep this target')
         trashed = self.trash / link.name

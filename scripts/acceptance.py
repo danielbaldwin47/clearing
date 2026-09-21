@@ -23,7 +23,11 @@ BINARY = ROOT / 'target/release/clearing'
 ANSI = re.compile(rb'\x1b\[[0-9;?]*[A-Za-z]')
 # What the app draws when no cell changed: every 100 ms idle, every 40 ms busy.
 EMPTY_FRAME = b'\x1b[39m\x1b[49m\x1b[59m\x1b[0m\x1b[?25l'
+# Seconds without a changed frame that end a read: the app answers a key in 1 ms.
 SETTLE = 0.05
+# For a send whose case then asserts that nothing happened: no text ends the
+# wait, so a wrongful move or delete gets the whole duration to land.
+NEVER = b'\0'
 # A space map heading. A scan's own screen blanks it, so the app draws it again
 # when the scan ends, whatever message the footer then carries.
 IDLE = b'LARGEST FIRST'
@@ -82,7 +86,8 @@ class Session:
         settled = None
         visible = 0
         while True:
-            wait = (ceiling if until or settled is None else min(ceiling, settled)) - time.monotonic()
+            deadline = ceiling if until or settled is None else min(ceiling, settled)
+            wait = deadline - time.monotonic()
             if wait <= 0 or not select.select([self.master], [], [], wait)[0]:
                 break
             try:
@@ -98,8 +103,8 @@ class Session:
             if until:
                 if until in ANSI.sub(b'', new):
                     break
-            elif len(new.replace(EMPTY_FRAME, b'')) != visible:
-                visible = len(new.replace(EMPTY_FRAME, b''))
+            elif (drawn := len(new.replace(EMPTY_FRAME, b''))) != visible:
+                visible = drawn
                 settled = time.monotonic() + SETTLE
         return bytes(self.output)
 
@@ -228,9 +233,9 @@ class InteractionAcceptance(ScanAcceptance):
         target.write_bytes(b'x' * 32768)
         session = self.session()
         session.send(b'd')
-        session.send(b'\r')
+        session.send(b'\r', until=NEVER)
         self.assertTrue(target.exists(), 'Enter without exact confirmation deleted a file')
-        session.send(b'wrong\r')
+        session.send(b'wrong\r', until=NEVER)
         self.assertTrue(target.exists(), 'wrong confirmation deleted a file')
         session.send(b'\x1b')
         self.assertTrue(target.exists())

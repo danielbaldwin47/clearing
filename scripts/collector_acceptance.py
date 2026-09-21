@@ -74,7 +74,7 @@ class CollectorAcceptance(unittest.TestCase):
         b = self.file('second.bin', 16384)
         session = self.session()
         session.send(b' j c')
-        session.send(b't\rwrong\r')
+        session.send(b't\rwrong\r', until=acceptance.NEVER)
         self.assertTrue(a.exists() and b.exists())
         self.assertEqual(self.trash_records(), {})
         session.send(b'\x1b')
@@ -95,7 +95,7 @@ class CollectorAcceptance(unittest.TestCase):
         session = self.session()
         session.send(b' c')
         session.send(b'\x7f')
-        session.send(b'ttrash\r')
+        session.send(b'ttrash\r', until=acceptance.NEVER)
         self.assertEqual(a.read_bytes(), b'A' * 32768)
         self.assertEqual(self.trash_records(), {})
 
@@ -226,8 +226,8 @@ class CollectorAcceptance(unittest.TestCase):
         session = self.session(PATH=str(tools), COLLECTOR_TEST_RECEIPT=str(receipt))
         session.send(b' j j ct')
         session.send(b'trash\r', 0.05)
-        until = time.monotonic() + 5
-        while not receipt.exists() and time.monotonic() < until:
+        deadline = time.monotonic() + 5
+        while not receipt.exists() and time.monotonic() < deadline:
             session.read(0.05)
         self.assertTrue(receipt.exists(), 'the isolated trash backend was never invoked')
         session.send(b'\x1b', 1.5, until=MOVED)
@@ -265,12 +265,12 @@ class CollectorAcceptance(unittest.TestCase):
     def test_direct_trash_requires_exact_confirmation_and_can_cancel(self):
         chosen = self.file('keep.bin')
         session = self.session()
-        session.send(b't\rwrong\r')
+        session.send(b't\rwrong\r', until=acceptance.NEVER)
         self.assertTrue(chosen.exists())
         self.assertEqual(self.trash_records(), {})
         session.send(b'\x1b')
         self.assertTrue(chosen.exists())
-        session.send(b'ttrash\x1b')
+        session.send(b'ttrash\x1b', until=acceptance.NEVER)
         self.assertTrue(chosen.exists())
         self.assertEqual(self.trash_records(), {})
 
