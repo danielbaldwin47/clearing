@@ -71,7 +71,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, macos-15-intel]
     runs-on: ${{ matrix.os }}
-    # The slowest runner takes 5; a hung acceptance session would otherwise hold its runner for 6 hours.
+    # The slowest runner takes about 1 minute on a warm cache and 3 from cold (64 s in run 35552818786, 175 s in
+    # 35552632173); a hung acceptance session would otherwise hold its runner for 6 hours.
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -79,6 +80,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.98.0
         with:
           components: clippy, rustfmt
+      # A pull request restores and never saves, so pull requests add nothing to the repository's 10 GB of cache
+      # (docs/agents/gate.md has the key and which runs save).
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name != 'pull_request' }}
       - name: gio, which the Trash acceptance checks move files with
         if: runner.os == 'Linux'
         run: command -v gio || (sudo apt-get update && sudo apt-get install -y libglib2.0-bin)
