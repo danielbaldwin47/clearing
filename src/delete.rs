@@ -1,5 +1,6 @@
-//! Descriptor-relative deletion. Every traversed directory is opened without
-//! following symlinks, and every removed entry must retain its scanned identity.
+//! Descriptor-relative permanent deletion.
+//!
+//! Every traversed directory is opened without following symlinks, and every removed entry must retain its scanned identity.
 use crate::scan::Node;
 use std::{
     ffi::{CString, OsStr},
@@ -255,14 +256,17 @@ mod tests {
         sync::Arc,
         time::{SystemTime, UNIX_EPOCH},
     };
+    // Tests run in parallel and a macOS clock ticks in microseconds, so the counter keeps two names apart.
+    static DIRS: AtomicU64 = AtomicU64::new(0);
     fn dir() -> std::path::PathBuf {
         let p = std::env::temp_dir().join(format!(
-            "spacemap-delete-{}-{}",
+            "clearing-delete-{}-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+            DIRS.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir(&p).unwrap();
         p

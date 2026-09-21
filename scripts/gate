@@ -1,0 +1,324 @@
+#!/usr/bin/env python3
+"""The gate: what must pass before work lands. docs/agents/gate.md names the tiers.
+
+  scripts/gate check [--force]            the Commit tier, ending in one pass or FAIL line
+  scripts/gate snapshot STATE [--width N] [--height N]
+                                          a screen as plain text, for a ticket's evidence
+  scripts/gate covered COMMIT...          for CI: 0 when a green commit covers this checkout
+
+A pass is recorded by tree in the shared git directory, and a tree that differs
+from a passed one in no path of READ passes at once; one that differs only in
+Cargo.toml's METADATA runs PACKAGE_STEP alone; --force runs the steps.
+Each check step's output waits in target/gate/<step>.log and is printed only
+for the step that fails. Exit codes: 0 pass or covered, 1 a step failed or
+not covered, 2 usage, 3 the story fixture is missing.
+"""
+import argparse
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+import tomllib
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+LOGS = ROOT / "target/gate"
+BINARY = ROOT / "target/release/clearing"
+# The acceptance scripts run the release binary, so the build precedes them.
+STEPS = [
+    ("fmt", ["cargo", "fmt"]),
+    ("clippy", ["cargo", "clippy", "--all-targets", "--locked", "--", "-D", "warnings"]),
+    ("test", ["cargo", "test", "--locked"]),
+    ("build", ["cargo", "build", "--release", "--locked"]),
+    ("acceptance", [sys.executable, "scripts/acceptance.py"]),
+    ("collector", [sys.executable, "scripts/collector_acceptance.py"]),
+]
+MANIFEST = "Cargo.toml"
+# The [package] keys of the manifest that no step of STEPS reads: packaging reads them, the build does not.
+METADATA = (
+    "description", "keywords", "categories", "repository", "homepage", "documentation",
+    "readme", "license", "include", "exclude", "authors",
+)
+# The exception: cargo hands these of METADATA to the build, and a source that names one reads the manifest whole.
+METADATA_ENV = "CARGO_PKG_(DESCRIPTION|AUTHORS|REPOSITORY|HOMEPAGE|LICENSE|README)"
+# The one step that reads METADATA. --allow-dirty: the gate checks the tree `git add -A` would
+# commit, and cargo refuses to package an uncommitted manifest.
+PACKAGE_STEP = ("publish", ["cargo", "publish", "--dry-run", "--locked", "--allow-dirty"])
+STEP_TIMEOUT_S = 900
+# Every path a step reads, a directory ending in "/". A tree that differs from a passed one
+# nowhere here has passed too. The paths not yet in the repo are here so that adding one is checked.
+READ = (
+    "src/", "tests/", "benches/", ".cargo/", "build.rs", "Cargo.toml", "Cargo.lock",
+    "rust-toolchain.toml", "rustfmt.toml", "clippy.toml",
+    "scripts/gate", "scripts/acceptance.py", "scripts/collector_acceptance.py",
+)
+# What only CI's jobs read (.github/workflows/check.yml asks `scripts/gate covered`).
+READ_BY_CI = (".github/workflows/check.yml", "scripts/macos_acceptance.py")
+PASSED_KEPT = 50
+
+
+def say(line):
+    """One line, out at once: a piped run (CI) shows each step as it ends."""
+    print(line, flush=True)
+
+
+def worktree_state():
+    """Each changed file with its content hash, so a file fmt rewrites shows even if it was dirty."""
+    try:
+        out = subprocess.run(
+            ["git", "diff", "--raw", "--abbrev=40"], cwd=ROOT, capture_output=True, text=True
+        ).stdout
+    except OSError:
+        return {}
+    names = [line.split("\t", 1)[1] for line in out.splitlines() if "\t" in line]
+    state = {}
+    for name in names:
+        path = ROOT / name
+        state[name] = hash(path.read_bytes()) if path.is_file() else None
+    return state
+
+
+def git(*args, **env):
+    """A git command's output, or OSError carrying its stderr."""
+    done = subprocess.run(
+        ["git", *args], cwd=ROOT, capture_output=True, text=True, env={**os.environ, **env}
+    )
+    if done.returncode != 0:
+        raise OSError(done.stderr.strip())
+    return done.stdout.strip()
+
+
+def tree():
+    """The tree `git add -A` would commit from this checkout, written through a scratch index."""
+    LOGS.mkdir(parents=True, exist_ok=True)
+    index = LOGS / "index"
+    shutil.copyfile(git("rev-parse", "--path-format=absolute", "--git-path", "index"), index)
+    git("add", "-A", GIT_INDEX_FILE=str(index))
+    return git("write-tree", GIT_INDEX_FILE=str(index))
+
+
+def passed_file():
+    """One file for the main checkout and every worktree, so a pass in one is known to the rest."""
+    return Path(git("rev-parse", "--path-format=absolute", "--git-common-dir")) / "gate-passed"
+
+
+def is_read(name, read):
+    return any(name.startswith(path) if path.endswith("/") else name == path for path in read)
+
+
+def built_from(rev):
+    """The manifest of a tree or commit as the build reads it: parsed, with the METADATA keys removed."""
+    manifest = tomllib.loads(git("show", f"{rev}:{MANIFEST}"))
+    package = manifest.get("package")
+    if isinstance(package, dict):
+        for key in METADATA:
+            package.pop(key, None)
+    return manifest
+
+
+def build_reads_metadata(rev):
+    """Whether a source of this tree names a METADATA_ENV variable; a git grep that fails counts as yes."""
+    found = subprocess.run(
+        ["git", "grep", "-qE", METADATA_ENV, rev, "--", "src/", "build.rs"], cwd=ROOT, capture_output=True
+    )
+    return found.returncode != 1
+
+
+def covered(current, passed, read=READ):
+    """The newest passed tree or commit that covers this tree, and whether PACKAGE_STEP is still owed.
+
+    (old, False) when the two differ in nothing read; failing that, (old, True) when the one
+    read path that differs is the manifest, and only in its METADATA; (None, False) otherwise.
+    """
+    but_metadata = None
+    by_key = not build_reads_metadata(current)
+    for old in reversed(passed):
+        try:
+            # A read file renamed out of READ shows as its deletion too.
+            changed = git("diff", "--name-only", "--no-renames", old, current).splitlines()
+            differs = [name for name in changed if is_read(name, read)]
+            if not differs:
+                return old, False
+            if by_key and but_metadata is None and differs == [MANIFEST] and built_from(old) == built_from(current):
+                but_metadata = old
+        except (OSError, tomllib.TOMLDecodeError):
+            continue
+    return but_metadata, but_metadata is not None
+
+
+def passed_trees():
+    try:
+        return passed_file().read_text().split()
+    except OSError:
+        return []
+
+
+def covered_by(commits):
+    """For CI: exit 0 when one of these green commits covers this checkout, 1 when the jobs must run.
+
+    Covered but for the manifest's METADATA is 0 too, with `package=true` in $GITHUB_OUTPUT:
+    the workflow's `package` job runs PACKAGE_STEP in place of the check jobs.
+    """
+    try:
+        old, metadata_only = covered(tree(), commits, READ + READ_BY_CI)
+    except OSError:
+        old, metadata_only = None, False
+    if metadata_only:
+        say(f"gate: covered by {old[:7]} but for {MANIFEST}'s package metadata; the package job checks it")
+        if os.environ.get("GITHUB_OUTPUT"):
+            with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+                out.write("package=true\n")
+    else:
+        say(f"gate: covered by {old[:7]}" if old else "gate: not covered; a read path changed")
+    return 0 if old else 1
+
+
+def record(current):
+    """This tree joins the passed ones, newest last, written whole so another worktree reads no half file."""
+    path = passed_file()
+    try:
+        passed = path.read_text().split()
+    except OSError:
+        passed = []
+    kept = ([t for t in passed if t != current] + [current])[-PASSED_KEPT:]
+    scratch = path.with_name(f"gate-passed.{os.getpid()}")
+    scratch.write_text("\n".join(kept) + "\n")
+    os.replace(scratch, path)
+
+
+def check(force):
+    LOGS.mkdir(parents=True, exist_ok=True)
+    began = time.monotonic()
+    try:
+        old, metadata_only = (None, False) if force else covered(tree(), passed_trees())
+    except OSError:
+        old, metadata_only = None, False
+    if old and not metadata_only:
+        say(f"gate: pass (no step reads what changed since tree {old[:7]} passed; --force runs the steps)")
+        return 0
+    steps = [PACKAGE_STEP] if metadata_only else STEPS
+    if metadata_only:
+        say(f"gate: only {MANIFEST}'s package metadata changed since tree {old[:7]} passed; --force runs every step")
+    for name, command in steps:
+        before = worktree_state() if name == "fmt" else {}
+        started = time.monotonic()
+        log = LOGS / f"{name}.log"
+        try:
+            with log.open("w") as out:
+                code = subprocess.run(
+                    command, cwd=ROOT, stdout=out, stderr=subprocess.STDOUT,
+                    timeout=STEP_TIMEOUT_S,
+                ).returncode
+        except subprocess.TimeoutExpired:
+            code = f"timed out after {STEP_TIMEOUT_S} s"
+        except OSError as error:
+            code = f"could not run {command[0]}: {error.strerror}"
+            log.write_text(f"{code}\n")
+        seconds = time.monotonic() - started
+        if code != 0:
+            print(log.read_text(), end="")
+            say(f"gate: FAIL at {name} ({code}); the output above is {log.relative_to(ROOT)}")
+            return 1
+        note = ""
+        if name == "fmt":
+            after = worktree_state()
+            formatted = sorted(f for f in after if before.get(f, "absent") != after[f])
+            if formatted:
+                note = "  formatted: " + " ".join(formatted)
+        say(f"gate: {name} ok {seconds:.1f}s{note}")
+    try:
+        record(tree())
+    except OSError:
+        pass
+    say(f"gate: pass ({len(steps)} step{'s' if len(steps) > 1 else ''}, {time.monotonic() - began:.0f}s)")
+    return 0
+
+
+def story_fixture():
+    """The story tree of this checkout, or of the main checkout a worktree hangs off."""
+    try:
+        common = subprocess.run(
+            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            cwd=ROOT, capture_output=True, text=True,
+        ).stdout.strip()
+    except OSError:
+        common = ""
+    roots = [ROOT] + ([Path(common).parent] if common else [])
+    for root in roots:
+        if (root / "fixtures/ssd-story").is_dir():
+            return root / "fixtures/ssd-story"
+    return None
+
+
+def plain(ansi, height):
+    """Rows of text from a frame drawn with absolute cursor moves."""
+    rows = [""] * height
+    for row, text in re.findall(r"\x1b\[(\d+);1H([^\x1b]*(?:\x1b\[[0-9;]*m[^\x1b]*)*)", ansi):
+        if 1 <= int(row) <= height:
+            rows[int(row) - 1] = re.sub(r"\x1b\[[0-9;]*m", "", text).rstrip()
+    return "\n".join(rows) + "\n"
+
+
+STATES = (
+    "overview", "drilled", "delete", "trash", "collector", "collector-browse",
+    "collector-confirm", "collector-errors", "collector-empty",
+)
+
+
+def snapshot(state, width, height):
+    if state not in STATES:
+        print(f"gate: no snapshot state {state}; the states are {', '.join(STATES)}")
+        return 2
+    fixture = story_fixture()
+    if fixture is None:
+        print("gate: no fixtures/ssd-story; make it with: python3 scripts/create_fixture.py story")
+        return 3
+    try:
+        build = subprocess.run(["cargo", "build", "--release", "--locked", "-q"], cwd=ROOT)
+    except OSError as error:
+        print(f"gate: FAIL at build (could not run cargo: {error.strerror})")
+        return 1
+    if build.returncode != 0:
+        return 1
+    shot = subprocess.run(
+        [str(BINARY), "--snapshot", state, "--width", str(width), "--height", str(height), str(fixture)],
+        capture_output=True, text=True,
+    )
+    if shot.returncode != 0:
+        print(shot.stderr, end="")
+        return 1
+    text = plain(shot.stdout, height)
+    LOGS.mkdir(parents=True, exist_ok=True)
+    path = LOGS / f"snapshot-{state}-{width}x{height}.txt"
+    path.write_text(text)
+    print(text, end="")
+    print(f"gate: snapshot {state} {width}x{height} -> {path.relative_to(ROOT)}")
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="scripts/gate", description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("check").add_argument(
+        "--force", action="store_true", help="run every step on a tree that has already passed"
+    )
+    commands.add_parser("covered").add_argument("commits", nargs="*", help="commits whose checks were green")
+    shot = commands.add_parser("snapshot")
+    shot.add_argument("state", help="one of: " + ", ".join(STATES))
+    shot.add_argument("--width", type=int, default=140)
+    shot.add_argument("--height", type=int, default=44)
+    args = parser.parse_args()
+    if args.command == "check":
+        return check(args.force)
+    if args.command == "covered":
+        return covered_by(args.commits)
+    return snapshot(args.state, args.width, args.height)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

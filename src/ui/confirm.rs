@@ -1,3 +1,4 @@
+//! The permanent-delete confirmation dialog.
 use super::{App, foundation::*, review::dim_backdrop};
 use crate::theme::*;
 use ratatui::{
@@ -33,13 +34,25 @@ pub(super) fn draw_confirm(f: &mut Frame, app: &App) {
         PANEL,
         true,
     );
-    text(b, r.x + 3, r.y + 4, r.width - 6, &n.name, FG, PANEL, true);
+    text(
+        b,
+        r.x + 3,
+        r.y + 4,
+        r.width - 6,
+        tail(&n.name, (r.width - 6) as usize),
+        FG,
+        PANEL,
+        true,
+    );
     text(
         b,
         r.x + 3,
         r.y + 5,
         r.width - 6,
-        crate::scan::display_path(n.path.as_os_str()),
+        tail(
+            &crate::scan::display_path(n.path.as_os_str()),
+            (r.width - 6) as usize,
+        ),
         MUTED,
         PANEL,
         false,
@@ -88,12 +101,24 @@ pub(super) fn draw_confirm(f: &mut Frame, app: &App) {
     text(b, r.x + 3, r.y + 13, 10, "Esc cancel", MUTED, PANEL, true);
     text(
         b,
-        r.right() - 3 - 12,
-        r.y + 13,
-        12,
-        "Enter delete",
+        r.x + 3,
+        r.y + 14,
+        r.width - 6,
+        app.confirm_feedback,
         DANGER,
         PANEL,
-        true,
+        false,
     );
+    if app.typed == "delete" {
+        text(
+            b,
+            r.right() - 3 - 12,
+            r.y + 13,
+            12,
+            "Enter delete",
+            DANGER,
+            PANEL,
+            true,
+        );
+    }
 }

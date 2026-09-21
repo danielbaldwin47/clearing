@@ -135,14 +135,14 @@ def finish(a):
  for name,piece in s['pieces'].items():
   if piece.get('status')!='won' or piece.get('valid_wins',0)<piece.get('required_wins',1):raise SystemExit('Cannot finish: '+name+' has not won')
   if name!='calibration' and piece.get('source_fingerprint')!=fingerprint(name):raise SystemExit('Cannot finish: '+name+' source changed')
- actual=hashlib.sha256((ROOT/'target/release/spacemap').read_bytes()).hexdigest()
+ actual=hashlib.sha256((ROOT/'target/release/clearing').read_bytes()).hexdigest()
  if actual!=s['pieces']['performance'].get('binary_sha256'):raise SystemExit('Cannot finish: measured release changed')
  s['completed']=True;s['completed_at']=now();s['phase']='All six product pieces won; release '+actual[:8]+' verified';s['events'].append({'time':now(),'message':'Task completed by winning, before the deadline. All6productpieces have valid wins; calibration passed, finalrelease provenance unchanged. No timeout converted a verdict into a win.'});write(s);print(json.dumps({'complete':True,'pieces_won':6,'release_sha256':actual,'completed_at':s['completed_at']}))
 def check_stale(a):
  s=read();changed=[]
  for name,piece in s['pieces'].items():
   if name=='calibration' or not piece.get('valid_wins'):continue
-  if piece.get('source_fingerprint')!=fingerprint(name) or (name=='performance' and piece.get('binary_sha256')!=hashlib.sha256((ROOT/'target/release/spacemap').read_bytes()).hexdigest()):
+  if piece.get('source_fingerprint')!=fingerprint(name) or (name=='performance' and piece.get('binary_sha256')!=hashlib.sha256((ROOT/'target/release/clearing').read_bytes()).hexdigest()):
    piece.update(status='lost',valid_wins=0,note='Source changed after judging; a new win is required.')
    for r in s['rounds']:
     if r['piece']==name and r.get('counts'):r['counts']=False;r['invalidated_reason']='Source fingerprint changed after judging'

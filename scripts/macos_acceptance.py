@@ -13,7 +13,7 @@ import acceptance
 @unittest.skipUnless(sys.platform == 'darwin', 'requires macOS native Trash')
 class NativeTrashAcceptance(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(prefix='spacemap-native-')
+        self.temporary = tempfile.TemporaryDirectory(prefix='clearing-native-')
         self.base = Path(self.temporary.name).resolve()
         self.tree = self.base / 'tree'
         self.tree.mkdir()
@@ -23,7 +23,7 @@ class NativeTrashAcceptance(unittest.TestCase):
         self.addCleanup(self.restore_owned_items)
 
     def item(self, content=b'Native Trash test data'):
-        path = self.tree / ('spacemap-test-' + uuid.uuid4().hex)
+        path = self.tree / ('clearing-test-' + uuid.uuid4().hex)
         path.write_bytes(content)
         self.items.append(path)
         return path
@@ -43,10 +43,11 @@ class NativeTrashAcceptance(unittest.TestCase):
         path = self.item()
         content = path.read_bytes()
         session = self.session()
-        session.send(b't\rwrong\r')
+        session.send(b't\rwrong\r', until=acceptance.NEVER)
         self.assertTrue(path.exists(), 'wrong confirmation moved an item')
         session.send(b'\x1b')
-        session.send(b'ttrash\r', 2.0)
+        session.send(b't')
+        session.send(b'trash\r', 2.0, until=acceptance.IDLE)
         self.assertFalse(path.exists(), 'confirmed native Trash did not move the item')
         trashed = self.trash / path.name
         self.assertEqual(trashed.read_bytes(), content, 'native Trash lost the payload')
@@ -56,11 +57,12 @@ class NativeTrashAcceptance(unittest.TestCase):
     def test_native_trash_keeps_symlink_target_intact(self):
         target = self.base / 'outside-target'
         target.write_bytes(b'keep this target')
-        link = self.tree / ('spacemap-test-' + uuid.uuid4().hex)
+        link = self.tree / ('clearing-test-' + uuid.uuid4().hex)
         link.symlink_to(target)
         self.items.append(link)
         session = self.session()
-        session.send(b'ttrash\r', 2.0)
+        session.send(b't')
+        session.send(b'trash\r', 2.0, until=acceptance.IDLE)
         self.assertFalse(link.is_symlink())
         self.assertEqual(target.read_bytes(), b'keep this target')
         trashed = self.trash / link.name

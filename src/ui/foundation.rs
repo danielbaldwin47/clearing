@@ -1,3 +1,4 @@
+//! Drawing primitives shared by every screen: `text`, path tails, fills, sizes and percents, the treemap partition and one Tile.
 use super::App;
 use crate::{scan::Node, theme::*};
 use ratatui::{
@@ -22,6 +23,7 @@ pub fn size(bytes: u64) -> String {
         format!("{:.1} {}", n, U[i])
     }
 }
+#[allow(clippy::too_many_arguments)] // the one drawing primitive; about 100 call sites pass these positionally
 pub(super) fn text(
     b: &mut Buffer,
     x: u16,
@@ -64,6 +66,23 @@ pub(super) fn text(
         safe
     };
     b.set_stringn(x, y, display, w as usize, style);
+}
+/// Keep the end of a path, which is the part that tells rows apart.
+pub(super) fn tail(s: &str, w: usize) -> String {
+    if s.width() <= w || w < 2 {
+        return s.to_owned();
+    }
+    let mut kept = Vec::new();
+    let mut width = 1;
+    for c in s.chars().rev() {
+        let cw = c.width().unwrap_or(0);
+        if width + cw > w {
+            break;
+        }
+        kept.push(c);
+        width += cw;
+    }
+    std::iter::once('…').chain(kept.into_iter().rev()).collect()
 }
 pub(super) fn fill(b: &mut Buffer, r: Rect, color: Color) {
     for y in r.y..r.bottom() {
@@ -293,70 +312,96 @@ pub(super) fn draw_tile(
             true,
         );
     }
-    if r.width >= 22 && r.height >= 10 {
-        if let Some(node) = entry.node {
-            if !node.children.is_empty() {
-                let child_rect = Rect::new(r.x + pad, r.y + 4, r.width - pad * 2, r.height - 5);
-                let children = map_entries(node);
-                let weights = children.iter().map(|n| n.bytes).collect::<Vec<_>>();
-                for tile in tiles(&weights, child_rect) {
-                    let n = &children[tile.idx];
-                    let rr = tile.rect;
-                    let rr = Rect::new(
-                        rr.x,
-                        rr.y,
-                        rr.width.saturating_sub(1),
-                        rr.height.saturating_sub(1),
+    if r.width >= 22
+        && r.height >= 10
+        && let Some(node) = entry.node
+    {
+        if !node.children.is_empty() {
+            let child_rect = Rect::new(r.x + pad, r.y + 4, r.width - pad * 2, r.height - 5);
+            let children = map_entries(node);
+            let weights = children.iter().map(|n| n.bytes).collect::<Vec<_>>();
+            for tile in tiles(&weights, child_rect) {
+                let n = &children[tile.idx];
+                let rr = tile.rect;
+                let rr = Rect::new(
+                    rr.x,
+                    rr.y,
+                    rr.width.saturating_sub(1),
+                    rr.height.saturating_sub(1),
+                );
+                let cbg = tint(color, 0.27 + (tile.idx % 3) as f32 * 0.075);
+                fill(b, rr, cbg);
+                if rr.width >= 9 && rr.height >= 2 {
+                    text(
+                        b,
+                        rr.x + 1,
+                        rr.y + 1,
+                        rr.width - 2,
+                        &n.label,
+                        FG,
+                        cbg,
+                        false,
                     );
-                    let cbg = tint(color, 0.27 + (tile.idx % 3) as f32 * 0.075);
-                    fill(b, rr, cbg);
-                    if rr.width >= 9 && rr.height >= 2 {
+                    if rr.height >= 4 {
                         text(
                             b,
                             rr.x + 1,
-                            rr.y + 1,
+                            rr.y + 2,
                             rr.width - 2,
-                            &n.label,
+                            size(n.bytes),
                             FG,
                             cbg,
-                            false,
-                        );
-                        if rr.height >= 4 {
-                            text(
-                                b,
-                                rr.x + 1,
-                                rr.y + 2,
-                                rr.width - 2,
-                                size(n.bytes),
-                                FG,
-                                cbg,
-                                true,
-                            )
-                        }
+                            true,
+                        )
                     }
                 }
-            } else if r.height >= 12 {
-                text(
-                    b,
-                    r.x + pad,
-                    r.bottom() - 3,
-                    r.width - pad * 2,
-                    if node.is_symlink {
-                        "SYMBOLIC LINK"
-                    } else {
-                        "FILE"
-                    },
-                    color,
-                    bg,
-                    false,
-                )
             }
+        } else if r.height >= 12 {
+            text(
+                b,
+                r.x + pad,
+                r.bottom() - 3,
+                r.width - pad * 2,
+                if node.is_symlink {
+                    "SYMBOLIC LINK"
+                } else {
+                    "FILE"
+                },
+                color,
+                bg,
+                false,
+            )
         }
     }
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tail_leaves_fitting_strings_unchanged() {
+        for s in ["", "report.txt", "資料.txt"] {
+            assert_eq!(tail(s, s.width()), s);
+            assert_eq!(tail(s, s.width() + 1), s);
+        }
+    }
+
+    #[test]
+    fn tail_keeps_the_last_characters_with_a_leading_ellipsis() {
+        let result = tail("/a/long/path/report.txt", 12);
+        assert_eq!(result, "…/report.txt");
+        assert_eq!(result.width(), 12);
+    }
+
+    #[test]
+    fn tail_counts_wide_characters_by_cells() {
+        let result = tail("/a/long/path/資料.txt", 9);
+        assert_eq!(result, "…資料.txt");
+        assert_eq!(result.width(), 9);
+        // A two-cell character cannot fill the single spare cell.
+        assert_eq!(tail("/a/long/path/資料.txt", 8), "…料.txt");
+    }
+
     #[test]
     fn treemap_tiles_cover_entire_space_without_overlap() {
         let r = Rect::new(0, 0, 100, 30);

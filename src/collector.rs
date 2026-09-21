@@ -1,5 +1,4 @@
-//! The in-session trash collector: items picked across directories for one
-//! reviewed batch move to the Trash.
+//! The in-session Collector: items picked across directories for one reviewed batch move to the Trash.
 //!
 //! Records own what they need (raw path, identities, size) and never refer to
 //! the scan tree, so they survive rescans. Identities are captured once, when an
@@ -274,7 +273,7 @@ mod tests {
     fn fixture(tag: &str) -> PathBuf {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let base = std::env::temp_dir().join(format!(
-            "spacemap-collector-{tag}-{}-{}",
+            "clearing-collector-{tag}-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::SeqCst)
         ));
