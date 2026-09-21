@@ -32,11 +32,11 @@ The tree sits under the worktree's `.runtime/hand`, which git ignores, because `
 
 1. Collect one item, then select a different one and press `t`; the confirmation names the selected item alone.
 2. Press Escape; the dialog closes and nothing has moved.
-3. Press `t`, type `trash`, press Enter; that item moves and the collected item is still in the collector.
+3. Press `t`, type `trash`, press Enter; that item leaves the Map without a scan screen, the total falls, the selection stays on the same row (or the last remaining row), and the collected item is still in the collector.
 4. The moved item is in the desktop Trash and can be restored from it.
 
 ## Permanent deletion
 
 1. Open `small`, select `notes.bin` and press `d`; the confirmation names the file and its path and says the deletion cannot be undone.
 2. Type `delet` and press Enter; nothing is removed. Press Escape; the dialog closes.
-3. Press `d`, type `delete`, press Enter; a live count runs, the file is gone after the rescan, and it is not in the Trash.
+3. Press `d`, type `delete`, press Enter; a live count runs, the file leaves the Map without a scan screen, the total falls, the selection stays on the same row (or the last remaining row), and the file is not in the Trash.

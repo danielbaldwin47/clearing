@@ -1,4 +1,4 @@
-//! Command line, the --scan and --snapshot exits, and the terminal loop: browse, scan-time and delete-confirm keys, and the scan, delete and Trash workers.
+//! Command line, the --scan and --snapshot exits, and the terminal loop: browse and scan-time keys, and the scan, delete and Trash workers.
 mod collector;
 mod delete;
 mod platform;
@@ -69,16 +69,19 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args_os().skip(1);
     while let Some(a) = args.next() {
         match a.to_string_lossy().as_ref() {
+            "--version" | "-V" => {
+                println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+                return Ok(());
+            }
             "--help" | "-h" => {
                 println!(
-                    "clearing — find what ate your disk\n\nUsage: clearing [OPTIONS] [PATH]\n\n  --scan             Scan and exit without starting the terminal interface\n  --json, --summary   Print a summary JSON object (with --scan)\n  --snapshot STATE   Render overview, drilled, delete, trash, or collector as ANSI\n                     (also collector-browse, collector-confirm,\n                     collector-errors, collector-empty)\n  --width N          Snapshot columns (default 140)\n  --height N         Snapshot rows (default 44)\n  -h, --help         Show this help\n\nKeys: ↑↓ / jk select · Enter open · Backspace back · t Trash · d delete\n      t move selected item to Trash · Space collect · c review collector\n      r rescan · ? help · q quit · Esc cancels a scan or dialog\n\nSizes include allocated file and directory blocks. Symlinks are not followed.\nHard links count once. Deletion is permanent and requires typing delete.\nCollected items use the desktop Trash after typing trash; space is freed\nwhen Trash is emptied. A failed move never falls back to deletion."
+                    "clearing — find what ate your disk\n\nUsage: clearing [OPTIONS] [PATH]\n\n  --scan             Scan and exit without starting the terminal interface\n  --json, --summary   Print a summary JSON object (with --scan)\n  --snapshot STATE   Render overview, drilled, delete, trash, or collector as ANSI\n                     (also collector-browse, collector-confirm,\n                     collector-errors, collector-empty)\n  --width N          Snapshot columns (default 140)\n  --height N         Snapshot rows (default 44)\n  -V, --version      Show the package version\n  -h, --help         Show this help\n\nKeys: ↑↓ / jk select · Enter open · Backspace back · d delete\n      Home / End first / last · PgUp / PgDn move eight entries\n      t move selected item to Trash · Space collect · c review collector\n      r rescan · ? help · q quit\n      Esc cancels a rescan or dialog; quits otherwise\n\nSizes include allocated file and directory blocks. Symlinks are not followed.\nHard links count once. Deletion is permanent and requires typing delete.\nCollected items use the desktop Trash after typing trash; space is freed\nwhen Trash is emptied. A failed move never falls back to deletion."
                 );
                 return Ok(());
             }
             "--scan" => scan_only = true,
             "--wireframe" => wireframe = true,
             "--json" | "--summary" => json = true,
-            "--no-mouse" => {}
             "--snapshot" => snapshot = Some(args.next().ok_or("--snapshot requires a state")?),
             "--width" => {
                 width = args
@@ -159,8 +162,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     // how refused and failed items look. Nothing is executed.
                     let outcomes = [
                         trash::Outcome::Failed(
-                            "Trash service failed: Trashing on system internal mounts is not supported"
-                                .into(),
+                            "Trashing on system internal mounts is not supported".into(),
                         ),
                         trash::Outcome::Refused(
                             "path now names a different item than the one collected".into(),
@@ -228,7 +230,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     let guard = TerminalGuard::enter()?;
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
-    let Some((root, seconds)) = scan_in_terminal(&mut terminal, &path)? else {
+    let Some((root, seconds)) = scan_in_terminal(&mut terminal, &path, ScanKind::Initial)? else {
         return Ok(());
     };
     let mut app = ui::App::new(root, seconds);
@@ -240,9 +242,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 ui::draw(f, &app)
             }
         })?;
-        if !event::poll(Duration::from_millis(100))? {
-            continue;
-        }
+        // No worker is running here; input or resize wakes the next redraw.
         let Event::Key(key) = event::read()? else {
             continue;
         };
@@ -253,59 +253,50 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             break;
         }
         if app.confirm {
-            match key.code {
-                KeyCode::Esc => {
-                    app.confirm = false;
-                    app.typed.clear()
+            if app.delete_confirm_key(key.code) {
+                let name = app.selection().map(|n| n.name.clone()).unwrap_or_default();
+                let acted_on = app.selection().map(|node| node.path.clone());
+                let root_path = app.root.path.clone();
+                let outcome = match delete_in_terminal(&mut terminal, &app, &name) {
+                    Ok(outcome) => outcome,
+                    Err(e) => {
+                        drop(terminal);
+                        drop(guard);
+                        return Err(e.into());
+                    }
+                };
+                let summary = delete_message(&name, &outcome);
+                if matches!(outcome.status, delete::Status::Completed)
+                    && acted_on
+                        .as_deref()
+                        .is_some_and(|path| app.remove_selection(path))
+                {
+                    app.message = summary;
+                    continue;
                 }
-                KeyCode::Backspace => {
-                    app.typed.pop();
-                }
-                KeyCode::Char(c) => {
-                    if app.typed.len() < 32 {
-                        app.typed.push(c)
+                // Partial outcomes and shared allocations need a fresh scan.
+                match rescan_after_delete(&mut terminal, &root_path, &summary) {
+                    Ok(Some((root, seconds))) => {
+                        // The collector outlives the tree it was picked from.
+                        app = app.rebuild(root, seconds);
+                        app.message = summary;
+                    }
+                    Ok(None) => {
+                        drop(terminal);
+                        drop(guard);
+                        let note = format!("{summary}; exited without a current scan");
+                        if matches!(outcome.status, delete::Status::Completed) {
+                            eprintln!("clearing: {note}");
+                            return Ok(());
+                        }
+                        return Err(note.into());
+                    }
+                    Err(e) => {
+                        drop(terminal);
+                        drop(guard);
+                        return Err(format!("{summary}; terminal error: {e}").into());
                     }
                 }
-                KeyCode::Enter if app.typed == "delete" => {
-                    let name = app.selection().map(|n| n.name.clone()).unwrap_or_default();
-                    let root_path = app.root.path.clone();
-                    app.confirm = false;
-                    app.typed.clear();
-                    let outcome = match delete_in_terminal(&mut terminal, &app, &name) {
-                        Ok(outcome) => outcome,
-                        Err(e) => {
-                            drop(terminal);
-                            drop(guard);
-                            return Err(e.into());
-                        }
-                    };
-                    let summary = delete_message(&name, &outcome);
-                    // The scanned tree no longer describes the disk, so it is
-                    // either replaced by a fresh scan or never shown again.
-                    match rescan_after_delete(&mut terminal, &root_path, &summary) {
-                        Ok(Some((root, seconds))) => {
-                            // The collector outlives the tree it was picked from.
-                            app = app.rebuild(root, seconds);
-                            app.message = summary;
-                        }
-                        Ok(None) => {
-                            drop(terminal);
-                            drop(guard);
-                            let note = format!("{summary}; exited without a current scan");
-                            if matches!(outcome.status, delete::Status::Completed) {
-                                eprintln!("clearing: {note}");
-                                return Ok(());
-                            }
-                            return Err(note.into());
-                        }
-                        Err(e) => {
-                            drop(terminal);
-                            drop(guard);
-                            return Err(format!("{summary}; terminal error: {e}").into());
-                        }
-                    }
-                }
-                _ => {}
             }
             continue;
         }
@@ -335,14 +326,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 .file_name()
                 .map(scan::display_path)
                 .unwrap_or_default();
-            let summary = match outcome {
-                Some(trash::Outcome::Trashed) => {
-                    format!("Moved {label} to Trash · space is freed when Trash is emptied")
-                }
-                Some(trash::Outcome::Refused(why)) => format!("Trash refused for {label}: {why}"),
-                Some(trash::Outcome::Failed(why)) => format!("Trash failed for {label}: {why}"),
-                _ => format!("Trash cancelled for {label}; item was not processed"),
-            };
+            let summary = single_trash_summary(&label, outcome);
+            if matches!(outcome, Some(trash::Outcome::Trashed))
+                && !report.cancelled
+                && app.remove_selection(&record.path)
+            {
+                app.message = summary;
+                continue;
+            }
             match rescan_after_delete(&mut terminal, &root_path, &summary) {
                 Ok(Some((root, seconds))) => {
                     app = app.rebuild(root, seconds);
@@ -425,7 +416,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             KeyCode::Char('?') => app.help = true,
             KeyCode::Char('r') => {
                 let root_path = app.root.path.clone();
-                match scan_in_terminal(&mut terminal, &root_path) {
+                match scan_in_terminal(&mut terminal, &root_path, ScanKind::Rescan) {
                     Ok(Some((root, seconds))) => app = app.rebuild(root, seconds),
                     Ok(None) => app.message = "Rescan cancelled; previous results retained".into(),
                     Err(e) => app.message = format!("Rescan failed: {e}"),
@@ -455,6 +446,17 @@ fn snapshot_collect(app: &mut ui::App) {
     app.selected = 0;
     app.message.clear();
 }
+fn single_trash_summary(label: &str, outcome: Option<&trash::Outcome>) -> String {
+    match outcome {
+        Some(trash::Outcome::Trashed) => {
+            format!("Moved {label} to Trash · space is freed when Trash is emptied")
+        }
+        Some(trash::Outcome::Refused(why)) => format!("Trash refused for {label}: {why}"),
+        Some(trash::Outcome::Failed(why)) => format!("Trash failed: {why} · {label}"),
+        _ => format!("Trash cancelled for {label}; item was not processed"),
+    }
+}
+
 /// Run the confirmed batch on a worker while this thread keeps drawing. Esc
 /// asks the worker to stop before the next item; a gio process that is already
 /// running is left to finish, and the worker is always joined.
@@ -534,9 +536,15 @@ fn trash_frame(
     }
     Ok(())
 }
+enum ScanKind {
+    Initial,
+    Rescan,
+}
+
 fn scan_in_terminal(
     terminal: &mut AppTerminal,
     path: &Path,
+    kind: ScanKind,
 ) -> io::Result<Option<(scan::Node, f64)>> {
     let (tx, rx) = mpsc::sync_channel(1);
     let progress = Arc::new(AtomicU64::new(0));
@@ -562,8 +570,12 @@ fn scan_in_terminal(
             let area = f.area();
             f.render_widget(
                 Paragraph::new(format!(
-                    "\n  Reading disk allocation\n\n  {} entries scanned\n\n  Esc cancel",
-                    progress.load(Ordering::Relaxed)
+                    "\n  Reading disk allocation\n\n  {} entries scanned\n\n  Esc {}",
+                    progress.load(Ordering::Relaxed),
+                    match kind {
+                        ScanKind::Initial => "quit",
+                        ScanKind::Rescan => "cancel",
+                    }
                 ))
                 .style(Style::default().fg(theme::FG).bg(theme::BG)),
                 area,
@@ -688,7 +700,7 @@ fn rescan_after_delete(
     summary: &str,
 ) -> io::Result<Option<(scan::Node, f64)>> {
     loop {
-        let problem = match scan_in_terminal(terminal, root_path) {
+        let problem = match scan_in_terminal(terminal, root_path, ScanKind::Rescan) {
             Ok(Some(fresh)) => return Ok(Some(fresh)),
             Ok(None) => "Rescan cancelled".to_string(),
             Err(e) => format!("Rescan failed: {e}"),
@@ -704,9 +716,7 @@ fn rescan_after_delete(
                     area,
                 );
             })?;
-            if !event::poll(Duration::from_millis(100))? {
-                continue;
-            }
+            // The rescan has stopped, so wait for input or resize without polling.
             let Event::Key(k) = event::read()? else {
                 continue;
             };
@@ -730,5 +740,47 @@ fn ansi_color(w: &mut impl Write, c: Color, bg: bool) -> io::Result<()> {
         Color::Rgb(r, g, b) => write!(w, "\x1b[{code};2;{r};{g};{b}m"),
         Color::Reset => write!(w, "\x1b[{}m", if bg { 49 } else { 39 }),
         _ => write!(w, "\x1b[{code};5;7m"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn trash_failure_summary_leads_with_reason_before_long_label() {
+        let label = "very-long-file-name".repeat(10);
+        let reason = "Trashing on system internal mounts is not supported";
+        let outcome = trash::Outcome::Failed(reason.into());
+        assert_eq!(
+            single_trash_summary(&label, Some(&outcome)),
+            format!("Trash failed: {reason} · {label}")
+        );
+    }
+
+    #[test]
+    fn trash_failure_reason_is_visible_in_an_80_column_footer() {
+        let base =
+            std::env::temp_dir().join(format!("clearing-failure-footer-{}", std::process::id()));
+        std::fs::create_dir_all(&base).unwrap();
+        let root = scan::scan(&base, Arc::new(AtomicU64::new(0))).unwrap();
+        let mut app = ui::App::new(root, 0.);
+        let reason = "Trashing on system internal mounts is not supported";
+        app.message = single_trash_summary(
+            &"long-label".repeat(20),
+            Some(&trash::Outcome::Failed(reason.into())),
+        );
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|f| ui::draw(f, &app)).unwrap();
+        let buffer = terminal.backend().buffer();
+        let screen = (0..24)
+            .map(|y| (0..80).map(|x| buffer[(x, y)].symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            screen.contains(&format!("Trash failed: {reason}")),
+            "{screen}"
+        );
+        std::fs::remove_dir(&base).unwrap();
     }
 }

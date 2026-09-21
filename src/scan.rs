@@ -1,4 +1,4 @@
-//! The scanner: a descriptor-relative parallel walk into a `Node` tree of allocated sizes, hard links counted once.
+//! The scanner: a descriptor-relative parallel walk into a `Node` tree of allocated sizes, hard links counted once, and in-place subtree removal with ancestor totals adjusted.
 use rayon::prelude::*;
 use serde::Serialize;
 use std::{
@@ -7,7 +7,10 @@ use std::{
     fs, io,
     os::{
         fd::{AsRawFd, FromRawFd, OwnedFd, RawFd},
-        unix::ffi::{OsStrExt, OsStringExt},
+        unix::{
+            ffi::{OsStrExt, OsStringExt},
+            fs::MetadataExt,
+        },
     },
     path::{Path, PathBuf},
     sync::{
@@ -76,6 +79,55 @@ impl Node {
     pub fn at<'a>(&'a self, route: &[usize]) -> &'a Node {
         route.iter().fold(self, |n, &i| &n.children[i])
     }
+
+    /// Forget a successfully removed subtree. Shared allocations require a
+    /// rescan, including when the removed link was the one counted by the scan.
+    /// A refusal leaves the tree intact.
+    pub fn remove(&mut self, route: &[usize], index: usize) -> bool {
+        let Some(target) = route
+            .iter()
+            .try_fold(&*self, |n, &i| n.children.get(i))
+            .and_then(|n| n.children.get(index))
+        else {
+            return false;
+        };
+        fn identities(node: &Node, into: &mut HashSet<(u64, u64)>) {
+            into.insert(node.identity);
+            for child in &node.children {
+                identities(child, into);
+            }
+        }
+        fn shares(node: &Node, removed: &HashSet<(u64, u64)>) -> bool {
+            (node.shared && removed.contains(&node.identity))
+                || node.children.iter().any(|child| shares(child, removed))
+        }
+        let mut removed = HashSet::new();
+        identities(target, &mut removed);
+        if shares(self, &removed) {
+            return false;
+        }
+        self.remove_unshared(route, index).is_some()
+    }
+
+    fn remove_unshared(&mut self, route: &[usize], index: usize) -> Option<Node> {
+        // Unlinking can change a directory's own size (notably on tmpfs).
+        // Read only the ancestor metadata, before changing any of the tree.
+        let meta = fs::symlink_metadata(&self.path).ok()?;
+        if !meta.is_dir() || (meta.dev(), meta.ino()) != self.identity {
+            return None;
+        }
+        let removed = if let Some((&next, rest)) = route.split_first() {
+            self.children.get_mut(next)?.remove_unshared(rest, index)?
+        } else {
+            self.children.remove(index)
+        };
+        self.bytes = meta.blocks() * 512 + self.children.iter().map(|n| n.bytes).sum::<u64>();
+        self.apparent = meta.len() + self.children.iter().map(|n| n.apparent).sum::<u64>();
+        self.files = self.files.saturating_sub(removed.files);
+        self.directories = self.directories.saturating_sub(removed.directories);
+        self.errors = self.errors.saturating_sub(removed.errors);
+        Some(removed)
+    }
 }
 #[derive(Clone)]
 struct Context {
@@ -92,20 +144,36 @@ pub fn scan_cancellable(
     cancel: Arc<AtomicBool>,
 ) -> io::Result<Node> {
     let started = std::time::Instant::now();
-    let absolute = fs::canonicalize(path)?;
-    let name = CString::new(absolute.as_os_str().as_bytes())
-        .map_err(|_| io::Error::other("invalid path"))?;
-    let raw = unsafe {
-        libc::open(
-            name.as_ptr(),
-            libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK,
-        )
-    };
-    if raw < 0 {
-        return Err(io::Error::last_os_error());
-    }
-    let fd = unsafe { OwnedFd::from_raw_fd(raw) };
-    let stat = stat_fd(fd.as_raw_fd())?;
+    let (absolute, fd, stat) = (|| {
+        let absolute = fs::canonicalize(path)?;
+        let name = CString::new(absolute.as_os_str().as_bytes())
+            .map_err(|_| io::Error::other("invalid path"))?;
+        let raw = unsafe {
+            libc::open(
+                name.as_ptr(),
+                libc::O_RDONLY
+                    | libc::O_DIRECTORY
+                    | libc::O_NOFOLLOW
+                    | libc::O_CLOEXEC
+                    | libc::O_NONBLOCK,
+            )
+        };
+        if raw < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let fd = unsafe { OwnedFd::from_raw_fd(raw) };
+        let stat = stat_fd(fd.as_raw_fd())?;
+        Ok((absolute, fd, stat))
+    })()
+    .map_err(|error| {
+        let path = display_path(path.as_os_str());
+        let message = if error.kind() == io::ErrorKind::NotADirectory {
+            format!("not a directory: {path}")
+        } else {
+            format!("{path}: {error}")
+        };
+        io::Error::new(error.kind(), message)
+    })?;
     let ctx = Context {
         links: Arc::new(Mutex::new(HashSet::new())),
         progress,
@@ -386,6 +454,91 @@ mod tests {
         fs::create_dir(&p).unwrap();
         fs::canonicalize(p).unwrap()
     }
+    #[test]
+    fn removal_matches_fresh_scan_at_every_ancestor() {
+        let p = fixture();
+        fs::create_dir_all(p.join("a/b/drop/deep")).unwrap();
+        fs::write(p.join("a/b/drop/deep/data"), [1; 8192]).unwrap();
+        fs::write(p.join("a/b/keep"), [2; 4096]).unwrap();
+        let mut tree = scan(&p, Arc::new(AtomicU64::new(0))).unwrap();
+        let a = tree.children.iter().position(|n| n.name == "a").unwrap();
+        let b = tree
+            .at(&[a])
+            .children
+            .iter()
+            .position(|n| n.name == "b")
+            .unwrap();
+        let index = tree
+            .at(&[a, b])
+            .children
+            .iter()
+            .position(|n| n.name == "drop")
+            .unwrap();
+        // Model an error inside the removed subtree, also counted by ancestors.
+        tree.errors = 1;
+        tree.children[a].errors = 1;
+        tree.children[a].children[b].errors = 1;
+        tree.children[a].children[b].children[index].errors = 1;
+        fs::remove_dir_all(p.join("a/b/drop")).unwrap();
+        assert!(tree.remove(&[a, b], index));
+        let fresh = scan(&p, Arc::new(AtomicU64::new(0))).unwrap();
+        fn compare(actual: &Node, fresh: &Node) {
+            assert_eq!(
+                (
+                    actual.bytes,
+                    actual.apparent,
+                    actual.files,
+                    actual.directories,
+                    actual.errors
+                ),
+                (
+                    fresh.bytes,
+                    fresh.apparent,
+                    fresh.files,
+                    fresh.directories,
+                    fresh.errors
+                ),
+                "{}",
+                actual.path.display()
+            );
+            assert_eq!(actual.children.len(), fresh.children.len());
+            for child in &actual.children {
+                compare(
+                    child,
+                    fresh
+                        .children
+                        .iter()
+                        .find(|n| n.path == child.path)
+                        .unwrap(),
+                );
+            }
+        }
+        compare(&tree, &fresh);
+        // The last file leaves an empty directory, whose own size still counts.
+        fs::remove_file(p.join("a/b/keep")).unwrap();
+        assert!(tree.remove(&[a, b], 0));
+        compare(&tree, &scan(&p, Arc::new(AtomicU64::new(0))).unwrap());
+        fs::remove_dir_all(p).unwrap();
+    }
+
+    #[test]
+    fn removal_refuses_shared_subtrees_and_the_counted_link_without_mutation() {
+        let p = fixture();
+        fs::create_dir(p.join("links")).unwrap();
+        fs::write(p.join("links/data"), [1; 8192]).unwrap();
+        fs::hard_link(p.join("links/data"), p.join("links/other")).unwrap();
+        let tree = scan(&p, Arc::new(AtomicU64::new(0))).unwrap();
+        for (route, index) in [(vec![], 0), (vec![0], 0), (vec![0], 1)] {
+            let mut updated = tree.clone();
+            assert!(!updated.remove(&route, index));
+            assert_eq!(
+                serde_json::to_value(&updated).unwrap(),
+                serde_json::to_value(&tree).unwrap()
+            );
+        }
+        fs::remove_dir_all(p).unwrap();
+    }
+
     #[test]
     fn display_path_escapes_invalid_bytes_controls_and_backslashes() {
         let plain = std::ffi::OsStr::from_bytes("plain \u{2603}".as_bytes());

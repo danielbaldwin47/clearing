@@ -16,12 +16,13 @@ import subprocess
 import tempfile
 import termios
 import time
+import tomllib
 import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
 BINARY = ROOT / 'target/release/clearing'
 ANSI = re.compile(rb'\x1b\[[0-9;?]*[A-Za-z]')
-# What the app draws when no cell changed: every 100 ms idle, every 40 ms busy.
+# What a progress screen draws when no cell changed, every 40 ms while busy.
 EMPTY_FRAME = b'\x1b[39m\x1b[49m\x1b[59m\x1b[0m\x1b[?25l'
 # Seconds without a changed frame that end a read: the app answers a key in 1 ms.
 SETTLE = 0.05
@@ -65,7 +66,7 @@ def expected(path):
 
 
 class Session:
-    def __init__(self, path, cols=100, rows=34):
+    def __init__(self, path, cols=100, rows=34, until=IDLE):
         self.pid, self.master = pty.fork()
         if not self.pid:
             os.environ.update(TERM='xterm-256color', COLORTERM='truecolor')
@@ -73,7 +74,7 @@ class Session:
         fcntl.ioctl(self.master, termios.TIOCSWINSZ, struct.pack('HHHH', rows, cols, 0, 0))
         self.output = bytearray()
         self.closed = False
-        self.read(1, until=IDLE)
+        self.read(1, until=until)
 
     def read(self, duration=0.25, until=None):
         """Read until the screen settles, or until `until` shows in the new text.
@@ -142,6 +143,45 @@ class Session:
             self.read(0.05)
             time.sleep(0.01)
         return None
+
+
+class CommandLineAcceptance(unittest.TestCase):
+    def test_version_flags(self):
+        package = tomllib.loads((ROOT / 'Cargo.toml').read_text())['package']
+        for flag in ['--version', '-V']:
+            with self.subTest(flag=flag):
+                result = subprocess.run([str(BINARY), flag], text=True, capture_output=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, f"clearing {package['version']}\n")
+                self.assertEqual(result.stderr, '')
+
+    def test_help_lists_version(self):
+        result = subprocess.run([str(BINARY), '--help'], text=True, capture_output=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('-V, --version', result.stdout)
+        self.assertEqual(result.stderr, '')
+
+    def test_no_mouse_is_an_unknown_option(self):
+        result = subprocess.run([str(BINARY), '--no-mouse', '--scan', '.'], text=True, capture_output=True, timeout=30)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stderr, 'clearing: unknown option: --no-mouse\n')
+        self.assertEqual(result.stdout, '')
+
+    def test_help_explains_escape_by_scan_context(self):
+        result = subprocess.run([str(BINARY), '--help'], text=True, capture_output=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('Esc cancels a rescan or dialog; quits otherwise', result.stdout)
+        self.assertNotIn('Esc cancels a scan or dialog', result.stdout)
+
+    def test_help_lists_navigation_and_trash_once(self):
+        result = subprocess.run([str(BINARY), '--help'], text=True, capture_output=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        keys = result.stdout.split('Keys:', 1)[1].split('\n\n', 1)[0]
+        for key in ['Home', 'End', 'PgUp', 'PgDn']:
+            self.assertIn(key, keys)
+        self.assertEqual(len(re.findall(r'\bt\b', keys)), 1)
+        self.assertIn('t move selected item to Trash', keys)
+        self.assertEqual(result.stderr, '')
 
 
 class ScanAcceptance(unittest.TestCase):
@@ -220,9 +260,35 @@ class ScanAcceptance(unittest.TestCase):
             locked.chmod(0o700)
 
     def test_missing_path_fails_cleanly(self):
-        result = subprocess.run([str(BINARY), '--scan', str(self.path / 'missing')], capture_output=True, timeout=30)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn(b'clearing:', result.stderr)
+        path = self.path / 'missing'
+        result = subprocess.run([str(BINARY), '--scan', str(path)], text=True, capture_output=True, timeout=30)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(f'clearing: {path}: No such file or directory', result.stderr)
+        self.assertEqual(result.stdout, '')
+
+    def test_file_root_is_rejected(self):
+        path = self.path / 'a file'
+        path.write_bytes(b'data')
+        for argument in [str(path), path.name]:
+            with self.subTest(argument=argument):
+                result = subprocess.run([str(BINARY), '--scan', '--json', argument], cwd=self.path, text=True, capture_output=True, timeout=30)
+                self.assertEqual(result.returncode, 1)
+                self.assertEqual(result.stderr, f'clearing: not a directory: {argument}\n')
+                self.assertEqual(result.stdout, '')
+
+    def test_unreadable_root_error_names_path(self):
+        if os.geteuid() == 0:
+            self.skipTest('root bypasses directory permissions')
+        path = self.path / 'locked'
+        path.mkdir()
+        path.chmod(0)
+        try:
+            result = subprocess.run([str(BINARY), '--scan', str(path)], text=True, capture_output=True, timeout=30)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn(f'clearing: {path}: Permission denied', result.stderr)
+            self.assertEqual(result.stdout, '')
+        finally:
+            path.chmod(0o700)
 
     def test_nonterminal_requires_scan_mode(self):
         result = subprocess.run([str(BINARY), str(self.path)], capture_output=True, timeout=30)
@@ -242,6 +308,107 @@ class InteractionAcceptance(ScanAcceptance):
         session = Session(self.path)
         self.addCleanup(session.close)
         return session
+
+    def make_slow_scan_tree(self, entries=20000):
+        # Enough directory entries to keep the worker busy while the PTY reads
+        # the scan frame and sends Escape; no machine-specific tree or sleep.
+        for index in range(entries):
+            (self.path / f'file-{index:05d}').touch()
+
+    def assert_idle_silence(self, session):
+        session.read()  # Drain the rest of the frame after the heading matched.
+        start = len(session.output)
+        session.read(2, until=NEVER)  # Observe the full window, including empty frames.
+        self.assertEqual(bytes(session.output[start:]), b'', 'idle screen wrote terminal bytes')
+
+    def test_idle_silence_then_selection_and_resize(self):
+        for name, size in [('Alpha', 32768), ('Zulu', 16384)]:
+            directory = self.path / name
+            directory.mkdir()
+            (directory / f'inside-{name}').write_bytes(b'x' * size)
+        session = self.session()
+        self.assertIn(IDLE, ANSI.sub(b'', session.output), 'initial scan did not finish')
+        self.assert_idle_silence(session)
+
+        start = len(session.output)
+        session.send(b'j')
+        self.assertIn(b'Zulu', ANSI.sub(b'', session.output[start:]), 'selection did not redraw')
+        start = len(session.output)
+        session.send(b'\r')
+        self.assertIn(b'inside-Zulu', ANSI.sub(b'', session.output[start:]), 'selection did not move')
+
+        start = len(session.output)
+        fcntl.ioctl(session.master, termios.TIOCSWINSZ, struct.pack('HHHH', 15, 50, 0, 0))
+        session.read(1)
+        self.assertIn(b'Resize to at least', ANSI.sub(b'', session.output[start:]))
+        start = len(session.output)
+        fcntl.ioctl(session.master, termios.TIOCSWINSZ, struct.pack('HHHH', 40, 120, 0, 0))
+        session.read(1)
+        resized = bytes(session.output[start:])
+        self.assertIn(b'ALLOCATED IN THIS VIEW', ANSI.sub(b'', resized), 'new width was not rendered')
+        self.assertRegex(resized, rb'\x1b\[39;\d+H[^\n]*choose', 'footer did not move to the new height')
+        self.assert_idle_silence(session)
+
+    def test_after_delete_wait_is_silent_and_rescan_responds(self):
+        root = self.path / 'root'
+        root.mkdir()
+        (root / 'candidate').write_bytes(b'x' * 32768)
+        session = Session(root)
+        self.addCleanup(session.close)
+        moved = self.path / 'moved'
+        root.rename(moved)
+        session.send(b'd')
+        start = len(session.output)
+        session.send(b'delete\r', 2, until=b'Rescan failed:')
+        self.assertIn(b'Rescan failed:', ANSI.sub(b'', session.output[start:]))
+        self.assert_idle_silence(session)
+        moved.rename(root)
+        start = len(session.output)
+        session.send(b'r', 2, until=IDLE)
+        self.assertIn(IDLE, ANSI.sub(b'', session.output[start:]), 'retry did not restore browsing')
+        self.assertTrue((root / 'candidate').exists())
+
+    def test_scan_counter_advances_without_input(self):
+        self.make_slow_scan_tree(200000)
+        session = Session(self.path, until=b'entries scanned')
+        self.addCleanup(session.close)
+        self.assertNotIn(IDLE, ANSI.sub(b'', session.output), 'scan finished before progress was observed')
+        session.read(10, until=IDLE)
+        # Keep cursor moves but strip colour codes: ratatui updates only the
+        # changed digits, so subsequent frames need not repeat "entries scanned".
+        output = re.sub(rb'\x1b\[[0-9;]*m', b'', bytes(session.output))
+        updates = re.findall(rb'\x1b\[4;\d+H *(\d+)', output.split(IDLE)[0])
+        self.assertGreater(len(updates), 1, 'scan counter never redrew while scanning')
+        self.assertTrue(any(int(value) > 0 for value in updates[1:]), 'scan counter did not advance')
+        self.assertIn(IDLE, ANSI.sub(b'', session.output), 'scan did not finish')
+
+    def test_first_scan_escape_label_and_exit(self):
+        self.make_slow_scan_tree()
+        session = Session(self.path, until=b'Esc ')
+        self.addCleanup(session.close)
+        screen = ANSI.sub(b'', session.output)
+        self.assertIn(b'Esc quit', screen)
+        self.assertNotIn(b'Esc cancel', screen)
+        self.assertNotIn(IDLE, screen, 'first scan finished before Escape could be tested')
+        session.send(b'\x1b')
+        code = session.reap(2)
+        if code is not None:
+            session.closed = True
+            os.close(session.master)
+        self.assertEqual(code, 0, 'Escape during the first scan did not quit cleanly')
+
+    def test_rescan_escape_label_and_retained_results(self):
+        session = self.session()
+        self.make_slow_scan_tree()
+        start = len(session.output)
+        session.send(b'r', 2, until=b'Esc ')
+        screen = ANSI.sub(b'', session.output[start:])
+        self.assertIn(b'Esc cancel', screen)
+        self.assertNotIn(b'Esc quit', screen)
+        start = len(session.output)
+        session.send(b'\x1b', 2, until=b'Rescan cancelled; previous results retained')
+        self.assertIn(b'Rescan cancelled; previous results retained', ANSI.sub(b'', session.output[start:]))
+        self.assertIsNone(session.reap(0.1), 'Escape during a rescan exited the app')
 
     def test_cancel_and_wrong_confirmation_preserve_data(self):
         target = self.path / 'candidate.bin'
@@ -263,6 +430,49 @@ class InteractionAcceptance(ScanAcceptance):
         session.send(b'delete\r', 0.75, until=IDLE)
         self.assertFalse(target.exists(), 'exact confirmed deletion did not remove selected file')
         self.assertTrue(self.path.exists())
+
+    def test_single_delete_updates_total_and_keeps_row_without_scan(self):
+        (self.path / 'largest').write_bytes(b'x' * 32768)
+        target = self.path / 'candidate'
+        target.write_bytes(b'x' * 16384)
+        for index in range(30):
+            (self.path / f'keep-{index:02d}').write_bytes(b'x' * 4096)
+        allocated = target.stat().st_blocks * 512
+        session = self.session()
+        session.send(b'j')  # candidate is row 02; keep-00 will take its place.
+        session.read()
+
+        def row(number):
+            # Replay absolute cursor writes, including partial changed cells.
+            # This fixture and the UI use only single-column characters.
+            output = re.sub(rb'\x1b\[[0-9;]*m', b'', bytes(session.output))
+            cells = [' '] * 100
+            for y, x, text in re.findall(rb'\x1b\[(\d+);(\d+)H([^\x1b]*)', output):
+                if int(y) == number:
+                    start = int(x) - 1
+                    value = text.decode('utf-8')[:100 - start]
+                    cells[start:start + len(value)] = value
+            return ''.join(cells)
+
+        def header_total():
+            total = row(2)[73:].strip()
+            self.assertRegex(total, r'^\d+\.\d+ KiB$')
+            return float(total.split()[0])
+
+        before_total = header_total()
+        self.assertTrue(row(11)[52:].startswith('02 candidate'))
+        self.assertTrue(row(29)[5:].startswith('candidate'))
+        session.send(b'd')
+        start = len(session.output)
+        session.send(b'delete\r', 2, until=IDLE)
+        session.read()  # Finish the frame after its heading matched.
+        after = ANSI.sub(b'', session.output[start:])
+        self.assertFalse(target.exists())
+        self.assertNotIn(b'Reading disk allocation', after)
+        self.assertNotIn(b'entries scanned', after)
+        self.assertEqual(before_total - header_total(), allocated / 1024)
+        self.assertTrue(row(11)[52:].startswith('02 keep-00'))
+        self.assertTrue(row(29)[5:].startswith('keep-00'), 'selection did not stay on row 02')
 
     def test_drill_back_and_delete_directory_without_following_symlink(self):
         target = self.path / 'candidate'
@@ -330,7 +540,8 @@ if __name__ == '__main__':
         raise SystemExit('Frozen at user deadline; refusing further work.')
     original_hash = hashlib.sha256(BINARY.read_bytes()).hexdigest()
     print(f'Release SHA-256: {original_hash}', flush=True)
-    suite = unittest.defaultTestLoader.loadTestsFromTestCase(ScanAcceptance)
+    suite = unittest.defaultTestLoader.loadTestsFromTestCase(CommandLineAcceptance)
+    suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(ScanAcceptance))
     if not args.scan_only:
         for name in InteractionAcceptance.__dict__:
             if name.startswith('test_'):

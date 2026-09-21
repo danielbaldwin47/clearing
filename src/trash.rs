@@ -294,12 +294,41 @@ impl Executor for DesktopTrash {
             return Ok(());
         }
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let detail = stderr.lines().find(|l| !l.trim().is_empty()).unwrap_or("");
-        Err(match output.status.code() {
-            Some(code) => format!("gio trash failed ({code}): {}", detail.trim()),
-            None => format!("gio trash was killed by a signal: {}", detail.trim()),
-        })
+        Err(gio_failure_reason(
+            &stderr,
+            &gio_uri(path),
+            output.status.code(),
+        ))
     }
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn gio_failure_reason(stderr: &str, uri: &str, code: Option<i32>) -> String {
+    if let Some(line) = stderr.lines().find(|line| !line.trim().is_empty()) {
+        return line
+            .strip_prefix(&format!("gio: {uri}: "))
+            .unwrap_or(line)
+            .into();
+    }
+    match code {
+        Some(code) => format!("gio trash failed ({code}): "),
+        None => "gio trash was killed by a signal: ".into(),
+    }
+}
+
+/// Match GIO's file URI spelling while leaving the command's raw path argument intact.
+#[cfg(any(target_os = "linux", test))]
+fn gio_uri(path: &Path) -> String {
+    let mut uri = String::from("file://");
+    for &byte in path.as_os_str().as_bytes() {
+        if byte.is_ascii_alphanumeric() || b"-_.!~*'()/@:$&+=,".contains(&byte) {
+            uri.push(char::from(byte));
+        } else {
+            use std::fmt::Write;
+            write!(uri, "%{byte:02X}").unwrap();
+        }
+    }
+    uri
 }
 
 #[cfg(target_os = "macos")]
@@ -419,6 +448,76 @@ mod tests {
         os::unix::fs::symlink,
         sync::{Arc, Mutex, atomic::AtomicU64},
     };
+
+    #[test]
+    fn trash_failure_reason_removes_only_the_matching_uri_prefix() {
+        let uri = "file:///tmp/a/b.bin";
+        let reason = "Trashing on system internal mounts is not supported";
+        assert_eq!(
+            gio_failure_reason(&format!("gio: {uri}: {reason}"), uri, Some(1)),
+            reason
+        );
+    }
+
+    #[test]
+    fn trash_failure_reason_preserves_unrecognized_lines() {
+        for line in [
+            "permission denied",
+            "gio: file:///tmp/other: denied",
+            "  unfamiliar error  ",
+        ] {
+            assert_eq!(
+                gio_failure_reason(line, "file:///tmp/a/b.bin", Some(1)),
+                line
+            );
+        }
+    }
+
+    #[test]
+    fn trash_failure_reason_keeps_empty_stderr_fallbacks() {
+        for stderr in ["", "\n  \n"] {
+            assert_eq!(
+                gio_failure_reason(stderr, "file:///tmp/a", Some(1)),
+                "gio trash failed (1): "
+            );
+            assert_eq!(
+                gio_failure_reason(stderr, "file:///tmp/a", None),
+                "gio trash was killed by a signal: "
+            );
+        }
+    }
+
+    #[test]
+    fn trash_failure_reason_uses_first_nonempty_line() {
+        assert_eq!(
+            gio_failure_reason(
+                "\n  \ngio: file:///tmp/a: denied\nmore detail",
+                "file:///tmp/a",
+                Some(1)
+            ),
+            "denied"
+        );
+    }
+
+    #[test]
+    fn trash_failure_uri_matches_gio_for_unusual_path_bytes() {
+        for (raw, expected) in [
+            (&b"/tmp/a/b.bin"[..], "file:///tmp/a/b.bin"),
+            (b"/tmp/two words: x", "file:///tmp/two%20words:%20x"),
+            (
+                b"/tmp/!$&'()*+,-./:;=?@[]_~%",
+                "file:///tmp/!$&'()*+,-./:%3B=%3F@%5B%5D_~%25",
+            ),
+            (b"/tmp/bad\xFFutf8\n", "file:///tmp/bad%FFutf8%0A"),
+        ] {
+            let uri = gio_uri(Path::new(OsStr::from_bytes(raw)));
+            assert_eq!(uri, expected);
+            assert_eq!(
+                gio_failure_reason(&format!("gio: {expected}: denied"), &uri, Some(1)),
+                "denied"
+            );
+        }
+    }
 
     struct Fixture {
         base: PathBuf,
