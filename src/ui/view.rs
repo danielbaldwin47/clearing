@@ -532,10 +532,10 @@ impl MapTile {
     }
 }
 
-/// Keep the largest siblings that stay readable and reserve one full-width strip
-/// for the rest. Repartition after gathering: the strip can make another sibling too small.
+/// Keep as many of the largest siblings as stay readable and reserve one
+/// full-width strip for the rest.
 fn mosaic_tiles(weights: &[u64], r: Rect) -> Vec<MapTile> {
-    most_readable_tiles(weights, r, COMPACT_LABEL_MINIMUM, compact_grid)
+    largest_readable_count_tiles(weights, r, COMPACT_LABEL_MINIMUM, compact_grid)
 }
 
 fn sparse_tiles(weights: &[u64], r: Rect) -> Vec<MapTile> {
@@ -557,7 +557,7 @@ fn sparse_tiles(weights: &[u64], r: Rect) -> Vec<MapTile> {
 /// The gathered Tile holds the fewest children that leave every other Tile readable.
 /// Readability is not monotone in the kept count, so every count is tried, from the
 /// most `r` can hold downwards: the passes follow `r`, not the child count.
-fn most_readable_tiles(
+fn largest_readable_count_tiles(
     weights: &[u64],
     r: Rect,
     minimum: (u16, u16),
@@ -605,7 +605,8 @@ struct Gathering<'a> {
     /// What is gathered is the tail of the size order, whichever Tiles the layout
     /// made unreadable: `by_weight` splits into the kept head and the gathered tail.
     by_weight: Vec<usize>,
-    /// `tail_bytes[keep]` is what `by_weight[keep..]` weighs.
+    /// `tail_bytes[keep]` is what `by_weight[keep..]` weighs: exact, like a sum
+    /// made per pass, while the folder is under 2^53 bytes.
     tail_bytes: Vec<f64>,
 }
 
@@ -1419,7 +1420,9 @@ mod tests {
     fn compact_view_keeps_the_largest_readable_count() {
         let mut cases = vec![("cache".to_string(), cache_weights(), MAP_AT_100_BY_30)];
         for shape in ["skewed", "equal", "descending"] {
-            for count in [1, 13, 31, 64, 500] {
+            // 168 equal weights fill 88 by 28 exactly: the one case that keeps as
+            // many as the rectangle holds, so a bound set too low fails here.
+            for count in [1, 13, 31, 64, 168, 500] {
                 for r in [Rect::new(2, 9, 88, 28), Rect::new(2, 9, 20, 4)] {
                     cases.push((format!("{shape} {count} {r}"), shaped(shape, count), r));
                 }
@@ -1454,11 +1457,14 @@ mod tests {
         }
         let weights = vec![1; 50_000];
         let r = Rect::new(2, 9, 88, 28);
-        let tiles = most_readable_tiles(&weights, r, COMPACT_LABEL_MINIMUM, counted_grid);
+        let tiles = largest_readable_count_tiles(&weights, r, COMPACT_LABEL_MINIMUM, counted_grid);
         let counted: usize = tiles.iter().map(|t| t.indices.len()).sum();
         assert_eq!(counted, 50_000);
-        // 88 / 14 = 6 columns of the minimum width, 28 rows of the minimum height.
-        assert!(PASSES.get() <= 6 * 28 + 1, "{} passes", PASSES.get());
+        // What the rectangle holds: 6 columns of the minimum width, 28 rows of its height.
+        let (width, height) = COMPACT_LABEL_MINIMUM;
+        let capacity = (r.width / width) as usize * (r.height / height) as usize;
+        assert_eq!(capacity, 168);
+        assert!(PASSES.get() <= capacity + 1, "{} passes", PASSES.get());
     }
 
     #[test]
