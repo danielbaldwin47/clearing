@@ -169,7 +169,8 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
     text(b, list_x, 7, side, " LARGEST FIRST ", FG, BG, true);
     let dense_map = node.children.iter().filter(|n| n.bytes > 0).count() > 12;
-    let entries = if dense_map {
+    let narrow_map = w < 80;
+    let entries = if dense_map || narrow_map {
         sibling_entries(node)
     } else {
         map_entries(node)
@@ -213,12 +214,41 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
     for tile in if dense_map {
         Vec::new()
+    } else if narrow_map {
+        readable_tiles(&weights, map, (6, 4), tiles)
     } else {
         tiles(&weights, map)
+            .into_iter()
+            .map(|tile| MosaicTile {
+                rect: tile.rect,
+                indices: vec![tile.idx],
+            })
+            .collect()
     } {
-        let entry = &entries[tile.idx];
-        let selected = entry.index == Some(app.selected)
-            || (entry.index.is_none()
+        let gathered;
+        let entry = if tile.indices.len() == 1 {
+            &entries[tile.indices[0]]
+        } else {
+            gathered = MapEntry {
+                node: None,
+                index: None,
+                bytes: tile.indices.iter().map(|&i| entries[i].bytes).sum(),
+                label: format!(
+                    "{} smaller items",
+                    tile.indices
+                        .iter()
+                        .filter(|&&i| entries[i].index.is_some())
+                        .count()
+                ),
+            };
+            &gathered
+        };
+        let selected = tile
+            .indices
+            .iter()
+            .any(|&i| entries[i].index == Some(app.selected))
+            || (!narrow_map
+                && entry.index.is_none()
                 && app.selected >= 9
                 && app.selection().is_some_and(|n| n.bytes > 0));
         let color = entry.index.map(|i| color_for(app, i)).unwrap_or(DIM);
@@ -492,6 +522,19 @@ struct MosaicTile {
 /// Keep readable siblings and reserve one full-width strip for everything too
 /// small. Repartition after gathering: the strip can make another sibling too small.
 fn mosaic_tiles(weights: &[u64], r: Rect) -> Vec<MosaicTile> {
+    // Twelve label cells plus the colored edge and a trailing space.
+    readable_tiles(weights, r, (14, 1), mosaic_grid)
+}
+
+/// The sparse minimum includes draw_tile's 5×3 label threshold and its gutter.
+/// Missing partition entries must be gathered too: a one-cell leaf can hold
+/// multiple siblings but the sparse partition returns only its first index.
+fn readable_tiles(
+    weights: &[u64],
+    r: Rect,
+    minimum: (u16, u16),
+    layout: fn(&[u64], Rect) -> Vec<Tile>,
+) -> Vec<MosaicTile> {
     if r.is_empty() {
         return Vec::new();
     }
@@ -506,19 +549,19 @@ fn mosaic_tiles(weights: &[u64], r: Rect) -> Vec<MosaicTile> {
         let gathered_height = if smaller.is_empty() {
             0
         } else {
-            ((r.height as f64 * gathered_bytes / total).round() as u16).clamp(1, r.height)
+            ((r.height as f64 * gathered_bytes / total).round() as u16)
+                .clamp(minimum.1.min(r.height), r.height)
         };
         let own_rect = Rect::new(r.x, r.y, r.width, r.height - gathered_height);
         let own_weights: Vec<_> = indices.iter().map(|&i| weights[i]).collect();
-        let candidates = mosaic_grid(&own_weights, own_rect);
+        let candidates = layout(&own_weights, own_rect);
+        let mut readable = vec![false; indices.len()];
         let mut kept = Vec::new();
         let mut out = Vec::new();
         for tile in candidates {
             let index = indices[tile.idx];
-            // Twelve label cells plus the colored edge and a trailing space.
-            if tile.rect.width < 14 || tile.rect.height == 0 {
-                smaller.push(index);
-            } else {
+            if tile.rect.width >= minimum.0 && tile.rect.height >= minimum.1 {
+                readable[tile.idx] = true;
                 kept.push(index);
                 out.push(MosaicTile {
                     rect: tile.rect,
@@ -526,6 +569,13 @@ fn mosaic_tiles(weights: &[u64], r: Rect) -> Vec<MosaicTile> {
                 });
             }
         }
+        smaller.extend(
+            indices
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| !readable[*i])
+                .map(|(_, &index)| index),
+        );
         if kept.len() == indices.len() {
             if !smaller.is_empty() {
                 out.push(MosaicTile {
@@ -626,7 +676,13 @@ fn draw_mosaic_tile(b: &mut Buffer, r: Rect, entry: &MapEntry<'_>, app: &App, se
             bg,
             true,
         );
-    } else if let Some(label) = map_label(&entry.label, width) {
+    } else if let Some(label) = if b.area.width < 80 {
+        // Narrow maps use the usual ellipsis, retaining the gathered count and
+        // giving even an unbroken long name a visible label.
+        Some(entry.label.as_str())
+    } else {
+        map_label(&entry.label, width)
+    } {
         text(
             b,
             r.x + 1,
@@ -1148,6 +1204,114 @@ mod tests {
         assert_eq!(map.matches("workspace-").count() + gathered, 31);
         app.selected = 0;
         assert!(!contents(&render(&app, 140, 44), r).contains('▌'));
+    }
+
+    #[test]
+    fn minimum_map_counts_every_dense_child() {
+        for mut app in [dense_app(), skewed_app()] {
+            app.root.bytes += 4096; // Metadata is not another child.
+            let map = contents(&render(&app, 60, 20), Rect::new(2, 9, 18, 4));
+            println!(
+                "Compact view at 60×20:\n{}",
+                contents(&render(&app, 60, 20), Rect::new(0, 0, 60, 20))
+            );
+            let named = app
+                .root
+                .children
+                .iter()
+                .filter(|n| map.contains(&n.name))
+                .count();
+            assert_eq!(
+                named + gathered_count(&map),
+                app.root.children.len(),
+                "{map}"
+            );
+            assert_eq!(map.matches("smaller items").count(), 1);
+        }
+    }
+
+    fn gathered_count(map: &str) -> usize {
+        map.lines()
+            .filter_map(|line| {
+                let (before, _) = line.split_once(" smaller")?;
+                before
+                    .rsplit(|c: char| !c.is_ascii_digit())
+                    .next()?
+                    .parse::<usize>()
+                    .ok()
+            })
+            .sum()
+    }
+
+    #[test]
+    fn narrow_sparse_map_counts_every_child_and_keeps_selection() {
+        for count in [1, 2, 6, 9, 12] {
+            for skewed in [false, true] {
+                let mut app = dense_app();
+                app.root.children.truncate(count);
+                for (i, child) in app.root.children.iter_mut().enumerate() {
+                    child.name = format!("{}~", char::from(b'a' + i as u8));
+                    child.bytes = if skewed && i == 0 { 1_000_000 } else { 1000 };
+                }
+                app.root.bytes = app.root.children.iter().map(|n| n.bytes).sum::<u64>() + 4096;
+                for (w, h) in [(60, 20), (60, 25), (79, 20), (79, 44)] {
+                    let b = render(&app, w, h);
+                    let compact = count
+                        > ((h - 16)
+                            / if h >= 34 {
+                                4
+                            } else if h >= 25 {
+                                3
+                            } else {
+                                2
+                            })
+                        .max(1) as usize;
+                    let side = if compact { (w / 2 + 6).min(46) } else { 24 };
+                    let r = Rect::new(2, 9, w - side - 6, h - 16);
+                    let map = contents(&b, r);
+                    let named = app
+                        .root
+                        .children
+                        .iter()
+                        .filter(|n| map.contains(&n.name))
+                        .count();
+                    assert_eq!(
+                        named + gathered_count(&map),
+                        count,
+                        "{w}×{h}, skewed={skewed}:\n{map}"
+                    );
+
+                    let entries = sibling_entries(app.current());
+                    let weights: Vec<_> = entries.iter().map(|e| e.bytes).collect();
+                    let tiles = readable_tiles(&weights, r, (6, 4), tiles);
+                    assert_mosaic_covers(&tiles, r);
+                    for selected in 0..count {
+                        app.selected = selected;
+                        let tile = tiles
+                            .iter()
+                            .find(|t| t.indices.contains(&selected))
+                            .unwrap();
+                        let color = if tile.indices.len() == 1 {
+                            color_for(&app, selected)
+                        } else {
+                            DIM
+                        };
+                        let b = render(&app, w, h);
+                        assert_eq!(b[(tile.rect.x, tile.rect.y)].symbol(), "╭");
+                        assert_eq!(b[(tile.rect.x, tile.rect.y)].fg, color);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn minimum_dense_map_ellipsizes_long_names_without_losing_the_count() {
+        let mut app = skewed_app();
+        app.root.children[0].name = "unbrokenlongdirectoryname".into();
+        let map = contents(&render(&app, 60, 20), Rect::new(2, 9, 18, 4));
+        assert!(map.contains("unbrokenlongdir…"), "{map}");
+        assert_eq!(gathered_count(&map), 30);
     }
 
     #[test]
