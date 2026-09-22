@@ -1,10 +1,18 @@
 # name columns rows keys (tmux key names, comma-separated; - for none)
-# Required scenes; rewrite the keys for your variant's own navigation.
+# Variant N (icicle): ←→ along a level, ↑↓ up/down a level, Enter zooms, Backspace zooms out.
 root-140x44 140 44 -
 root-100x30 100 30 -
-second-140x44 140 44 Down
+second-140x44 140 44 Right
 projects-140x44 140 44 Enter
-target-140x44 140 44 Enter,Enter
-back-140x44 140 44 Enter,Enter,BSpace,BSpace
-cache-140x44 140 44 Down,Down,Down,Enter
-cache-100x30 100 30 Down,Down,Down,Enter
+target-140x44 140 44 Down,Down,Down,Down
+back-140x44 140 44 Down,Down,Down,Down,Up,Up,Up,Up
+open-back-140x44 140 44 Enter,Enter,Enter,BSpace,BSpace,BSpace
+cache-140x44 140 44 Right,Right,Right,Enter
+cache-100x30 100 30 Right,Right,Right,Enter
+# Added scenes
+deps-collect-140x44 140 44 Down,Down,Down,Down,Space
+gustav-140x44 140 44 Down,Down,Down,Down,Right,Right,Right,Space
+atlas-zoom-140x44 140 44 Enter,Enter
+deps-100x30 100 30 Down,Down,Down,Down
+cache-walk-140x44 140 44 Right,Right,Right,Enter,Down,End
+deep-80x24 80 24 Down,Down,Down,Down
