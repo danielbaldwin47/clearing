@@ -11,23 +11,25 @@ use ratatui::{
     Frame,
     buffer::Buffer,
     layout::Rect,
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
     widgets::{Block, Borders, Clear, Paragraph},
 };
 use std::{cell::RefCell, time::Instant};
 use unicode_width::UnicodeWidthStr;
 
 // ---------------------------------------------------------------------------
-// State. The zoom is a depth `z` along the selected item's route: the window
-// is `sel[..z]` (z = 0 is the root). Moving never changes the layout; only
-// Enter, Backspace, and ↑/↓ at the edge of the visible bands change `z`.
+// State. The zoom the user chose is a depth `z` along the selected item's
+// route: the window is `sel[..z]` (z = 0 is the root). What is drawn is the
+// smallest zoom at or past it that shows the selection at this terminal size,
+// so a small terminal zooms further and a large one comes back, without ever
+// changing what the user chose. Arrows never change the layout.
 // ---------------------------------------------------------------------------
 
 /// Duration of a zoom, slow-in slow-out.
 const ZOOM_MS: f32 = 300.0;
-/// Narrowest child that is drawn as its own block; narrower ones gather at the
-/// right end of their parent's span.
-const MINW: u16 = 3;
+/// Narrowest block drawn on its own: room for `18.4 GiB` or a short name.
+/// Narrower children gather into one `+N` block at the end of their parent.
+const MINW: u16 = 8;
 
 #[derive(Clone, Copy, PartialEq)]
 struct Geo {
@@ -36,10 +38,38 @@ struct Geo {
     my: u16,
     w: u16,
     rows: u16,
-    /// Rows of a band (the gutter row between bands comes on top).
+    /// Rows of a band (a gutter row follows each band).
     bh: u16,
     /// Most ancestor rows stacked above the bands; older ones merge into row 0.
     thin_max: usize,
+    /// Width of the list on the right, 0 when there is none.
+    side: u16,
+}
+
+/// The layout for a terminal of `w` × `h` showing window depth `z`. The list
+/// appears once a folder is open: at the root the first band already lists the
+/// top level, and the icicle needs every column there.
+fn geo_for(w: u16, h: u16, z: usize) -> Geo {
+    let compact = h < 26;
+    let side = if w >= 120 && z >= 1 { 30 } else { 0 };
+    let my = if compact { 7 } else { 9 };
+    let rows = h - my - 7;
+    let map_w = w - 4 - if side > 0 { side + 3 } else { 0 };
+    Geo {
+        mx: 3,
+        my,
+        w: map_w - 2,
+        rows,
+        bh: if rows >= 24 {
+            3
+        } else if rows >= 18 {
+            2
+        } else {
+            1
+        },
+        thin_max: if rows >= 24 { 3 } else { 1 },
+        side,
+    }
 }
 
 struct Anim {
@@ -48,8 +78,9 @@ struct Anim {
 }
 
 struct State {
+    /// The zoom the user chose with Enter and Backspace.
     z: usize,
-    geo: Option<Geo>,
+    size: Option<(u16, u16)>,
     anim: Option<Anim>,
     /// The deepest route visited on the current path: ↓ returns along it.
     memory: Vec<usize>,
@@ -57,7 +88,7 @@ struct State {
 
 thread_local! {
     static ST: RefCell<State> = const {
-        RefCell::new(State { z: 0, geo: None, anim: None, memory: Vec::new() })
+        RefCell::new(State { z: 0, size: None, anim: None, memory: Vec::new() })
     };
 }
 
@@ -82,6 +113,16 @@ fn node_at<'a>(app: &'a App, route: &[usize]) -> &'a Node {
     app.root.at(route)
 }
 
+/// The sample's pre-aggregated "N smaller items" rows: a gathered remainder,
+/// never a folder to open.
+fn is_tail(n: &Node) -> bool {
+    crate::sample::meta(&n.path).and_then(|m| m.tail_count).is_some()
+}
+
+fn is_folder(n: &Node) -> bool {
+    n.is_dir && !is_tail(n) && !n.children.is_empty()
+}
+
 fn hue(route: &[usize]) -> Color {
     match route.first() {
         Some(i) => COLORS[i % COLORS.len()],
@@ -90,7 +131,7 @@ fn hue(route: &[usize]) -> Color {
 }
 
 fn label_of(n: &Node) -> String {
-    if n.is_dir && !n.name.ends_with('/') {
+    if n.is_dir && !is_tail(n) && !n.name.ends_with('/') {
         format!("{}/", n.name)
     } else {
         n.name.clone()
@@ -179,8 +220,8 @@ fn alloc(node: &Node, w: u16) -> Alloc {
     if n == 0 || w == 0 {
         return (Vec::new(), None);
     }
-    let kmax = n.min((w as usize + 1) / (MINW as usize + 1));
     let total: u64 = kids.iter().map(|k| k.1).sum();
+    let kmax = n.min((w as usize + 1) / (MINW as usize + 1));
     for k in (0..=kmax).rev() {
         if k > 0 && kids[k - 1].1 == 0 {
             continue;
@@ -190,7 +231,7 @@ fn alloc(node: &Node, w: u16) -> Alloc {
         if gaps + k as u16 > w {
             continue;
         }
-        // A rest worth less than one cell is left out: those items are reached by zooming in.
+        // A rest worth less than one cell is left out: those items are reached by opening the parent.
         let rest_cells = rest_bytes as f64 / total.max(1) as f64 * (w - gaps) as f64;
         let rest = k < n && (k == 0 || rest_cells >= 1.0);
         let gaps = gaps + (rest && k > 0) as u16;
@@ -265,6 +306,9 @@ fn place(app: &App, geo: &Geo, z: usize, route: &[usize], x: u16, w: u16, out: &
         return;
     };
     let node = node_at(app, route);
+    if !is_folder(node) {
+        return;
+    }
     let (drawn, rest) = alloc(node, w);
     let mut at = x;
     let mut recurse = Vec::new();
@@ -299,57 +343,96 @@ fn place(app: &App, geo: &Geo, z: usize, route: &[usize], x: u16, w: u16, out: &
         });
     }
     for (r, at, cw) in recurse {
-        if !node_at(app, &r).children.is_empty() {
-            place(app, geo, z, &r, at, cw, out);
-        }
+        place(app, geo, z, &r, at, cw, out);
     }
 }
 
-/// The block that shows `sel`: its own, or the rest it is gathered into.
-fn holder<'a>(blocks: &'a [Blk], sel: &[usize]) -> Option<&'a Blk> {
-    let (&last, parent) = sel.split_last()?;
-    blocks.iter().find(|b| {
-        (b.kind == Kind::Node && b.route == sel)
-            || (b.kind == Kind::Rest && b.route == parent && b.members.contains(&last))
+/// Index of the block that shows `sel`: its own, or the `+N` it is gathered
+/// into (with everything below the gathered item).
+fn holder(blocks: &[Blk], sel: &[usize]) -> Option<usize> {
+    blocks.iter().position(|b| match b.kind {
+        Kind::Node => b.route == sel,
+        Kind::Rest => {
+            sel.len() > b.route.len()
+                && sel.starts_with(&b.route)
+                && b.members.contains(&sel[b.route.len()])
+        }
+        Kind::Thin => false,
     })
 }
 
-/// The smallest zoom at or after `z` that shows the selection.
-fn settle(app: &App, geo: &Geo, z: usize) -> usize {
+/// The deepest zoom that still leaves something to show: a file or an empty
+/// folder is never the view.
+fn zoom_cap(app: &App, sel: &[usize]) -> usize {
+    if is_folder(node_at(app, sel)) {
+        sel.len()
+    } else {
+        sel.len().saturating_sub(1)
+    }
+}
+
+/// The zoom drawn for the user's zoom `z` at this terminal size.
+fn settle(app: &App, w: u16, h: u16, z: usize) -> usize {
     let sel = sel_route(app);
-    let z = z.min(sel.len());
-    for zz in z..=sel.len() {
-        if holder(&layout(app, geo, &sel[..zz]), &sel).is_some() {
+    let cap = zoom_cap(app, &sel);
+    let z = z.min(cap);
+    for zz in z..=cap {
+        if shows(app, &geo_for(w, h, zz), &sel[..zz], &sel) {
             return zz;
         }
     }
-    sel.len()
+    cap
 }
 
-/// Every item on the selection's band, left to right, gathered ones in order.
-fn band(blocks: &[Blk], depth: usize) -> Vec<Vec<usize>> {
-    let mut out = Vec::new();
-    for b in blocks.iter().filter(|b| b.depth == depth && b.kind != Kind::Thin) {
-        if b.kind == Kind::Node {
-            out.push(b.route.clone());
-        } else {
-            for &m in &b.members {
-                let mut r = b.route.clone();
-                r.push(m);
-                out.push(r);
-            }
+/// The selection has its own block, or sits in a `+N` with a band below it for its label.
+fn shows(app: &App, geo: &Geo, window: &[usize], sel: &[usize]) -> bool {
+    let blocks = layout(app, geo, window);
+    holder(&blocks, sel).is_some_and(|i| {
+        blocks[i].kind == Kind::Node || band_rows(geo, window.len(), blocks[i].depth + 1).is_some()
+    })
+}
+
+/// The item a `+N` stop selects: its largest member, followed down while one
+/// child holds at least half of its parent (the big thing buried inside).
+fn heavy_end(app: &App, rest: &Blk) -> Vec<usize> {
+    let mut route = rest.route.clone();
+    route.push(rest.members[0]);
+    loop {
+        let n = node_at(app, &route);
+        if !is_folder(n) {
+            return route;
         }
+        let Some((i, c)) = n
+            .children
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.bytes.cmp(&b.1.bytes).then(b.0.cmp(&a.0)))
+        else {
+            return route;
+        };
+        if c.bytes == 0 || c.bytes * 2 < n.bytes {
+            return route;
+        }
+        route.push(i);
     }
-    out
 }
 
 // ---------------------------------------------------------------------------
 // Keys
 // ---------------------------------------------------------------------------
 
+fn remember(sel: &[usize]) {
+    ST.with(|s| {
+        let mut s = s.borrow_mut();
+        if !s.memory.starts_with(sel) {
+            s.memory = sel.to_vec();
+        }
+    });
+}
+
 /// Keys this variant owns in browse mode; true means consumed.
 pub fn key(app: &mut App, key: KeyEvent) -> bool {
-    let Some(geo) = ST.with(|s| s.borrow().geo) else {
+    let Some((w, h)) = ST.with(|s| s.borrow().size) else {
         return false;
     };
     let owned = matches!(
@@ -366,7 +449,7 @@ pub fn key(app: &mut App, key: KeyEvent) -> bool {
             | KeyCode::PageUp
             | KeyCode::PageDown
     );
-    if !owned {
+    if !owned || w < 60 || h < 20 {
         return false;
     }
     // Any key finishes a running zoom at once.
@@ -380,26 +463,36 @@ pub fn key(app: &mut App, key: KeyEvent) -> bool {
     if sel.is_empty() {
         return true;
     }
-    let z0 = ST.with(|s| s.borrow().z).min(sel.len());
+    let mut z = ST.with(|s| s.borrow().z).min(sel.len());
+    let z0 = settle(app, w, h, z);
     let window0 = sel[..z0].to_vec();
-    let mut z = z0;
-    let name = app.selection().map(label_of).unwrap_or_default();
+    let blocks = layout(app, &geo_for(w, h, z0), &window0);
+    let held = holder(&blocks, &sel);
+    let in_rest = held.map(|i| blocks[i].clone()).filter(|b| b.kind == Kind::Rest);
+    let name = label_of(node_at(app, &sel));
     match key.code {
         KeyCode::Left | KeyCode::Right | KeyCode::Char('h' | 'l') | KeyCode::Home | KeyCode::End => {
+            let Some(at_block) = held else {
+                return true;
+            };
             if sel.len() == z0 && z0 > 0 {
                 app.message = format!("{name} fills the width · ⌫ backs out to its neighbours");
                 return true;
             }
-            let blocks = layout(app, &geo, &window0);
-            let items = band(&blocks, sel.len());
-            let Some(at) = items.iter().position(|r| *r == sel) else {
+            // One stop per drawn block; a `+N` block is one stop.
+            let depth = blocks[at_block].depth;
+            let mut stops: Vec<usize> = (0..blocks.len())
+                .filter(|&i| blocks[i].kind != Kind::Thin && blocks[i].depth == depth)
+                .collect();
+            stops.sort_by(|&a, &b| blocks[a].x0.total_cmp(&blocks[b].x0));
+            let Some(at) = stops.iter().position(|&i| i == at_block) else {
                 return true;
             };
             let to = match key.code {
                 KeyCode::Home => 0,
-                KeyCode::End => items.len() - 1,
+                KeyCode::End => stops.len() - 1,
                 KeyCode::Left | KeyCode::Char('h') => at.saturating_sub(1),
-                _ => (at + 1).min(items.len() - 1),
+                _ => (at + 1).min(stops.len() - 1),
             };
             if to == at {
                 app.message = if matches!(key.code, KeyCode::Left | KeyCode::Char('h') | KeyCode::Home) {
@@ -409,36 +502,56 @@ pub fn key(app: &mut App, key: KeyEvent) -> bool {
                 };
                 return true;
             }
-            select(app, &items[to]);
-            ST.with(|s| s.borrow_mut().memory = items[to].clone());
+            let b = &blocks[stops[to]];
+            let route = if b.kind == Kind::Rest { heavy_end(app, b) } else { b.route.clone() };
+            select(app, &route);
+            ST.with(|s| s.borrow_mut().memory = route.clone());
         }
-        KeyCode::Backspace if z == 0 && sel.len() > 1 => {
-            // Nothing is zoomed: back out climbs one level, as ↑ does.
-            ST.with(|s| {
-                let mut s = s.borrow_mut();
-                if !s.memory.starts_with(&sel) {
-                    s.memory = sel.clone();
-                }
-            });
-            select(app, &sel[..sel.len() - 1]);
-        }
-        KeyCode::Up | KeyCode::Char('k') => {
-            if sel.len() == 1 {
+        KeyCode::Up | KeyCode::Char('k') | KeyCode::Backspace
+            if key.code != KeyCode::Backspace || z0 == 0 =>
+        {
+            // Out of a `+N`, ↑ goes to the block it hangs from.
+            let parent = match &in_rest {
+                Some(b) => b.route.clone(),
+                None => sel[..sel.len() - 1].to_vec(),
+            };
+            if parent.is_empty() {
                 app.message = format!("{name} is at the top level · ← → move along it");
                 return true;
             }
-            ST.with(|s| {
-                let mut s = s.borrow_mut();
-                if !s.memory.starts_with(&sel) {
-                    s.memory = sel.clone();
-                }
-            });
-            let parent = sel[..sel.len() - 1].to_vec();
+            remember(&sel);
             select(app, &parent);
             z = z.min(parent.len());
         }
+        KeyCode::Backspace => {
+            // Out one zoom level, landing on the folder that filled the width.
+            remember(&sel);
+            select(app, &window0);
+            z = z.min(z0 - 1);
+        }
+        KeyCode::Down | KeyCode::Char('j') | KeyCode::Enter if in_rest.is_some() => {
+            // A `+N` opens: widen until the selected item has its own block.
+            let rest = in_rest.unwrap_or_else(|| blocks[0].clone());
+            let cap = zoom_cap(app, &sel);
+            let from = (z0 + 1).max(rest.route.len());
+            let pick = (from..=cap)
+                .find(|&zz| {
+                    let bl = layout(app, &geo_for(w, h, zz), &sel[..zz]);
+                    holder(&bl, &sel).is_some_and(|i| bl[i].kind == Kind::Node)
+                })
+                .unwrap_or(from.min(cap));
+            if pick <= z0 {
+                app.message = format!("{name} is open as wide as it goes");
+                return true;
+            }
+            z = pick;
+        }
         KeyCode::Down | KeyCode::Char('j') | KeyCode::Enter => {
             let node = node_at(app, &sel);
+            if is_tail(node) {
+                app.message = format!("{name} gathers small items in this sample · it does not open");
+                return true;
+            }
             if !node.is_dir {
                 app.message = format!("{name} is a file · Space collects it");
                 return true;
@@ -461,35 +574,28 @@ pub fn key(app: &mut App, key: KeyEvent) -> bool {
             };
             let mut to = sel.clone();
             to.push(child);
-            select(app, &to);
-            if !memory.starts_with(&to) {
-                ST.with(|s| s.borrow_mut().memory = to.clone());
-            }
             // Enter also zooms: the opened folder fills the width.
             if key.code == KeyCode::Enter {
                 z = sel.len();
             }
-        }
-        KeyCode::Backspace => {
-            if z == 0 {
-                app.message = format!("{name} is at the top level · ← → move along it");
-            } else {
-                // Out one zoom level, landing on the folder that filled the width.
-                ST.with(|s| {
-                    let mut s = s.borrow_mut();
-                    if !s.memory.starts_with(&sel) {
-                        s.memory = sel.clone();
-                    }
-                });
-                let window = sel[..z].to_vec();
-                select(app, &window);
-                z -= 1;
+            // Back into a `+N` you came up from: land on the same buried item.
+            let zz = settle_for(app, w, h, z, &to);
+            let bl = layout(app, &geo_for(w, h, zz), &to[..zz]);
+            if let Some(i) = holder(&bl, &to).filter(|&i| bl[i].kind == Kind::Rest) {
+                to = if memory.len() > to.len() && memory.starts_with(&to) {
+                    memory.clone()
+                } else {
+                    // Into a `+N`: the item its label names.
+                    heavy_end(app, &bl[i])
+                };
             }
+            select(app, &to);
+            remember(&to);
         }
         _ => return true,
     }
-    let z = settle(app, &geo, z);
-    let window = sel_route(app)[..z].to_vec();
+    let z1 = settle(app, w, h, z);
+    let window = sel_route(app)[..z1].to_vec();
     ST.with(|s| {
         let mut s = s.borrow_mut();
         s.z = z;
@@ -501,6 +607,18 @@ pub fn key(app: &mut App, key: KeyEvent) -> bool {
         }
     });
     true
+}
+
+/// `settle` for a selection not yet made.
+fn settle_for(app: &App, w: u16, h: u16, z: usize, sel: &[usize]) -> usize {
+    let cap = zoom_cap(app, sel);
+    let z = z.min(cap);
+    for zz in z..=cap {
+        if shows(app, &geo_for(w, h, zz), &sel[..zz], sel) {
+            return zz;
+        }
+    }
+    cap
 }
 
 /// True while this variant animates, so the loop redraws every 16 ms.
@@ -537,42 +655,26 @@ pub fn draw(f: &mut Frame, app: &App) {
     let h = area.height;
     let b = f.buffer_mut();
     fill(b, area, BG);
+    ST.with(|s| {
+        let mut s = s.borrow_mut();
+        if s.size != Some((w, h)) {
+            s.anim = None;
+        }
+        s.size = Some((w, h));
+    });
     if w < 60 || h < 20 {
         if w > 4 && h > 3 {
             text(b, 2, 2, w - 4, "Resize to at least 60 × 20 · q quit", FG, BG, true)
         }
         return;
     }
-    let side: u16 = if w >= 120 { 30 } else { 0 };
-    let map = Rect::new(2, 9, w - 4 - if side > 0 { side + 3 } else { 0 }, h - 16);
-    let rows = map.height;
-    let geo = Geo {
-        mx: map.x + 1,
-        my: map.y,
-        w: map.width - 2,
-        rows,
-        bh: if rows >= 24 {
-            3
-        } else if rows >= 18 {
-            2
-        } else {
-            1
-        },
-        thin_max: if rows >= 24 { 3 } else { 1 },
-    };
     let sel = sel_route(app);
-    // Keep the zoom valid after a resize, a rescan or a removal.
-    let (z, from, t) = ST.with(|s| {
+    // The user's zoom is never rewritten here: a small terminal zooms further
+    // for as long as it is small.
+    let z_user = ST.with(|s| s.borrow().z);
+    let z = settle(app, w, h, z_user);
+    let (from, t) = ST.with(|s| {
         let mut s = s.borrow_mut();
-        if s.geo != Some(geo) {
-            s.anim = None;
-        }
-        s.geo = Some(geo);
-        let z = settle(app, &geo, s.z);
-        if z != s.z {
-            s.z = z;
-            s.anim = None;
-        }
         let mut t = 1.0;
         let mut from = None;
         if let Some(a) = &s.anim {
@@ -588,19 +690,23 @@ pub fn draw(f: &mut Frame, app: &App) {
                 from = Some(a.from.clone());
             }
         }
-        (z, from, t)
+        (from, t)
     });
+    let geo = geo_for(w, h, z);
     let window = sel[..z.min(sel.len())].to_vec();
     let view = node_at(app, &window);
-    draw_header(b, app, view, &window, w);
-    hline(b, 2, 7, w - 4, DIM);
-    text(b, 2, 7, 13, " SPACE MAP  ", FG, BG, true);
-    if map.width >= 62 {
+    let compact = h < 26;
+    draw_header(b, app, view, &window, w, compact);
+    let line_y = geo.my - 2;
+    let map_w = geo.w + 2;
+    hline(b, 2, line_y, w - 4, DIM);
+    text(b, 2, line_y, 13, " SPACE MAP  ", FG, BG, true);
+    if map_w >= 62 {
         text(
             b,
             15,
-            7,
-            map.width - 14,
+            line_y,
+            map_w - 14,
             "width = allocated bytes · one band per level ",
             MUTED,
             BG,
@@ -608,13 +714,13 @@ pub fn draw(f: &mut Frame, app: &App) {
         );
     }
     let blocks = layout(app, &geo, &window);
-    let shown = match from {
-        Some(from) => tween(app, &geo, &from, &window, &blocks, t),
+    let shown = match &from {
+        Some(from) => tween(app, &geo_for(w, h, from.len()), &geo, from, &window, &blocks, t),
         None => blocks.clone(),
     };
-    draw_icicle(b, app, &geo, window.len(), &shown, &sel, t >= 1.0);
-    if side > 0 {
-        draw_list(b, app, w - side - 2, map.y, side, rows);
+    draw_icicle(b, app, &geo, window.len(), &shown, &sel, from.is_none());
+    if geo.side > 0 {
+        draw_list(b, app, w - geo.side - 2, geo.my, geo.side, geo.rows, line_y);
     }
     draw_detail(b, app, &sel, w, h);
     let footer = if !app.message.is_empty() {
@@ -658,8 +764,8 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
 }
 
-fn draw_header(b: &mut Buffer, app: &App, view: &Node, window: &[usize], w: u16) {
-    let wide = w >= 110;
+fn draw_header(b: &mut Buffer, app: &App, view: &Node, window: &[usize], w: u16, compact: bool) {
+    let wide = w >= 110 && !compact;
     let header_width = if wide { w - 73 } else { w - 31 };
     text(b, 2, 1, header_width, "D I S K   A L L O C A T I O N", MUTED, BG, false);
     let mut names = vec![app.root.name.clone()];
@@ -667,21 +773,23 @@ fn draw_header(b: &mut Buffer, app: &App, view: &Node, window: &[usize], w: u16)
         names.push(node_at(app, &window[..d]).name.clone());
     }
     text(b, 2, 3, header_width, names.join("  /  "), FG, BG, true);
-    let mut stats = format!(
-        "{} files  ·  {} folders  ·  {} here",
-        view.files,
-        view.directories,
-        view.children.len()
-    );
-    if stats.width() > header_width as usize {
-        stats = format!(
-            "{} files · {} dirs · {} here",
+    if !compact {
+        let mut stats = format!(
+            "{} files  ·  {} folders  ·  {} here",
             view.files,
             view.directories,
             view.children.len()
         );
+        if stats.width() > header_width as usize {
+            stats = format!(
+                "{} files · {} dirs · {} here",
+                view.files,
+                view.directories,
+                view.children.len()
+            );
+        }
+        text(b, 2, 5, header_width, stats, MUTED, BG, false);
     }
-    text(b, 2, 5, header_width, stats, MUTED, BG, false);
     let total = size(view.bytes);
     if wide {
         let mx = w - 66;
@@ -724,38 +832,40 @@ fn draw_header(b: &mut Buffer, app: &App, view: &Node, window: &[usize], w: u16)
         text(b, w - 27, 1, 25, &total, ACCENT, BG, true);
         let (status, active) = collector_status(app, 25);
         text(b, w - 27, 3, 25, status, if active { ACCENT } else { MUTED }, BG, active);
-        text(b, w - 27, 5, 25, "Space collect · c review", MUTED, BG, false);
+        if !compact {
+            text(b, w - 27, 5, 25, "Space collect · c review", MUTED, BG, false);
+        }
     }
 }
 
 /// Blocks part-way between the `from` window's layout and the current one.
 /// Matched blocks slide and stretch; the others follow the x-rescale of the
-/// zoom (in from off the sides, or out through them) or grow from the rest
+/// zoom (in from off the sides, or out through them) or grow from the `+N`
 /// they were gathered in.
-fn tween(app: &App, geo: &Geo, from: &[usize], to: &[usize], now: &[Blk], t: f32) -> Vec<Blk> {
+fn tween(app: &App, fg: &Geo, tg: &Geo, from: &[usize], to: &[usize], now: &[Blk], t: f32) -> Vec<Blk> {
     let e = t * t * (3.0 - 2.0 * t);
-    let before = layout(app, geo, from);
-    // x-rescale: the deeper window fills the width; in the shallower layout it has a span.
-    let (deep, shallow_blocks, deeper_is_now) = if to.len() >= from.len() {
-        (to, &before, true)
+    let before = layout(app, fg, from);
+    // x-rescale: the deeper window fills its width; in the shallower layout it has a span.
+    let deeper_is_now = to.len() >= from.len();
+    let (deep, shallow, deep_geo, shallow_geo) = if deeper_is_now {
+        (to, &before[..], tg, fg)
     } else {
-        (from, &now.to_vec(), false)
+        (from, now, fg, tg)
     };
-    let span = holder(shallow_blocks, deep)
-        .or_else(|| shallow_blocks.iter().find(|b| b.route == deep))
+    let span = shallow
+        .iter()
+        .find(|b| b.kind == Kind::Node && b.route == deep)
+        .or_else(|| holder(shallow, deep).map(|i| &shallow[i]))
         .map(|b| (b.x0, b.x1))
-        .unwrap_or((geo.mx as f32, (geo.mx + geo.w) as f32));
+        .unwrap_or((shallow_geo.mx as f32, (shallow_geo.mx + shallow_geo.w) as f32));
     let (a, bb) = span;
-    let full = (geo.mx as f32, (geo.mx + geo.w) as f32);
+    let full = (deep_geo.mx as f32, (deep_geo.mx + deep_geo.w) as f32);
     let scale = (full.1 - full.0) / (bb - a).max(0.5);
     let to_deep = |x: f32| full.0 + (x - a) * scale;
     let to_shallow = |x: f32| a + (x - full.0) / scale;
-    // Map an x from the `from` layout into the `now` layout's frame, and back.
     let fwd = |x: f32| if deeper_is_now { to_deep(x) } else { to_shallow(x) };
     let back = |x: f32| if deeper_is_now { to_shallow(x) } else { to_deep(x) };
-    let z_from = from.len();
-    let z_now = to.len();
-    let rows_in = |z: usize, d: usize| {
+    let rows_in = |geo: &Geo, z: usize, d: usize| {
         band_rows(geo, z, d).unwrap_or((geo.rows as f32 + 1.0, geo.rows as f32 + 1.0 + geo.bh as f32))
     };
     let find = |set: &[Blk], b: &Blk| -> Option<Blk> {
@@ -764,7 +874,7 @@ fn tween(app: &App, geo: &Geo, from: &[usize], to: &[usize], now: &[Blk], t: f32
         }
         set.iter()
             .find(|o| o.kind != Kind::Rest && o.route == b.route)
-            .or_else(|| holder(set, &b.route).filter(|o| o.kind == Kind::Rest))
+            .or_else(|| holder(set, &b.route).map(|i| &set[i]).filter(|o| o.kind == Kind::Rest))
             .cloned()
     };
     let mix = |a: &Blk, b: &Blk| -> Blk {
@@ -780,13 +890,14 @@ fn tween(app: &App, geo: &Geo, from: &[usize], to: &[usize], now: &[Blk], t: f32
     let mut out = Vec::new();
     // Leaving blocks first, so arriving ones draw over them.
     for old in &before {
-        if find(now, old).is_some() && old.kind != Kind::Rest {
+        if old.kind == Kind::Rest {
+            if now.iter().any(|n| n.kind == Kind::Rest && n.route == old.route) {
+                continue;
+            }
+        } else if find(now, old).is_some() {
             continue;
         }
-        if old.kind == Kind::Rest && now.iter().any(|n| n.kind == Kind::Rest && n.route == old.route) {
-            continue;
-        }
-        let (y0, y1) = rows_in(z_now, old.depth);
+        let (y0, y1) = rows_in(tg, to.len(), old.depth);
         let target = Blk {
             x0: fwd(old.x0),
             x1: fwd(old.x1),
@@ -794,13 +905,13 @@ fn tween(app: &App, geo: &Geo, from: &[usize], to: &[usize], now: &[Blk], t: f32
             y1: if old.kind == Kind::Thin { old.y1 } else { y1 },
             ..old.clone()
         };
-        out.push(Blk { kind: old.kind, ..mix(old, &target) });
+        out.push(mix(old, &target));
     }
     for new in now {
         let start = match find(&before, new) {
             Some(o) => o,
             None => {
-                let (y0, y1) = rows_in(z_from, new.depth);
+                let (y0, y1) = rows_in(fg, from.len(), new.depth);
                 Blk {
                     x0: back(new.x0),
                     x1: back(new.x1),
@@ -823,22 +934,15 @@ fn draw_icicle(b: &mut Buffer, app: &App, geo: &Geo, z: usize, blocks: &[Blk], s
         let (y0, y1) = (clip_y(bl.y0), clip_y(bl.y1));
         Rect::new(x0, y0, x1.saturating_sub(x0), y1.saturating_sub(y0))
     };
-    let (sel_last, sel_parent) = match sel.split_last() {
-        Some((l, p)) => (Some(*l), p),
-        None => (None, &[][..]),
-    };
-    let is_sel = |bl: &Blk| match bl.kind {
-        Kind::Node => bl.route == sel,
-        Kind::Rest => bl.route == sel_parent && sel_last.is_some_and(|l| bl.members.contains(&l)),
-        Kind::Thin => false,
-    };
+    let held = holder(blocks, sel);
     // Fills
-    for bl in blocks {
+    for (i, bl) in blocks.iter().enumerate() {
         let r = rect(bl);
         if r.is_empty() {
             continue;
         }
         let c = hue(&bl.route);
+        let selected = held == Some(i);
         let bg = match bl.kind {
             Kind::Thin => {
                 if bl.route.is_empty() {
@@ -847,16 +951,18 @@ fn draw_icicle(b: &mut Buffer, app: &App, geo: &Geo, z: usize, blocks: &[Blk], s
                     tint(c, 0.10 + 0.03 * bl.depth.min(4) as f32)
                 }
             }
+            // The sample's "N smaller items" rows look like the `+N` they are.
+            Kind::Node if is_tail(node_at(app, &bl.route)) => tint(c, 0.10 + if selected { 0.05 } else { 0.0 }),
             Kind::Node => {
                 let lit = sel.starts_with(&bl.route);
-                tint(c, tone(bl.depth) + if is_sel(bl) { 0.08 } else if lit { 0.05 } else { 0.0 })
+                tint(c, tone(bl.depth) + if selected { 0.08 } else if lit { 0.05 } else { 0.0 })
             }
-            Kind::Rest => tint(c, 0.09 + if is_sel(bl) { 0.06 } else { 0.0 }),
+            Kind::Rest => tint(c, 0.10 + if selected { 0.05 } else { 0.0 }),
         };
         fill(b, r, bg);
     }
     let hung = if settled {
-        drips(app, geo, z, blocks, sel)
+        drips(app, geo, z, blocks, sel, held)
     } else {
         Vec::new()
     };
@@ -871,60 +977,78 @@ fn draw_icicle(b: &mut Buffer, app: &App, geo: &Geo, z: usize, blocks: &[Blk], s
         let inside = !hung.iter().any(|d| d.block == i);
         match bl.kind {
             Kind::Thin => draw_thin(b, app, bl, r, c, bg),
-            Kind::Node => draw_node(b, app, bl, r, c, bg, is_sel(bl), sel.starts_with(&bl.route), inside),
-            Kind::Rest => {
-                if inside {
-                    draw_rest(b, app, bl, r, c, bg, is_sel(bl).then_some(sel_last).flatten())
-                }
+            Kind::Node if is_tail(node_at(app, &bl.route)) => {
+                let count = crate::sample::meta(&node_at(app, &bl.route).path)
+                    .and_then(|m| m.tail_count)
+                    .unwrap_or(0);
+                draw_tag(b, &format!("+{count}"), r, bg)
             }
+            Kind::Node => draw_node(b, app, bl, r, c, bg, held == Some(i), sel.starts_with(&bl.route), inside),
+            Kind::Rest => draw_tag(b, &format!("+{}", bl.members.len()), r, bg),
         }
     }
-    // Labels too long for their block hang below it, in the empty band under a leaf.
+    // Labels that do not fit their block hang below it, in the empty band
+    // under a leaf or a `+N`, on a leader line.
     for d in &hung {
         let bl = &blocks[d.block];
         let c = hue(&bl.route);
-        let (name_fg, value_fg) = if d.selected {
-            (FG, lerp(c, FG, 0.5))
+        let (name_fg, path_fg, value_fg) = if d.selected {
+            (FG, lerp(c, FG, 0.35), lerp(c, FG, 0.5))
         } else {
-            (lerp(c, FG, 0.45), lerp(c, MUTED, 0.3))
+            (lerp(c, FG, 0.45), lerp(c, MUTED, 0.45), lerp(c, MUTED, 0.3))
         };
         let lead_fg = tint(c, 0.5);
-        text(b, d.lead, d.y - 1, 1, "│", lead_fg, BG, false);
-        let (x, corner) = if d.lead == d.x { (d.x + 2, (d.x, "╰")) } else { (d.x, (d.lead, "╯")) };
+        for y in d.lead_top..d.y {
+            text(b, d.lead, y, 1, "│", lead_fg, BG, false);
+        }
+        let (mut x, corner) = if d.lead == d.x { (d.x + 2, (d.x, "╰")) } else { (d.x, (d.lead, "╯")) };
         text(b, corner.0, d.y, 1, corner.1, lead_fg, BG, false);
+        let x_name = x;
+        if let Some((g, gfg)) = d.glyph {
+            text(b, x, d.y, 1, g, gfg, BG, true);
+            x += 2;
+        }
+        text(b, x, d.y, d.path.width() as u16, &d.path, path_fg, BG, false);
+        x += d.path.width() as u16;
         label(b, x, d.y, d.name.width() as u16, &d.name, name_fg, BG, d.selected);
+        x += d.name.width() as u16;
         if d.two_rows {
-            text(b, x, d.y + 1, d.value.width() as u16, &d.value, value_fg, BG, false);
+            text(b, x_name, d.y + 1, d.value.width() as u16, &d.value, value_fg, BG, false);
         } else {
-            let x = x + d.name.width() as u16 + 2;
-            text(b, x, d.y, d.value.width() as u16, &d.value, value_fg, BG, false);
+            text(b, x + 2, d.y, d.value.width() as u16, &d.value, value_fg, BG, false);
         }
     }
-    // The selection ring sits in the gutters around its block.
-    if let Some(bl) = blocks.iter().find(|bl| is_sel(bl)) {
+    // The selection ring sits in the gutters around its block; dashed round a `+N`.
+    if let Some(i) = held {
+        let bl = &blocks[i];
         let r = rect(bl);
         if r.width > 0 && r.height > 0 {
             let ring = Rect::new(r.x - 1, r.y - 1, r.width + 2, r.height + 2);
-            outline(b, ring, ring_color(&bl.route));
+            outline(b, ring, ring_color(&bl.route), bl.kind == Kind::Rest);
         }
     }
 }
 
 struct Drip {
     block: usize,
-    /// The column under the block where the leader comes down.
+    /// The column under the block where the leader comes down, from row `lead_top`.
     lead: u16,
+    lead_top: u16,
     x: u16,
     y: u16,
+    /// Ancestors below the block, dim (`storage/`), then the item's own name.
+    path: String,
     name: String,
     value: String,
+    glyph: Option<(&'static str, Color)>,
     two_rows: bool,
     selected: bool,
 }
 
-/// Leaf blocks whose name or size does not fit hang their label in the free
-/// band below them: the selection first, then the largest.
-fn drips(app: &App, geo: &Geo, z: usize, blocks: &[Blk], sel: &[usize]) -> Vec<Drip> {
+/// Leaves whose name does not fit, and every `+N`, hang a label in the free
+/// band below them: the selection first, then the largest. A `+N` names the
+/// item a stop on it selects, with the path from the block down to it.
+fn drips(app: &App, geo: &Geo, z: usize, blocks: &[Blk], sel: &[usize], held: Option<usize>) -> Vec<Drip> {
     let parent_of = |o: &Blk| -> Vec<usize> {
         if o.kind == Kind::Rest {
             o.route.clone()
@@ -932,82 +1056,117 @@ fn drips(app: &App, geo: &Geo, z: usize, blocks: &[Blk], sel: &[usize]) -> Vec<D
             o.route[..o.route.len().saturating_sub(1)].to_vec()
         }
     };
-    let mut cands: Vec<(usize, u64, bool, String, String)> = Vec::new();
+    let mut cands: Vec<(usize, u64, bool, Vec<usize>, usize)> = Vec::new();
     for (i, bl) in blocks.iter().enumerate() {
         let w = (bl.x1 - bl.x0).round() as usize;
-        let (n, selected) = match bl.kind {
+        let selected = held == Some(i);
+        match bl.kind {
             Kind::Thin => continue,
-            Kind::Node => (node_at(app, &bl.route), bl.route == sel),
-            Kind::Rest => {
-                let Some((&last, parent)) = sel.split_last() else { continue };
-                if bl.route != parent || !bl.members.contains(&last) {
+            Kind::Node => {
+                let n = node_at(app, &bl.route);
+                let name = label_of(n);
+                let fits = if geo.bh == 1 {
+                    name.width() <= w
+                } else {
+                    name.width() <= w && size(n.bytes).width() <= w
+                };
+                let has_kids = blocks
+                    .iter()
+                    .any(|o| o.kind != Kind::Thin && o.depth == bl.depth + 1 && parent_of(o) == bl.route);
+                if (fits && !is_tail(n)) || has_kids {
                     continue;
                 }
-                (node_at(app, sel), true)
+                cands.push((i, n.bytes, selected, bl.route.clone(), bl.route.len() - 1));
             }
-        };
-        let name = label_of(n);
-        let value = size(n.bytes);
-        let glyph = if collected_glyph(app, n).is_some() { 2 } else { 0 };
-        let fits = if geo.bh == 1 {
-            name.width() + 2 + value.width() + glyph <= w
-        } else {
-            name.width() + glyph <= w && value.width() <= w
-        };
-        if fits {
-            continue;
+            Kind::Rest => {
+                // Placed by the size of what it names unselected, so labels do not move as the selection does.
+                let heavy = heavy_end(app, bl);
+                let bytes = node_at(app, &heavy).bytes;
+                let target = if selected { sel.to_vec() } else { heavy };
+                cands.push((i, bytes, selected, target, bl.route.len()));
+            }
         }
-        if bl.kind == Kind::Node
-            && blocks
-                .iter()
-                .any(|o| o.kind != Kind::Thin && o.depth == bl.depth + 1 && parent_of(o) == bl.route)
-        {
-            continue;
-        }
-        cands.push((i, n.bytes, selected, name, value));
     }
-    cands.sort_by(|a, b| b.2.cmp(&a.2).then(b.1.cmp(&a.1)));
+    cands.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
     let mut out: Vec<Drip> = Vec::new();
     let mut taken: Vec<(usize, u16, u16)> = blocks
         .iter()
         .filter(|o| o.kind != Kind::Thin)
         .map(|o| (o.depth, (o.x0.round() as u16).saturating_sub(1), o.x1.round() as u16 + 1))
         .collect();
-    for (i, _, selected, name, value) in cands {
+    for (i, _, selected, target, from) in cands {
         let bl = &blocks[i];
-        let Some((y0, _)) = band_rows(geo, z, bl.depth + 1) else {
+        let Some((top, _)) = band_rows(geo, z, bl.depth + 1) else {
             continue;
         };
+        let n = node_at(app, &target);
+        let name = label_of(n);
+        let value = size(n.bytes);
+        let glyph = collected_glyph(app, n);
+        let gw = if glyph.is_some() { 2 } else { 0 };
+        let segs_all: Vec<String> = (from + 1..target.len())
+            .map(|d| label_of(node_at(app, &target[..d])))
+            .collect();
         let two_rows = geo.bh >= 2;
-        // Two cells for the leader that ties the label to its block.
-        let width = 2 + if two_rows {
-            name.width().max(value.width())
-        } else {
-            name.width() + 2 + value.width()
-        } as u16;
-        let depth = bl.depth + 1;
-        let free = |x: u16| {
-            let x_end = x + width;
-            x >= geo.mx
-                && x_end <= geo.mx + geo.w
-                && !taken.iter().any(|&(d, a, b)| d == depth && a < x_end + 1 && x < b)
+        let need = |path: &str| -> u16 {
+            2 + gw
+                + if two_rows {
+                    (path.width() + name.width()).max(value.width())
+                } else {
+                    path.width() + name.width() + 2 + value.width()
+                } as u16
         };
-        // Under the block's left edge, else ending under its right edge.
         let left = bl.x0.round() as u16;
-        let right = (bl.x1.round() as u16).saturating_sub(width);
-        let Some(x) = [left, right].into_iter().find(|&x| free(x)) else {
+        let right_lead = (bl.x1.round() as u16).saturating_sub(1);
+        let clear = |depth: usize, x: u16, x_end: u16| {
+            !taken.iter().any(|&(d, a, b)| d == depth && a < x_end && x < b)
+        };
+        // The full path first, as far as three bands down, then shorter paths
+        // (from the top) until the label fits beside its neighbours. A leader
+        // passing a band needs its column free there.
+        let mut placed = None;
+        'search: for cut in 0..=segs_all.len() {
+            let path = match cut {
+                0 => segs_all.concat(),
+                c => format!("…/{}", segs_all[c..].concat()),
+            };
+            let width = need(&path);
+            for k in 1..=3 {
+                let depth = bl.depth + k;
+                let Some((y0, _)) = band_rows(geo, z, depth) else {
+                    break;
+                };
+                for (x, lead) in [(left, left), (right_lead.saturating_sub(width - 1), right_lead)] {
+                    let x_end = x + width;
+                    let fits = x >= geo.mx
+                        && x_end <= geo.mx + geo.w
+                        && clear(depth, x, x_end + 1)
+                        && (bl.depth + 1..depth).all(|d| clear(d, lead, lead + 1));
+                    if fits {
+                        placed = Some((x, lead, width, path.clone(), depth, y0));
+                        break 'search;
+                    }
+                }
+            }
+        }
+        let Some((x, lead, width, path, depth, y0)) = placed else {
             continue;
         };
-        let lead = if x == left { left } else { bl.x1.round() as u16 - 1 };
-        let x_end = x + width;
-        taken.push((depth, x, x_end + 1));
+        for d in bl.depth + 1..depth {
+            taken.push((d, lead, lead + 1));
+        }
+        // Two blank cells between neighbouring labels, so they never read as one.
+        taken.push((depth, x.saturating_sub(2), x + width + 2));
         out.push(Drip {
             block: i,
             lead,
+            lead_top: geo.my + top as u16 - 1,
             x,
             y: geo.my + y0 as u16,
+            path,
             name,
             value,
+            glyph,
             two_rows,
             selected,
         });
@@ -1023,11 +1182,11 @@ fn label(b: &mut Buffer, x: u16, y: u16, w: u16, s: &str, fg: Color, bg: Color, 
     if s.ends_with('/') && sw <= w && sw > 1 {
         let cell = &mut b[(x + sw - 1, y)];
         cell.set_fg(lerp(fg, bg, 0.5));
-        cell.set_style(Style::default().remove_modifier(ratatui::style::Modifier::BOLD));
+        cell.set_style(Style::default().remove_modifier(Modifier::BOLD));
     }
 }
 
-fn outline(b: &mut Buffer, r: Rect, fg: Color) {
+fn outline(b: &mut Buffer, r: Rect, fg: Color, dashed: bool) {
     if r.width < 2 || r.height < 2 {
         return;
     }
@@ -1037,14 +1196,15 @@ fn outline(b: &mut Buffer, r: Rect, fg: Color) {
             b[(x, y)].set_symbol(s).set_fg(fg);
         }
     };
+    let (hz, vt) = if dashed { ("╌", "┆") } else { ("─", "│") };
     let (x1, y1) = (r.right() - 1, r.bottom() - 1);
     for x in r.x + 1..x1 {
-        put(x, r.y, "─");
-        put(x, y1, "─");
+        put(x, r.y, hz);
+        put(x, y1, hz);
     }
     for y in r.y + 1..y1 {
-        put(r.x, y, "│");
-        put(x1, y, "│");
+        put(r.x, y, vt);
+        put(x1, y, vt);
     }
     put(r.x, r.y, "╭");
     put(x1, r.y, "╮");
@@ -1063,9 +1223,8 @@ fn draw_thin(b: &mut Buffer, app: &App, bl: &Blk, r: Rect, c: Color, bg: Color) 
     let value = size(node.bytes);
     let fg = if bl.route.is_empty() { MUTED } else { lerp(c, FG, 0.25) };
     let vfg = if bl.route.is_empty() { MUTED } else { lerp(c, MUTED, 0.4) };
-    let room = r.width.saturating_sub(2);
     let mut x = r.x + 1;
-    if crumbs.width() + name.width() + value.width() + 4 <= room as usize {
+    if crumbs.width() + name.width() + value.width() + 4 <= r.width.saturating_sub(2) as usize {
         text(b, x, r.y, crumbs.width() as u16, &crumbs, lerp(MUTED, bg, 0.3), bg, false);
         x += crumbs.width() as u16;
     }
@@ -1091,9 +1250,7 @@ fn draw_node(
 ) {
     let node = node_at(app, &bl.route);
     let name = label_of(node);
-    // Fewer than three letters of a name say nothing: such a block stays plain.
-    let inside = inside && (r.width >= 4 || name.width() <= r.width as usize);
-    if r.width < 2 {
+    if r.width < 3 {
         return;
     }
     let value = size(node.bytes);
@@ -1111,67 +1268,43 @@ fn draw_node(
     let bold = selected || bl.depth == 1;
     // Tall blocks carry the collected mark in their free bottom row, so it never costs the name.
     let low = r.height >= 3;
-    let gw = if glyph.is_some() && r.width >= 4 && !low { 2 } else { 0 };
+    let gw = if glyph.is_some() && !low { 2 } else { 0 };
     let pad = if r.width as usize >= name.width() + 2 + gw as usize { 1 } else { 0 };
     let x = r.x + pad;
     let room = r.width - pad;
-    if inside && r.height == 1 {
-        let both = name.width() + 2 + value.width();
+    if inside {
         label(b, x, r.y, room - gw, &name, name_fg, bg, bold);
-        if both + 1 + gw as usize <= room as usize {
-            text(b, x + name.width() as u16 + 2, r.y, value.width() as u16, &value, value_fg, bg, false);
-        }
-    } else if inside {
-        label(b, x, r.y, room - gw, &name, name_fg, bg, bold);
-        if value.width() + pad as usize <= room as usize {
-            text(b, x, r.y + 1, room, &value, value_fg, bg, false);
-        } else if r.height >= 3 {
-            let (num, unit) = value.split_once(' ').unwrap_or((&value, ""));
-            if num.width().max(unit.width()) <= room as usize {
-                text(b, x, r.y + 1, room, num, value_fg, bg, false);
-                text(b, x, r.y + 2, room, unit, value_fg, bg, false);
+        let vw = value.width() as u16;
+        if r.height == 1 {
+            // One row: the size follows the name when both fit whole.
+            let at = x + name.width() as u16 + 2;
+            if at + vw + gw < r.right() {
+                text(b, at, r.y, vw, &value, value_fg, bg, false);
             }
+        } else if vw <= room {
+            text(b, x, r.y + 1, room, &value, value_fg, bg, false);
         }
     }
     if let Some((g, fg)) = glyph {
-        if low && r.width >= 2 {
-            let (gx, gy) = (r.right() - 2, r.y + 2);
-            if b[(gx, gy)].symbol() == " " && (gx == r.x || b[(gx - 1, gy)].symbol() == " ") {
-                text(b, gx, gy, 1, g, fg, bg, true);
-            }
-        } else if gw > 0 {
+        if low {
+            text(b, r.right() - 2, r.y + 2, 1, g, fg, bg, true);
+        } else if gw > 0 && room > gw {
             text(b, r.right() - 2, r.y, 1, g, fg, bg, true);
         }
     }
 }
 
-fn draw_rest(b: &mut Buffer, app: &App, bl: &Blk, r: Rect, c: Color, bg: Color, selected: Option<usize>) {
-    let parent = node_at(app, &bl.route);
-    if let Some(i) = selected {
-        let n = &parent.children[i];
-        let name = label_of(n);
-        let pad = if r.width as usize >= name.width() + 2 { 1 } else { 0 };
-        if r.width >= 2 {
-            text(b, r.x + pad, r.y, r.width - pad, &name, FG, bg, true);
-            let value = size(n.bytes);
-            if r.height >= 2 && value.width() + pad as usize <= r.width as usize {
-                text(b, r.x + pad, r.y + 1, r.width - pad, &value, lerp(c, FG, 0.5), bg, false);
-            }
-        }
-        return;
-    }
-    let tag = format!("+{}", bl.members.len());
-    if tag.width() + 2 < r.width as usize {
-        let pad = if r.width as usize >= tag.width() + 2 { 1 } else { 0 };
-        text(b, r.x + pad, r.y, tag.width() as u16, &tag, lerp(MUTED, bg, 0.35), bg, false);
+fn draw_tag(b: &mut Buffer, tag: &str, r: Rect, bg: Color) {
+    if tag.width() + 2 <= r.width as usize {
+        text(b, r.x + 1, r.y, tag.width() as u16, tag, lerp(MUTED, bg, 0.3), bg, false);
     }
 }
 
 /// The selection's folder, largest first: the exact numbers the bands cannot print.
-fn draw_list(b: &mut Buffer, app: &App, x: u16, y: u16, w: u16, rows: u16) {
+fn draw_list(b: &mut Buffer, app: &App, x: u16, y: u16, w: u16, rows: u16, title_y: u16) {
     let parent = app.current();
     let title = format!(" IN {} ", label_of(parent));
-    text(b, x, 7, w, &title, FG, BG, true);
+    text(b, x, title_y, w, &title, FG, BG, true);
     let n = parent.children.len();
     if n == 0 {
         text(b, x + 2, y, w - 2, "Nothing here", MUTED, BG, false);
@@ -1261,7 +1394,9 @@ fn draw_detail(b: &mut Buffer, app: &App, sel: &[usize], w: u16, h: u16) {
         PANEL,
         false,
     );
-    let kind = if n.is_symlink {
+    let kind = if is_tail(n) {
+        "gathered small items"
+    } else if n.is_symlink {
         "symbolic link"
     } else if n.is_dir {
         "folder"
@@ -1277,7 +1412,7 @@ fn draw_detail(b: &mut Buffer, app: &App, sel: &[usize], w: u16, h: u16) {
             "{}  ·  {} files{}{}",
             kind,
             n.files,
-            if n.is_dir && !n.children.is_empty() { "  ·  ↵ open" } else { "" },
+            if is_folder(n) { "  ·  ↵ open" } else { "" },
             if w >= 80 { "  ·  t move to Trash" } else { "" }
         ),
         MUTED,
@@ -1299,7 +1434,7 @@ fn draw_help(f: &mut Frame, w: u16, h: u16) {
     );
     f.render_widget(
         Paragraph::new(
-            "← / → or h / l    Along the level, across folders\n↓ or j            Down into the largest child, or back\n                  down the way you came up\n↑ or k            Up to the parent\nEnter             Open: the folder fills the width\nBackspace         Back out: undo the last open, or\n                  climb a level when nothing is open\nHome / End        First / last on this level\nSpace             Collect / uncollect for Trash\nc                 Review collector, t moves it to Trash\nt                 Move selected entry to system Trash\nd                 Delete selected entry permanently\nr                 Rescan root (Esc cancels)\n?  ·  q / Esc     This help  ·  quit (or close dialog)\n\nWidth is allocated bytes; each band is one level deeper.\n+N gathers items too narrow to draw: ↵ opens them wide.",
+            "← / → or h / l    Along the level, one block at a time\n↓ or j            Down into the largest child, or back\n                  down the way you came up\n↑ or k            Up to the parent\nEnter             Open: the folder fills the width\nBackspace         Back out: undo the last open, or\n                  climb a level when nothing is open\nHome / End        First / last on this level\nSpace             Collect / uncollect for Trash\nc                 Review collector, t moves it to Trash\nt · d             Trash / delete the selected entry\nr                 Rescan root (Esc cancels)\n?  ·  q / Esc     This help  ·  quit (or close dialog)\n\nWidth is allocated bytes; each band is one level deeper.\n+N gathers items too narrow to draw; its label names the\nbiggest one. ↓ or ↵ on it opens the group wide.",
         )
         .style(Style::default().fg(FG).bg(PANEL)),
         Rect::new(r.x + 2, r.y + 1, r.width - 4, r.height - 2),

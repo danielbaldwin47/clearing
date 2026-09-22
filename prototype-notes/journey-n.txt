@@ -1,5 +1,6 @@
 # name columns rows keys (tmux key names, comma-separated; - for none)
-# Variant N (icicle): ←→ along a level, ↑↓ up/down a level, Enter zooms, Backspace zooms out.
+# Variant N (icicle): ←→ along a level (one stop per block, +N is one stop), ↑↓ up/down a level,
+# Enter opens (fills the width), Backspace backs out.
 root-140x44 140 44 -
 root-100x30 100 30 -
 second-140x44 140 44 Right
@@ -11,8 +12,17 @@ cache-140x44 140 44 Right,Right,Right,Enter
 cache-100x30 100 30 Right,Right,Right,Enter
 # Added scenes
 deps-collect-140x44 140 44 Down,Down,Down,Down,Space
-gustav-140x44 140 44 Down,Down,Down,Down,Right,Right,Right,Space
+gustav-140x44 140 44 Down,Down,Down,Down,Right,Space
+gustav-launch-140x44 140 44 Right,Down,Down,Down,Down,Space
+overlay-140x44 140 44 Right,Down,Right,Space
+overlay-open-140x44 140 44 Right,Down,Right,Enter
 atlas-zoom-140x44 140 44 Enter,Enter
 deps-100x30 100 30 Down,Down,Down,Down
-cache-walk-140x44 140 44 Right,Right,Right,Enter,Down,End
-deep-80x24 80 24 Down,Down,Down,Down
+deep-80x24 80 24 Right,Down,Down,Down,Down
+deep-60x20 60 20 Right,Down,Down,Down,Down
+# Critic's sequences
+t2-sideways-140x44 140 44 Down,Down,Down,Down,Up,Right,Right,Right
+plus37-140x44 140 44 Right,Right,Right,Down
+plus37-open-140x44 140 44 Right,Right,Right,Down,Enter
+smaller-140x44 140 44 Enter,End,Enter
+file-down-140x44 140 44 Right,Right,Right,Right,Right,Down,Down
