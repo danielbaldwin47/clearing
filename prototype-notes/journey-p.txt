@@ -1,0 +1,10 @@
+# name columns rows keys (tmux key names, comma-separated; - for none)
+# Required scenes; rewrite the keys for your variant's own navigation.
+root-140x44 140 44 -
+root-100x30 100 30 -
+second-140x44 140 44 Down
+projects-140x44 140 44 Enter
+target-140x44 140 44 Enter,Enter
+back-140x44 140 44 Enter,Enter,BSpace,BSpace
+cache-140x44 140 44 Down,Down,Down,Enter
+cache-100x30 100 30 Down,Down,Down,Enter

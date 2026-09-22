@@ -91,7 +91,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 variant = Some(
                     args.next()
                         .and_then(|v| ui::prototype::Variant::parse(&v.to_string_lossy()))
-                        .ok_or("--variant requires a to l")?,
+                        .ok_or("--variant requires a to i or m to q")?,
                 )
             }
             "--wireframe" => wireframe = true,
@@ -278,6 +278,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
         })?;
         // No worker is running here; input or resize wakes the next redraw.
+        // PROTOTYPE: an animating round 6 variant redraws every 16 ms instead.
+        if proto.ticking() && !event::poll(Duration::from_millis(16))? {
+            continue;
+        }
         let Event::Key(key) = event::read()? else {
             continue;
         };
@@ -464,6 +468,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 _ => {}
             }
+        }
+        // PROTOTYPE, round 6 variants: their own keys come first in browse mode.
+        if !app.review && proto.key(&mut app, key) {
+            continue;
         }
         proto.deep.clear();
         match key.code {

@@ -135,6 +135,50 @@ fn tail(
     }
 }
 
+/// Round 6: a folder whose invented contents sum to `gib`, so deep items exist
+/// without changing any size the earlier rounds were judged on. Each entry is
+/// (name, share of `gib`, is_file); a share of 0.0 takes whatever is left.
+fn deep(name: &str, gib: f64, kind: Kind, files: u64, dirs: u64, parts: Vec<(&str, f64, bool)>) -> Spec {
+    let named: f64 = parts.iter().map(|p| p.1).sum();
+    let blanks = parts.iter().filter(|p| p.1 == 0.0).count().max(1) as f64;
+    let children = parts
+        .into_iter()
+        .map(|(n, share, is_file)| {
+            let share = if share == 0.0 { (1.0 - named) / blanks } else { share };
+            if is_file {
+                file(n, gib * share, kind)
+            } else {
+                leaf(
+                    n,
+                    gib * share,
+                    kind,
+                    ((files as f64 * share) as u64).max(1),
+                    ((dirs as f64 * share) as u64).max(1),
+                )
+            }
+        })
+        .collect();
+    folder(name, kind, children)
+}
+/// `deep` with one level more: `sub` replaces the named child with its own parts.
+fn deeper(mut spec: Spec, sub: Spec) -> Spec {
+    if let Some(c) = spec.children.iter_mut().find(|c| c.name == sub.name) {
+        let gib = c.gib;
+        let total: f64 = leaf_gib(&sub);
+        let scale = gib / total;
+        *c = scale_spec(sub, scale);
+    }
+    spec
+}
+fn leaf_gib(s: &Spec) -> f64 {
+    if s.children.is_empty() { s.gib } else { s.children.iter().map(leaf_gib).sum() }
+}
+fn scale_spec(mut s: Spec, k: f64) -> Spec {
+    s.gib *= k;
+    s.children = s.children.into_iter().map(|c| scale_spec(c, k)).collect();
+    s
+}
+
 fn home() -> Spec {
     // `.cache`: the six folders the mock-up names, then 31 real smaller ones
     // summing to the mock-up's 8.8 GiB, from gigabytes down to a few KiB.
@@ -169,11 +213,14 @@ fn home() -> Spec {
         ("wal", 2.0),
     ];
     let mut cache = vec![
-        leaf("mozilla", 9.8, Regen, 96_000, 5_100),
+        deep("mozilla", 9.8, Regen, 96_000, 5_100, vec![("firefox", 1.0, false)]),
         leaf("pip", 7.7, Regen, 31_000, 9_800),
         leaf("yay", 6.1, Regen, 18_500, 2_300),
         leaf("JetBrains", 5.9, Regen, 22_000, 3_900),
-        leaf("huggingface", 5.2, Regen, 1_900, 410),
+        deeper(
+            deep("huggingface", 5.2, Regen, 1_900, 410, vec![("hub", 1.0, false)]),
+            deep("hub", 5.2, Regen, 1_900, 410, vec![("models--meta-llama--Llama-3-8B", 0.62, false), ("models--openai--whisper-large", 0.28, false), ("datasets--squad", 0.0, false)]),
+        ),
         leaf("go-build", 4.4, Regen, 61_000, 257),
     ];
     let tiny = [
@@ -209,7 +256,10 @@ fn home() -> Spec {
                         "atlas",
                         Regen,
                         vec![
-                            leaf("target", 41.8, Regen, 184_000, 9_200),
+                            deeper(
+                                deep("target", 41.8, Regen, 184_000, 9_200, vec![("debug", 0.70, false), ("release", 0.0, false)]),
+                                deep("debug", 29.26, Regen, 150_000, 7_000, vec![("deps", 0.63, false), ("incremental", 0.27, false), ("build", 0.0, false)]),
+                            ),
                             leaf(".git", 6.2, Code, 41_000, 310),
                             leaf("assets", 3.0, Media, 1_240, 38),
                             leaf("src", 1.1, Code, 2_900, 210),
@@ -219,7 +269,7 @@ fn home() -> Spec {
                         "webshop",
                         Regen,
                         vec![
-                            leaf("node_modules", 18.9, Regen, 512_000, 61_000),
+                            deep("node_modules", 18.9, Regen, 512_000, 61_000, vec![("@next", 0.31, false), ("@swc", 0.20, false), ("esbuild", 0.13, false), ("sharp", 0.07, false), ("typescript", 0.06, false), ("@img", 0.05, false), ("playwright-core", 0.04, false), ("lodash", 0.0, false), ("react-dom", 0.0, false), ("webpack", 0.0, false), ("@babel", 0.0, false), ("caniuse-lite", 0.0, false)]),
                             leaf(".next", 7.4, Regen, 21_500, 1_900),
                             leaf("media", 4.1, Media, 860, 24),
                             leaf("src", 1.2, Code, 3_400, 420),
@@ -229,7 +279,7 @@ fn home() -> Spec {
                         "ml-notebooks",
                         Data,
                         vec![
-                            leaf("data", 14.0, Data, 5_200, 64),
+                            deep("data", 14.0, Data, 5_200, 64, vec![("imagenet-subset.tar", 0.44, true), ("processed", 0.35, false), ("raw", 0.0, false)]),
                             leaf(".venv", 6.9, Regen, 78_000, 7_900),
                             leaf("runs", 1.4, Data, 9_600, 480),
                         ],
@@ -264,12 +314,21 @@ fn home() -> Spec {
                         "Steam",
                         Apps,
                         vec![
-                            leaf("Baldurs Gate 3", 38.6, Apps, 12_400, 1_150),
-                            leaf("Factorio", 12.2, Apps, 8_900, 720),
+                            deeper(
+                                deep("Baldurs Gate 3", 38.6, Apps, 12_400, 1_150, vec![("Data", 0.935, false), ("bin", 0.0, false)]),
+                                deep("Data", 36.09, Apps, 11_000, 900, vec![("Gustav.pak", 0.43, true), ("Textures.pak", 0.27, true), ("VirtualTextures.pak", 0.17, true), ("Models.pak", 0.0, true), ("Localization", 0.0, false)]),
+                            ),
+                            deep("Factorio", 12.2, Apps, 8_900, 720, vec![("data", 0.78, false), ("saves", 0.15, false), ("bin", 0.0, false)]),
                             leaf("shadercache", 10.4, Regen, 64_000, 96),
                         ],
                     ),
-                    leaf("containers", 19.5, Data, 410_000, 52_000),
+                    deeper(
+                        deep("containers", 19.5, Data, 410_000, 52_000, vec![("storage", 1.0, false)]),
+                        deeper(
+                            deep("storage", 19.5, Data, 410_000, 52_000, vec![("overlay", 0.91, false), ("volumes", 0.0, false)]),
+                            deep("overlay", 17.75, Data, 380_000, 48_000, vec![("3f9c1e7a0b52", 0.38, false), ("a81d0c44e6f9", 0.24, false), ("7be2f90d13c8", 0.16, false), ("c0ffee51d2aa", 0.09, false), ("e4d5a6b7c8d9", 0.0, false), ("51a2b3c4d5e6", 0.0, false), ("0a9b8c7d6e5f", 0.0, false)]),
+                        ),
+                    ),
                     tail(
                         12,
                         5.3,
@@ -305,10 +364,10 @@ fn home() -> Spec {
                         vec![
                             file("2024-trip.mov", 22.1, Media),
                             file("interview-a.mov", 14.2, Media),
-                            leaf("b-roll", 11.7, Media, 214, 6),
+                            deep("b-roll", 11.7, Media, 214, 6, vec![("harbour-wide.mov", 0.34, true), ("market-2.mov", 0.22, true), ("drone-cliffs.mov", 0.18, true), ("street-night.mov", 0.0, true), ("rain-window.mov", 0.0, true), ("crowd.mov", 0.0, true)]),
                         ],
                     ),
-                    leaf("exports", 12.9, Media, 86, 4),
+                    deep("exports", 12.9, Media, 86, 4, vec![("trip-final-4k.mp4", 0.46, true), ("trip-final-1080.mp4", 0.19, true), ("interview-cut.mp4", 0.15, true), ("teaser.mp4", 0.0, true), ("stills", 0.0, false)]),
                     tail(
                         5,
                         3.8,
@@ -357,8 +416,8 @@ fn home() -> Spec {
                 ],
             ),
             folder("VMs", Archive, vec![file("win11.qcow2", 28.0, Archive)]),
-            leaf("Documents", 5.6, Code, 14_800, 1_250),
-            leaf("Pictures", 4.2, Media, 9_700, 310),
+            deep("Documents", 5.6, Code, 14_800, 1_250, vec![("taxes", 0.34, false), ("thesis", 0.27, false), ("scans", 0.21, false), ("notes", 0.0, false), ("letters", 0.0, false)]),
+            deep("Pictures", 4.2, Media, 9_700, 310, vec![("2025", 0.46, false), ("2024", 0.31, false), ("Screenshots", 0.0, false), ("wallpapers", 0.0, false)]),
             tail(
                 14,
                 0.9,

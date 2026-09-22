@@ -42,9 +42,11 @@ pub enum Variant {
     G,
     H,
     I,
-    J,
-    K,
-    L,
+    M,
+    N,
+    O,
+    P,
+    Q,
 }
 impl Variant {
     pub fn parse(s: &str) -> Option<Self> {
@@ -58,9 +60,11 @@ impl Variant {
             "g" | "G" => Some(Variant::G),
             "h" | "H" => Some(Variant::H),
             "i" | "I" => Some(Variant::I),
-            "j" | "J" => Some(Variant::J),
-            "k" | "K" => Some(Variant::K),
-            "l" | "L" => Some(Variant::L),
+            "m" | "M" => Some(Variant::M),
+            "n" | "N" => Some(Variant::N),
+            "o" | "O" => Some(Variant::O),
+            "p" | "P" => Some(Variant::P),
+            "q" | "Q" => Some(Variant::Q),
             _ => None,
         }
     }
@@ -112,10 +116,12 @@ impl Proto {
             Variant::F => Variant::G,
             Variant::G => Variant::H,
             Variant::H => Variant::I,
-            Variant::I => Variant::J,
-            Variant::J => Variant::K,
-            Variant::K => Variant::L,
-            Variant::L => Variant::A,
+            Variant::I => Variant::M,
+            Variant::M => Variant::N,
+            Variant::N => Variant::O,
+            Variant::O => Variant::P,
+            Variant::P => Variant::Q,
+            Variant::Q => Variant::A,
         }
     }
     /// The mock-up's state: three collected items and the nested selection.
@@ -196,6 +202,34 @@ fn selected_node<'a>(app: &'a App, proto: &Proto) -> Option<&'a Node> {
     Some(node)
 }
 
+impl Proto {
+    /// Round 6 variants (M to Q) own some keys in browse mode; true means the
+    /// variant consumed the key.
+    pub fn key(&self, app: &mut App, key: crossterm::event::KeyEvent) -> bool {
+        match self.variant {
+            Variant::M => super::proto_m::key(app, key),
+            Variant::N => super::proto_n::key(app, key),
+            Variant::O => super::proto_o::key(app, key),
+            Variant::P => super::proto_p::key(app, key),
+            Variant::Q => super::proto_q::key(app, key),
+            _ => false,
+        }
+    }
+
+    /// True while a round 6 variant animates: the loop then redraws about
+    /// every 16 ms instead of waiting for input.
+    pub fn ticking(&self) -> bool {
+        match self.variant {
+            Variant::M => super::proto_m::ticking(),
+            Variant::N => super::proto_n::ticking(),
+            Variant::O => super::proto_o::ticking(),
+            Variant::P => super::proto_p::ticking(),
+            Variant::Q => super::proto_q::ticking(),
+            _ => false,
+        }
+    }
+}
+
 pub fn draw(f: &mut Frame, app: &App, proto: &Proto) {
     match proto.variant {
         Variant::A => view::draw(f, app),
@@ -207,9 +241,11 @@ pub fn draw(f: &mut Frame, app: &App, proto: &Proto) {
         Variant::G => super::proto_g::draw(f, app),
         Variant::H => super::proto_h::draw(f, app),
         Variant::I => super::proto_i::draw(f, app),
-        Variant::J => super::proto_j::draw(f, app),
-        Variant::K => super::proto_k::draw(f, app),
-        Variant::L => super::proto_l::draw(f, app),
+        Variant::M => super::proto_m::draw(f, app),
+        Variant::N => super::proto_n::draw(f, app),
+        Variant::O => super::proto_o::draw(f, app),
+        Variant::P => super::proto_p::draw(f, app),
+        Variant::Q => super::proto_q::draw(f, app),
     }
     // So nobody mistakes either variant for the product.
     let area = f.area();
@@ -223,9 +259,11 @@ pub fn draw(f: &mut Frame, app: &App, proto: &Proto) {
         Variant::G => ("PROTOTYPE · variant G (shared walls) · F2 switches", hex(0x10141a)),
         Variant::H => ("PROTOTYPE · variant H (bricks and mortar) · F2 switches", hex(0x10141a)),
         Variant::I => ("PROTOTYPE · variant I (frames and fills) · F2 switches", hex(0x10141a)),
-        Variant::J => ("PROTOTYPE · variant J (G walls, H tones) · F2 switches", hex(0x10141a)),
-        Variant::K => ("PROTOTYPE · variant K (H, files framed) · F2 switches", hex(0x10141a)),
-        Variant::L => ("PROTOTYPE · variant L (synthesis) · F2 switches", hex(0x10141a)),
+        Variant::M => ("PROTOTYPE · variant M (columns) · F2 switches", hex(0x10141a)),
+        Variant::N => ("PROTOTYPE · variant N (icicle) · F2 switches", hex(0x10141a)),
+        Variant::O => ("PROTOTYPE · variant O (outline) · F2 switches", hex(0x10141a)),
+        Variant::P => ("PROTOTYPE · variant P (atlas) · F2 switches", hex(0x10141a)),
+        Variant::Q => ("PROTOTYPE · variant Q (hotlist) · F2 switches", hex(0x10141a)),
     };
     let width = label.chars().count() as i32;
     if area.width as i32 > width + 4 && area.height > 1 {
