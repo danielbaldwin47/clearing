@@ -1,10 +1,23 @@
 # name columns rows keys (tmux key names, comma-separated; - for none)
-# Required scenes; rewrite the keys for your variant's own navigation.
+# Variant M, columns. Launch selects ~/Projects (the sample's start). → opens the
+# selected folder and selects what its preview column had lit (its largest
+# child the first time); ← goes back to the folder you came from. Tab jumps to
+# the first ↳ (buried item) inside the selection; Shift-Tab (BTab) jumps back.
 root-140x44 140 44 -
 root-100x30 100 30 -
 second-140x44 140 44 Down
-projects-140x44 140 44 Enter
-target-140x44 140 44 Enter,Enter
-back-140x44 140 44 Enter,Enter,BSpace,BSpace
-cache-140x44 140 44 Down,Down,Down,Enter
-cache-100x30 100 30 Down,Down,Down,Enter
+projects-140x44 140 44 Right
+atlas-140x44 140 44 Right,Right
+target-140x44 140 44 Right,Right,Right,Right
+back-140x44 140 44 Right,Right,Right,Right,Left,Left,Left,Left
+cache-140x44 140 44 Down,Down,Down,Right
+cache-100x30 100 30 Down,Down,Down,Right
+cache-end-140x44 140 44 Down,Down,Down,Right,End
+gustav-140x44 140 44 Down,Right,Right,Right,Right,Space
+file-140x44 140 44 Down,Down,Right,Right
+remember-140x44 140 44 Right,Down,Left
+small-60x20 60 20 Right,Right
+jump-deps-140x44 140 44 Tab
+jump-gustav-140x44 140 44 Down,Tab,Space
+jump-back-140x44 140 44 Down,Tab,Left,Left,Left,Left
+jump-return-140x44 140 44 Down,Tab,BTab

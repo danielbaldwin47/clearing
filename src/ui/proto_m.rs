@@ -1,22 +1,140 @@
-//! PROTOTYPE (ticket #3), variant M: columns (round 6). Starts as a copy of variant G; throwaway.
-#![allow(dead_code)]
+//! PROTOTYPE (ticket #3), variant M: proportional Miller columns, one per level of the path (round 6); throwaway.
+//!
+//! Every column is a folder drawn as a stack of slabs whose heights follow
+//! bytes. Ancestors sit on the left, the focus column in the middle, and on the
+//! right the selected item's contents, then that item's heaviest path. The
+//! selected slab of each column is joined to the next column by a funnel.
 use super::{
     App,
     confirm::draw_confirm,
     foundation::*,
     review::{collector_status, draw_review, draw_trash_confirm},
 };
-use crate::{collector::Mark, theme::*};
+use crate::{collector::Mark, scan::Node, theme::*};
+use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
     buffer::Buffer,
     layout::Rect,
     style::{Color, Style},
-    widgets::{Block, Borders, Clear, Paragraph, Widget},
+    widgets::{Block, Borders, Clear, Paragraph},
+};
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    sync::{LazyLock, Mutex},
+    time::{Duration, Instant},
 };
 use unicode_width::UnicodeWidthStr;
 
-const NARROW_MAP_WIDTH: u16 = 80;
+/// Cells between two columns; the funnel is drawn in them.
+const GAP: u16 = 3;
+/// Narrowest column that still names `node_modules/  18.9 GiB` whole.
+const MIN_COL: u16 = 28;
+/// The one-column shift after → or ←.
+const SLIDE: Duration = Duration::from_millis(260);
+
+#[derive(Default)]
+struct State {
+    /// First chain index shown and the column count, as last drawn.
+    win: Option<(usize, usize)>,
+    /// Last selection per folder: → returns to it and previews show it.
+    memory: HashMap<PathBuf, usize>,
+    /// First child shown per folder, for columns taller than the screen.
+    first: HashMap<PathBuf, usize>,
+    /// A running shift: start and columns moved (+: content moves left).
+    slide: Option<(Instant, i32)>,
+    /// Where each Tab jump started (route, selection, back stack), for Shift-Tab.
+    jumps: Vec<(Vec<usize>, usize, Vec<usize>)>,
+}
+static STATE: LazyLock<Mutex<State>> = LazyLock::new(|| Mutex::new(State::default()));
+
+/// Keys this variant owns in browse mode; true means consumed. Everything
+/// else falls through to the app's own keys.
+pub fn key(app: &mut App, key: KeyEvent) -> bool {
+    let Ok(mut st) = STATE.lock() else {
+        return false;
+    };
+    // Any key finishes a running shift at once.
+    st.slide = None;
+    let len = app.current().children.len();
+    let step = |app: &mut App, delta: isize| {
+        if len > 0 {
+            app.selected = (app.selected as isize + delta).clamp(0, len as isize - 1) as usize;
+        }
+    };
+    match key.code {
+        KeyCode::Up | KeyCode::Char('k') => step(app, -1),
+        KeyCode::Down | KeyCode::Char('j') => step(app, 1),
+        KeyCode::PageUp => step(app, -8),
+        KeyCode::PageDown => step(app, 8),
+        KeyCode::Right | KeyCode::Enter | KeyCode::Char('l') => {
+            st.memory.insert(app.current().path.clone(), app.selected);
+            let before = app.route.len();
+            app.drill();
+            if app.route.len() > before
+                && let Some(&i) = st.memory.get(&app.current().path)
+                && i < app.current().children.len()
+            {
+                app.selected = i;
+            }
+        }
+        KeyCode::Tab => {
+            // Jump to the first thing buried in the selection, drilling the whole way.
+            let Some(route) = app.selection().and_then(|n| buried(n).into_iter().next()).map(|b| b.route) else {
+                if let Some(n) = app.selection() {
+                    app.message = format!("Nothing buried in {}: its largest item is in plain view", n.name);
+                }
+                return true;
+            };
+            st.jumps.push((app.route.clone(), app.selected, app.previous.clone()));
+            st.memory.insert(app.current().path.clone(), app.selected);
+            app.drill();
+            for (j, &i) in route.iter().enumerate() {
+                app.selected = i;
+                if j + 1 < route.len() {
+                    st.memory.insert(app.current().path.clone(), i);
+                    app.drill();
+                }
+            }
+        }
+        KeyCode::BackTab => {
+            // Back to where the last Tab jump started.
+            let here = app.current().path.clone();
+            st.memory.insert(here, app.selected);
+            if let Some((route, selected, previous)) = st.jumps.pop() {
+                let mut node = &app.root;
+                let valid = route.iter().all(|&i| match node.children.get(i) {
+                    Some(c) => {
+                        node = c;
+                        true
+                    }
+                    None => false,
+                });
+                if valid && selected < node.children.len() {
+                    app.route = route;
+                    app.selected = selected;
+                    app.previous = previous;
+                    app.message.clear();
+                }
+            }
+        }
+        KeyCode::Left | KeyCode::Backspace | KeyCode::Char('h') => {
+            st.memory.insert(app.current().path.clone(), app.selected);
+            app.back();
+        }
+        _ => return false,
+    }
+    true
+}
+
+/// True while this variant animates, so the loop redraws every 16 ms.
+pub fn ticking() -> bool {
+    STATE
+        .lock()
+        .map(|st| st.slide.is_some_and(|(t0, d)| t0.elapsed() < slide_for(d)))
+        .unwrap_or(false)
+}
 
 pub fn draw(f: &mut Frame, app: &App) {
     let area = f.area();
@@ -26,49 +144,111 @@ pub fn draw(f: &mut Frame, app: &App) {
     fill(b, area, BG);
     if w < 60 || h < 20 {
         if w > 4 && h > 3 {
-            text(
-                b,
-                2,
-                2,
-                w - 4,
-                "Resize to at least 60 × 20 · q quit",
-                FG,
-                BG,
-                true,
-            )
+            text(b, 2, 2, w - 4, "Resize to at least 60 × 20 · q quit", FG, BG, true)
         }
         return;
     }
+    let rule_y = header(b, app, w, h < 28);
+    columns(b, app, w, rule_y, if h < 28 { rule_y + 1 } else { rule_y + 2 }, h - 8);
+    detail(b, app, w, h);
+    let footer = if !app.message.is_empty() {
+        app.message.clone()
+    } else if w < 80 {
+        "↑↓ move  → open  ← back  Space collect  c review  ? help".into()
+    } else if w < 108 {
+        "↑↓ move  → open  ← back  Tab ↳  Space collect  c review  t Trash  d delete  ? help".into()
+    } else {
+        "↑↓ choose   → open   ← back   Tab jump to ↳   ⇧Tab jump back   Space collect   c review   t Trash   d delete   ? help".into()
+    };
+    text(b, 2, h - 2, w - 4, footer, MUTED, BG, false);
+    let node = app.current();
+    if node.errors > 0 {
+        text(
+            b,
+            2,
+            h - 1,
+            w - 4,
+            format!(
+                "{} {} inaccessible · partial results · r rescan",
+                node.errors,
+                if node.errors == 1 { "entry" } else { "entries" }
+            ),
+            DANGER,
+            BG,
+            false,
+        );
+    }
+    if app.confirm {
+        draw_confirm(f, app)
+    } else if app.single_trash.is_some() {
+        draw_trash_confirm(f, app);
+    } else if app.review {
+        draw_review(f, app);
+        if app.trash_confirm {
+            draw_trash_confirm(f, app)
+        }
+    } else if app.help {
+        let r = Rect::new((w - 60) / 2, (h - 19) / 2, 60, 19);
+        f.render_widget(Clear, r);
+        f.render_widget(
+            Block::default()
+                .title(" Keys ")
+                .borders(Borders::ALL)
+                .border_type(ratatui::widgets::BorderType::Rounded)
+                .style(Style::default().bg(PANEL).fg(ACCENT)),
+            r,
+        );
+        f.render_widget(
+            Paragraph::new(
+                "↑ / ↓ or k / j        Move within the column\n\
+                 → or Enter or l       Open: columns step one to the left\n\
+                 Tab / Shift-Tab       Jump to the first ↳ inside / back again\n\
+                 ← or Backspace or h   Back, to the folder you came from\n\
+                 Home / End            First / last in the column\n\
+                 PgUp / PgDn           Move eight\n\
+                 Space                 Collect / uncollect for Trash\n\
+                 c                     Review collector, t moves it to Trash\n\
+                 t                     Move selected entry to system Trash\n\
+                 d                     Delete selected entry permanently\n\
+                 r                     Rescan root (Esc cancels)\n\
+                 ?                     Toggle this help\n\
+                 q / Esc               Quit (or close dialog)\n\n\
+                 Slab height = allocated bytes. ↳ names the heaviest\n\
+                 thing deep inside a folder.",
+            )
+            .style(Style::default().fg(FG).bg(PANEL)),
+            Rect::new(r.x + 2, r.y + 1, r.width - 4, r.height - 2),
+        );
+    }
+}
+
+/// The header (variant G's); a two-row version below 28 rows. Returns the rule's row.
+fn header(b: &mut Buffer, app: &App, w: u16, compact: bool) -> u16 {
     let node = app.current();
     let total = size(node.bytes);
     let wide = w >= 110;
-    let spacious_row_height = if h >= 34 {
-        4
-    } else if h >= 25 {
-        3
-    } else {
-        2
-    };
-    let compact = node.children.len() > ((h - 16) / spacious_row_height).max(1) as usize;
-    let side = if compact {
-        (w / 2 + 6).min(46)
-    } else if wide {
-        34
-    } else {
-        24
-    };
-    let list_x = w - side - 2;
+    if compact {
+        let (status, active) = collector_status(app, 30);
+        let right = w.saturating_sub(34);
+        text(b, 2, 0, right.saturating_sub(4), breadcrumb(app), FG, BG, true);
+        text(b, right, 0, 32, format!("{:>32}", total), ACCENT, BG, true);
+        text(
+            b,
+            2,
+            1,
+            right.saturating_sub(4),
+            format!("{} files · {} dirs · {} here", node.files, node.directories, node.children.len()),
+            MUTED,
+            BG,
+            false,
+        );
+        let sw = status.width() as u16;
+        text(b, w - 2 - sw.min(32), 1, 32, status, if active { ACCENT } else { MUTED }, BG, active);
+        hline(b, 2, 2, w - 4, DIM);
+        return 2;
+    }
     let header_width = if wide { w - 73 } else { w - 31 };
-    text(
-        b,
-        2,
-        1,
-        header_width,
-        "D I S K   A L L O C A T I O N",
-        MUTED,
-        BG,
-        false,
-    );
+    text(b, 2, 1, header_width, "D I S K   A L L O C A T I O N", MUTED, BG, false);
     text(b, 2, 3, header_width, breadcrumb(app), FG, BG, true);
     let mut stats = format!(
         "{} files  ·  {} folders  ·  {} here",
@@ -107,16 +287,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         }
         text(b, list_x, 1, side, "COLLECTOR", MUTED, BG, false);
         let (status, active) = collector_status(app, side);
-        text(
-            b,
-            list_x,
-            3,
-            side,
-            status,
-            if active { ACCENT } else { FG },
-            BG,
-            true,
-        );
+        text(b, list_x, 3, side, status, if active { ACCENT } else { FG }, BG, true);
         text(
             b,
             list_x,
@@ -134,739 +305,631 @@ pub fn draw(f: &mut Frame, app: &App) {
     } else {
         text(b, w - 27, 1, 25, &total, ACCENT, BG, true);
         let (status, active) = collector_status(app, 25);
-        text(
-            b,
-            w - 27,
-            3,
-            25,
-            status,
-            if active { ACCENT } else { MUTED },
-            BG,
-            active,
-        );
-        text(
-            b,
-            w - 27,
-            5,
-            25,
-            "Space collect · c review",
-            MUTED,
-            BG,
-            false,
-        );
+        text(b, w - 27, 3, 25, status, if active { ACCENT } else { MUTED }, BG, active);
+        text(b, w - 27, 5, 25, "Space collect · c review", MUTED, BG, false);
     }
     hline(b, 2, 7, w - 4, DIM);
-    let map = Rect::new(2, 9, w - side - 6, h - 16);
-    text(b, 2, 7, 13, " SPACE MAP  ", FG, BG, true);
-    if map.width >= 55 {
-        text(
-            b,
-            17,
-            7,
-            map.width - 15,
-            "area = allocated bytes",
-            MUTED,
-            BG,
-            false,
-        );
-    }
-    text(b, list_x, 7, side, " LARGEST FIRST ", FG, BG, true);
-    let narrow_map = w < NARROW_MAP_WIDTH;
-    draw_cutaway_map(b, map, app);
-    let row_height = if compact { 1 } else { spacious_row_height };
-    let max_rows = (map.height / row_height).max(1) as usize;
-    let start = if app.selected >= max_rows {
-        app.selected - max_rows + 1
-    } else {
-        0
-    };
-    for (i, n) in node.children.iter().enumerate().skip(start).take(max_rows) {
-        let y = map.y + ((i - start) * row_height as usize) as u16;
-        if compact {
-            draw_compact_row(b, Rect::new(list_x, y, side, 1), app, i);
-            continue;
-        }
-        let selected = i == app.selected;
-        let bg = if selected { SURFACE } else { BG };
-        fill(
-            b,
-            Rect::new(list_x, y, side, row_height.saturating_sub(1).max(2)),
-            bg,
-        );
-        let color = color_for(app, i);
-        text(
-            b,
-            list_x,
-            y,
-            3,
-            format!("{:02}", i + 1),
-            if selected { color } else { DIM },
-            bg,
-            true,
-        );
-        let glyph = collected_glyph(app, n);
-        text(
-            b,
-            list_x + 4,
-            y,
-            side - 5 - if glyph.is_some() { 2 } else { 0 },
-            &n.name,
-            if selected { FG } else { MUTED },
-            bg,
-            selected,
-        );
-        if let Some((glyph, fg)) = glyph {
-            text(b, list_x + side - 2, y, 1, glyph, fg, bg, true)
-        }
-        text(
-            b,
-            list_x + 4,
-            y + 1,
-            side - 13,
-            size(n.bytes),
-            color,
-            bg,
-            true,
-        );
-        let pct = percent(n.bytes, node.bytes);
-        text(
-            b,
-            list_x + side - 8,
-            y + 1,
-            7,
-            format!("{:>7}", pct),
-            MUTED,
-            bg,
-            false,
-        );
-        if row_height == 4 {
-            let bar_width = side - 5;
-            let used =
-                (bar_width as f64 * n.bytes as f64 / node.bytes.max(1) as f64).round() as u16;
-            for x in 0..bar_width {
-                text(
-                    b,
-                    list_x + 4 + x,
-                    y + 2,
-                    1,
-                    "▁",
-                    if x < used { color } else { DIM },
-                    bg,
-                    false,
-                )
-            }
-        }
-    }
-    if node.children.len() > max_rows {
-        text(
-            b,
-            list_x,
-            map.bottom(),
-            side,
-            format!(
-                "{}–{} of {}  ·  ↑↓ scroll",
-                start + 1,
-                (start + max_rows).min(node.children.len()),
-                node.children.len()
-            ),
-            MUTED,
-            BG,
-            false,
-        )
-    }
+    7
+}
+
+fn detail(b: &mut Buffer, app: &App, w: u16, h: u16) {
+    let node = app.current();
     let detail = Rect::new(2, h - 6, w - 4, 3);
     fill(b, detail, PANEL);
-    if let Some(n) = app.selection() {
-        let color = color_for(app, app.selected);
-        text(b, 3, h - 6, 1, "▎", color, PANEL, true);
-        // The figures sit flush with the panel's right edge, under the list.
-        let figures = format!("{}  ·  {}", size(n.bytes), percent(n.bytes, node.bytes));
-        let fw = figures.width() as u16;
-        text(b, 5, h - 6, w - 10 - fw, &n.name, FG, PANEL, true);
-        text(b, w - 4 - fw, h - 6, fw, &figures, color, PANEL, true);
-        text(
-            b,
-            5,
-            h - 5,
-            w - 9,
-            tail(
-                &crate::scan::display_path(n.path.as_os_str()),
-                (w - 9) as usize,
-            ),
-            MUTED,
-            PANEL,
-            false,
-        );
-        let kind = if n.is_symlink {
-            "symbolic link"
-        } else if n.is_dir {
-            "folder"
-        } else {
-            "file"
-        };
-        text(
-            b,
-            5,
-            h - 4,
-            w - 9,
-            format!(
-                "{}  ·  {} files{}{}",
-                kind,
-                n.files,
-                if n.is_dir { "  ·  Enter open" } else { "" },
-                if !narrow_map {
-                    "  ·  t move to Trash"
-                } else {
-                    ""
-                }
-            ),
-            MUTED,
-            PANEL,
-            false,
-        );
-    } else {
-        text(
-            b,
-            5,
-            h - 5,
-            w - 9,
-            "This directory is empty",
-            MUTED,
-            PANEL,
-            false,
-        )
-    }
-    let footer = if !app.message.is_empty() {
-        app.message.clone()
-    } else if narrow_map {
-        "t Trash  d delete  Space add  c review  ? help  q quit".into()
-    } else if w < 108 {
-        "↑↓ move  ↵ open  t Trash  d delete  Space collect  c review  ? help  q quit".into()
-    } else {
-        "↑↓ choose   ↵ open   ⌫ back   Space collect   c review   t Trash   d delete   r rescan   ? help   q quit".into()
+    let Some(n) = app.selection() else {
+        text(b, 5, h - 5, w - 9, "This folder is empty · ← back", MUTED, PANEL, false);
+        return;
     };
-    text(b, 2, h - 2, w - 4, footer, MUTED, BG, false);
-    if node.errors > 0 {
-        text(
-            b,
-            2,
-            h - 1,
-            w - 4,
-            format!(
-                "{} {} inaccessible · partial results · r rescan",
-                node.errors,
-                if node.errors == 1 { "entry" } else { "entries" }
-            ),
-            DANGER,
-            BG,
-            false,
-        );
-    }
-    if app.confirm {
-        draw_confirm(f, app)
-    } else if app.single_trash.is_some() {
-        draw_trash_confirm(f, app);
-    } else if app.review {
-        draw_review(f, app);
-        if app.trash_confirm {
-            draw_trash_confirm(f, app)
-        }
-    } else if app.help {
-        let r = Rect::new((w - 60) / 2, (h - 20) / 2, 60, 20);
-        f.render_widget(Clear, r);
-        f.render_widget(
-            Block::default()
-                .title(" Keys ")
-                .borders(Borders::ALL)
-                .border_type(ratatui::widgets::BorderType::Rounded)
-                .style(Style::default().bg(PANEL).fg(ACCENT)),
-            r,
-        );
-        f.render_widget(Paragraph::new("↑ / ↓ or j / k    Select an entry\nEnter / →         Open directory\nBackspace / ←     Parent directory\nHome              Jump to the first entry\nEnd               Jump to the last entry\nPgUp              Move eight entries\nPgDn              Move eight entries\nSpace             Collect / uncollect entry for Trash\nc                 Review collector, t moves it to Trash\nt                 Move selected entry to system Trash\nd                 Delete selected entry permanently\nr                 Rescan root (Esc cancels)\n?                 Toggle this help\nq / Esc           Quit (or close dialog)\n\nSizes include allocated file and directory blocks.\nSymlinks stay separate. Hard links count once.").style(Style::default().fg(FG).bg(PANEL)),Rect::new(r.x+2,r.y+1,r.width-4,r.height-2));
-    }
-}
-// ---------------------------------------------------------------------------
-// Variant G, "shared walls": every block has its own thin outline and siblings
-// sit wall to wall inside a folder. Gaps exist only between top-level Tiles.
-// ---------------------------------------------------------------------------
-
-const COL_GAP: u16 = 1;
-const ROW_GAP: u16 = 1;
-const MAX_DEPTH: usize = 4;
-const MAX_KEEP: usize = 26;
-
-#[derive(Clone)]
-struct Blk<'a> {
-    node: Option<&'a crate::scan::Node>,
-    /// Index among the current view's children (top level only).
-    index: Option<usize>,
-    /// Top-level indices gathered into a remainder block.
-    members: Vec<usize>,
-    bytes: u64,
-    label: String,
-    count: usize,
-    remainder: bool,
-    /// May go unlabelled (a grain of small things) when no label fits.
-    loose: bool,
-}
-
-fn item_count(label: &str) -> usize {
-    if label.ends_with(" smaller items") {
-        label
-            .split_whitespace()
-            .next()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(1)
+    let color = top_hue(if app.route.is_empty() { app.selected } else { app.route[0] });
+    text(b, 3, h - 6, 1, "▎", color, PANEL, true);
+    let figures = format!("{}  ·  {}", size(n.bytes), percent(n.bytes, node.bytes));
+    let fw = figures.width() as u16;
+    text(b, 5, h - 6, w - 10 - fw, &n.name, FG, PANEL, true);
+    text(b, w - 4 - fw, h - 6, fw, &figures, color, PANEL, true);
+    text(
+        b,
+        5,
+        h - 5,
+        w - 9,
+        tail(&crate::scan::display_path(n.path.as_os_str()), (w - 9) as usize),
+        MUTED,
+        PANEL,
+        false,
+    );
+    let kind = if n.is_symlink {
+        "symbolic link"
+    } else if n.is_dir {
+        "folder"
     } else {
-        1
-    }
-}
-
-fn blocks_of(node: &crate::scan::Node) -> Vec<Blk<'_>> {
-    let mut out: Vec<_> = node
-        .children
-        .iter()
-        .enumerate()
-        .filter(|(_, n)| n.bytes > 0)
-        .map(|(i, n)| Blk {
-            node: Some(n),
-            index: Some(i),
-            members: vec![i],
-            bytes: n.bytes,
-            label: if n.is_dir && !n.name.ends_with(" smaller items") {
-                format!("{}/", n.name)
-            } else {
-                n.name.clone()
-            },
-            count: item_count(&n.name),
-            remainder: n.name.ends_with(" smaller items"),
-            loose: n.name.ends_with(" smaller items"),
-        })
-        .collect();
-    let metadata = node
-        .bytes
-        .saturating_sub(out.iter().map(|n| n.bytes).sum());
-    if metadata > 0 {
-        out.push(Blk {
-            node: None,
-            index: None,
-            members: Vec::new(),
-            bytes: metadata,
-            label: "metadata".into(),
-            count: 0,
-            remainder: false,
-            loose: true,
-        });
-    }
-    // A tail node already stands for many small items: it always ends in the remainder.
-    out.sort_by(|a, b| a.remainder.cmp(&b.remainder).then(b.bytes.cmp(&a.bytes)));
-    out
-}
-
-/// The first `keep` blocks, then one block for everything after them.
-fn grouped<'a>(all: &[Blk<'a>], keep: usize) -> Vec<Blk<'a>> {
-    let mut out: Vec<Blk<'a>> = all[..keep].to_vec();
-    let rest = &all[keep..];
-    if rest.len() == 1 {
-        out.push(Blk {
-            loose: true,
-            ..rest[0].clone()
-        });
-    } else if !rest.is_empty() {
-        let count: usize = rest.iter().map(|n| n.count).sum();
-        out.push(Blk {
-            node: None,
-            index: None,
-            members: rest.iter().flat_map(|n| n.members.clone()).collect(),
-            bytes: rest.iter().map(|n| n.bytes).sum(),
-            label: format!("{count} smaller items"),
-            count,
-            remainder: true,
-            loose: true,
-        });
-    }
-    out
-}
-
-/// Label spellings, longest first. Only the remainder block has a short form.
-fn spellings(blk: &Blk<'_>) -> Vec<String> {
-    if blk.remainder {
-        vec![blk.label.clone(), format!("{} smaller", blk.count)]
-    } else {
-        vec![blk.label.clone()]
-    }
-}
-
-fn name_lines(name: &str, width: u16) -> Vec<String> {
-    if width == 0 {
-        return Vec::new();
-    }
-    let mut lines = Vec::new();
-    let mut rest = name;
-    while rest.width() > width as usize {
-        let mut used = 0;
-        let mut boundary = 0;
-        for (i, ch) in rest.char_indices() {
-            let next = used + ch.to_string().width();
-            if next > width as usize {
-                break;
-            }
-            used = next;
-            if matches!(ch, ' ' | '.' | '-' | '_') && used >= width as usize / 3 {
-                boundary = i + ch.len_utf8();
-            }
-        }
-        if boundary == 0 {
-            return Vec::new();
-        }
-        lines.push(rest[..boundary].trim().to_owned());
-        rest = rest[boundary..].trim_start();
-    }
-    if !rest.is_empty() {
-        lines.push(rest.to_owned());
-    }
-    lines
-}
-
-/// Narrowest outline that still holds this block's whole label at height `h`.
-fn need_w(blk: &Blk<'_>, h: u16) -> Option<u16> {
-    if h < 3 {
-        return None;
-    }
-    let value = size(blk.bytes).width();
-    let name = spellings(blk).last().map(|s| s.width()).unwrap_or(0);
-    let mut best = if h == 3 {
-        name + 2 + value
-    } else {
-        name.max(value)
+        "file"
     };
-    if h >= 5 && !blk.remainder {
-        for width in value.max(5)..name {
-            let lines = name_lines(&blk.label, width as u16);
-            if !lines.is_empty() && lines.len() <= 2 {
-                best = best.min(width);
-                break;
-            }
-        }
-    }
-    Some(best as u16 + 4)
-}
-
-/// Largest-remainder shares of `cells`, then each share lifted to its minimum
-/// at the cost of whichever share has the most slack.
-fn shares_min(weights: &[f64], cells: u16, mins: &[u16]) -> Option<Vec<u16>> {
-    if mins.iter().map(|m| *m as u32).sum::<u32>() > cells as u32 {
-        return None;
-    }
-    let total = weights.iter().sum::<f64>().max(0.000001);
-    let exact: Vec<_> = weights.iter().map(|n| *n / total * cells as f64).collect();
-    let mut sizes: Vec<_> = exact.iter().map(|n| n.floor() as u16).collect();
-    let mut order: Vec<_> = (0..weights.len()).collect();
-    order.sort_by(|&a, &b| {
-        (exact[b] - sizes[b] as f64)
-            .total_cmp(&(exact[a] - sizes[a] as f64))
-            .then(a.cmp(&b))
-    });
-    let extra = cells.saturating_sub(sizes.iter().sum());
-    for &i in order.iter().take(extra as usize) {
-        sizes[i] += 1;
-    }
-    loop {
-        let Some(short) = (0..sizes.len()).find(|&i| sizes[i] < mins[i]) else {
-            return Some(sizes);
-        };
-        let donor = (0..sizes.len())
-            .filter(|&i| sizes[i] > mins[i])
-            .max_by_key(|&i| sizes[i] - mins[i])?;
-        sizes[donor] -= 1;
-        sizes[short] += 1;
-    }
-}
-
-fn overdrawn(actual: u32, ideal: f64, area: f64, nested: bool) -> bool {
-    let _ = area;
-    let slack = if nested { 16.0 } else { 10.0 };
-    actual as f64 > ideal * 1.3 + slack || (actual as f64) < ideal * 0.7 - slack
-}
-
-fn shape_cost(w: u16, h: u16) -> f64 {
-    // A cell is about twice as tall as wide; blocks a little wider than square read best.
-    (w as f64 * 0.45 / h as f64 / 1.3).ln().abs()
-}
-
-/// One strip of blocks `i..j`. Rows: side by side at one height. Columns: stacked at one width.
-/// Sizes are in layout cells; with shared walls (`ov` = 1) an outline is one cell larger each way.
-fn strip_with(
-    blks: &[Blk<'_>],
-    total: f64,
-    r: Rect,
-    gaps: (u16, u16),
-    ov: u16,
-    columns: bool,
-    thickness: u16,
-    relax: bool,
-) -> Option<(f64, Vec<(u16, u16)>)> {
-    let n = blks.len() as u16;
-    let weights: Vec<_> = blks.iter().map(|b| b.bytes as f64).collect();
-    let area = r.width as f64 * r.height as f64;
-    let loose = |b: &Blk<'_>| relax && b.loose;
-    let dims: Vec<(u16, u16)> = if columns {
-        let usable = r.height.checked_sub(gaps.1 * (n - 1))?;
-        let heights = shares_min(&weights, usable, &vec![3 - ov; blks.len()])?;
-        for (b, h) in blks.iter().zip(&heights) {
-            let need = if loose(b) { 4 } else { need_w(b, *h + ov)? };
-            if need > thickness + ov {
-                return None;
-            }
-        }
-        heights.into_iter().map(|h| (thickness, h)).collect()
-    } else {
-        let usable = r.width.checked_sub(gaps.0 * (n - 1))?;
-        let mins: Option<Vec<u16>> = blks
-            .iter()
-            .map(|b| {
-                if loose(b) {
-                    Some(4 - ov)
-                } else {
-                    need_w(b, thickness + ov).map(|w| w - ov)
-                }
-            })
-            .collect();
-        let widths = shares_min(&weights, usable, &mins?)?;
-        widths.into_iter().map(|w| (w, thickness)).collect()
-    };
-    let mut cost = if relax { 1.0 } else { 0.0 };
-    for (b, (w, h)) in blks.iter().zip(&dims) {
-        let share = b.bytes as f64 / total;
-        let actual = *w as u32 * *h as u32;
-        // A block that gives up its label must not also give up its area.
-        if overdrawn(actual, area * share, area, ov == 1)
-            || loose(b) && (actual as f64) < area * share * 0.6
-        {
-            return None;
-        }
-        cost += share * shape_cost(*w + ov, *h + ov);
-    }
-    Some((cost, dims))
-}
-
-fn strip(
-    blks: &[Blk<'_>],
-    total: f64,
-    r: Rect,
-    gaps: (u16, u16),
-    ov: u16,
-    columns: bool,
-    thickness: u16,
-) -> Option<(f64, Vec<(u16, u16)>)> {
-    strip_with(blks, total, r, gaps, ov, columns, thickness, false).or_else(|| {
-        blks.last()
-            .filter(|b| ov == 1 && b.loose)
-            .and_then(|_| strip_with(blks, total, r, gaps, ov, columns, thickness, true))
-    })
-}
-
-fn strips(
-    blks: &[Blk<'_>],
-    r: Rect,
-    gaps: (u16, u16),
-    ov: u16,
-    columns: bool,
-    min_thick: u16,
-) -> Option<(f64, Vec<Rect>)> {
-    let n = blks.len();
-    let total = blks.iter().map(|b| b.bytes as f64).sum::<f64>().max(1.0);
-    let span = if columns { r.width } else { r.height };
-    let estimate = |i: usize, j: usize| -> u16 {
-        let share = blks[i..j].iter().map(|b| b.bytes as f64).sum::<f64>() / total;
-        ((span as f64 * share).round() as u16).clamp(min_thick, span.max(min_thick))
-    };
-    // Shortest path over strip breaks.
-    let mut best: Vec<Option<(f64, usize)>> = vec![None; n + 1];
-    best[0] = Some((0.0, 0));
-    for j in 1..=n {
-        for i in 0..j {
-            let Some((before, _)) = best[i] else { continue };
-            let Some((cost, _)) = strip(&blks[i..j], total, r, gaps, ov, columns, estimate(i, j))
-            else {
-                continue;
-            };
-            if best[j].is_none_or(|(c, _)| before + cost < c) {
-                best[j] = Some((before + cost, i));
-            }
-        }
-    }
-    best[n]?;
-    let mut breaks = vec![n];
-    while *breaks.last().unwrap() > 0 {
-        breaks.push(best[*breaks.last().unwrap()].unwrap().1);
-    }
-    breaks.reverse();
-    let count = breaks.len() - 1;
-    let gap = if columns { gaps.0 } else { gaps.1 };
-    let usable = span.checked_sub(gap * (count as u16 - 1))?;
-    let strip_weights: Vec<_> = breaks
-        .windows(2)
-        .map(|p| blks[p[0]..p[1]].iter().map(|b| b.bytes as f64).sum::<f64>())
-        .collect();
-    // A column must be wide enough for whatever its blocks need at their heights.
-    let mins: Vec<u16> = breaks
-        .windows(2)
-        .map(|p| {
-            if columns {
-                let e = estimate(p[0], p[1]);
-                let mut lo = min_thick;
-                while lo < e && strip(&blks[p[0]..p[1]], total, r, gaps, ov, true, lo).is_none() {
-                    lo += 1;
-                }
-                lo
-            } else {
-                min_thick
-            }
-        })
-        .collect();
-    let thick = shares_min(&strip_weights, usable, &mins)?;
-    let mut rects = Vec::new();
-    let mut cost = 0.0;
-    let mut at = if columns { r.x } else { r.y };
-    for (p, t) in breaks.windows(2).zip(thick) {
-        let (c, dims) = strip(&blks[p[0]..p[1]], total, r, gaps, ov, columns, t)?;
-        cost += c;
-        let mut along = if columns { r.y } else { r.x };
-        for (w, h) in dims {
-            if columns {
-                rects.push(Rect::new(at, along, w + ov, h + ov));
-                along += h + gaps.1;
-            } else {
-                rects.push(Rect::new(along, at, w + ov, h + ov));
-                along += w + gaps.0;
-            }
-        }
-        at += t + gap;
-    }
-    // Cells round, but never so far that a smaller block outgrows a clearly larger one.
-    let cells = |r: &Rect| (r.width - ov) as u32 * (r.height - ov) as u32;
-    for (i, a) in blks.iter().enumerate() {
-        for (j, b) in blks.iter().enumerate() {
-            if a.bytes as f64 > b.bytes as f64 * 1.15 && cells(&rects[i]) < cells(&rects[j]) {
-                return None;
-            }
-        }
-    }
-    Some((cost, rects))
-}
-
-/// As many blocks as stay readable, then one block for the rest. `None` when
-/// not even the largest child fits: the folder is then drawn as a leaf.
-/// Top-level Tiles keep gaps; nested siblings share their walls.
-fn layout<'a>(all: &[Blk<'a>], r: Rect, top: bool) -> Option<Vec<(Blk<'a>, Rect)>> {
-    if all.is_empty() || r.width < 4 || r.height < 4 {
-        return None;
-    }
-    let (gaps, ov, work) = if top {
-        ((COL_GAP, ROW_GAP), 0, r)
-    } else {
-        ((0, 0), 1, Rect::new(r.x, r.y, r.width - 1, r.height - 1))
-    };
-    let area = r.width as usize * r.height as usize;
-    for keep in (1..=all.len().min(MAX_KEEP).min(area / 30 + 1)).rev() {
-        let blks = grouped(all, keep);
-        let rows = strips(&blks, work, gaps, ov, false, if !top {
-            2
-        } else if r.height >= 24 {
-            6
-        } else {
-            4
-        });
-        let cols = if top {
-            None
-        } else {
-            strips(&blks, work, gaps, ov, true, 4)
-        };
-        let chosen = match (rows, cols) {
-            (Some(a), Some(b)) => Some(if b.0 < a.0 { b } else { a }),
-            (a, b) => a.or(b),
-        };
-        if let Some((_, rects)) = chosen {
-            return Some(blks.into_iter().zip(rects).collect());
-        }
-    }
-    None
-}
-
-fn lerp(a: Color, b: Color, t: f32) -> Color {
-    match (a, b) {
-        (Color::Rgb(ar, ag, ab), Color::Rgb(br, bg, bb)) => Color::Rgb(
-            (ar as f32 + (br as f32 - ar as f32) * t) as u8,
-            (ag as f32 + (bg as f32 - ag as f32) * t) as u8,
-            (ab as f32 + (bb as f32 - ab as f32) * t) as u8,
+    text(
+        b,
+        5,
+        h - 4,
+        w - 9,
+        format!(
+            "{}{}{}{}",
+            kind,
+            if n.is_dir { format!("  ·  {} files", n.files) } else { String::new() },
+            if n.is_dir && !n.children.is_empty() { "  ·  → open" } else { "" },
+            if w >= 80 { "  ·  t move to Trash" } else { "" }
         ),
-        _ => a,
-    }
+        MUTED,
+        PANEL,
+        false,
+    );
 }
 
-/// Whether a folder's title fits its top edge. `Some(true)`: a narrow top-level
-/// Tile keeps its name in the top edge and moves its size to the bottom edge.
-fn title_split(blk: &Blk<'_>, r: Rect, depth: usize) -> Option<bool> {
-    let (name, value) = (blk.label.width(), size(blk.bytes).width());
-    let room = (r.width as usize).saturating_sub(4);
-    if depth > 0 || name + 2 + value <= room {
-        (name <= room).then_some(false)
+// ---------------------------------------------------------------- columns
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Role {
+    /// A folder on the path above the focus; its lit slab is the way down.
+    Ancestor,
+    /// The folder ↑↓ move in; its lit slab is the selection.
+    Focus,
+    /// The selected item's contents.
+    Preview,
+    /// Further down the previewed item's remembered or heaviest path.
+    Ahead,
+}
+
+struct Col<'a> {
+    node: &'a Node,
+    role: Role,
+    lit: Option<usize>,
+    /// Index of the top-level folder whose hue this column wears; None at the root.
+    top: Option<usize>,
+}
+
+fn top_hue(i: usize) -> Color {
+    if i < COLORS.len() {
+        COLORS[i]
     } else {
-        (name <= room && value <= room).then_some(true)
+        lerp(MUTED, BG, 0.2)
     }
 }
 
-fn tone(depth: usize) -> f32 {
-    0.07 + depth.min(4) as f32 * 0.05
-}
-
-/// The drawn contents of a folder block, when its title and at least its largest child fit.
-fn contents<'a>(blk: &Blk<'a>, r: Rect, depth: usize) -> Option<Vec<(Blk<'a>, Rect)>> {
-    let node = blk.node?;
-    if node.children.is_empty() || depth >= MAX_DEPTH || r.height < 5 || blk.remainder {
-        return None;
+/// Root, the path, the focus, the preview, then its remembered or heaviest path.
+fn chain<'a>(app: &'a App, memory: &HashMap<PathBuf, usize>, want: usize) -> Vec<Col<'a>> {
+    let d = app.route.len();
+    let mut cols = Vec::new();
+    let mut node = &app.root;
+    for i in 0..=d {
+        let (role, lit) = if i < d {
+            (Role::Ancestor, Some(app.route[i]))
+        } else if node.children.is_empty() {
+            (Role::Focus, None)
+        } else {
+            (Role::Focus, Some(app.selected.min(node.children.len() - 1)))
+        };
+        cols.push(Col {
+            node,
+            role,
+            lit,
+            top: (i > 0).then(|| app.route[0]),
+        });
+        if i < d {
+            node = &node.children[app.route[i]];
+        }
     }
-    title_split(blk, r, depth)?;
-    let inner = Rect::new(r.x + 1, r.y + 1, r.width - 2, r.height - 2);
-    layout(&blocks_of(node), inner, false)
+    let top = if d == 0 { app.selected } else { app.route[0] };
+    let mut next = app.selection();
+    let mut role = Role::Preview;
+    while cols.len() < want {
+        let Some(n) = next else { break };
+        let lit = (!n.children.is_empty()).then(|| {
+            memory
+                .get(&n.path)
+                .copied()
+                .filter(|&i| i < n.children.len())
+                .unwrap_or(0)
+        });
+        cols.push(Col {
+            node: n,
+            role,
+            lit,
+            top: Some(top),
+        });
+        next = lit.map(|i| &n.children[i]);
+        role = Role::Ahead;
+    }
+    cols
 }
 
-fn draw_cutaway_map(b: &mut Buffer, map: Rect, app: &App) {
-    let all = blocks_of(app.current());
-    if all.is_empty() {
-        text(
-            b,
-            map.x,
-            map.y,
-            map.width,
-            "No allocated blocks in this directory",
-            MUTED,
-            BG,
-            false,
-        );
+/// Rows per child with a floor of one, largest remainder, summing to `rows`.
+fn apportion(rows: u16, w: &[f64]) -> Vec<u16> {
+    let n = w.len();
+    let mut out = vec![1u16; n];
+    let mut free: Vec<usize> = (0..n).collect();
+    loop {
+        let budget = rows as f64 - (n - free.len()) as f64;
+        let sw: f64 = free.iter().map(|&i| w[i]).sum();
+        if sw <= 0.0 {
+            free.clear();
+            break;
+        }
+        let before = free.len();
+        free.retain(|&i| w[i] / sw * budget >= 1.0);
+        if free.len() == before {
+            break;
+        }
+    }
+    let budget = rows as usize - (n - free.len());
+    if free.is_empty() {
+        out[0] += (rows as usize - n) as u16;
+        return out;
+    }
+    let sw: f64 = free.iter().map(|&i| w[i]).sum();
+    let mut given = 0;
+    let mut rest = Vec::new();
+    for &i in &free {
+        let x = w[i] / sw * budget as f64;
+        out[i] = x.floor().max(1.0) as u16;
+        given += out[i] as usize;
+        rest.push((i, x - x.floor()));
+    }
+    rest.sort_by(|a, b| b.1.total_cmp(&a.1));
+    for j in 0..budget.saturating_sub(given) {
+        out[rest[j % rest.len()].0] += 1;
+    }
+    out
+}
+
+/// A column's visible slabs: (child index, title row, rows).
+struct Lay {
+    first: usize,
+    slabs: Vec<(usize, u16, u16)>,
+    above: (usize, u64),
+    below: (usize, u64),
+}
+
+/// Slabs between the top wall row and the bottom wall row. When every child
+/// gets a row, heights share the column exactly; otherwise the scale stays
+/// honest, small children keep one row, and the column scrolls by whole slabs.
+fn lay_out(node: &Node, top: u16, bottom: u16, keep: Option<usize>, pref: usize) -> Lay {
+    let n = node.children.len();
+    let mut lay = Lay {
+        first: 0,
+        slabs: Vec::new(),
+        above: (0, 0),
+        below: (0, 0),
+    };
+    if n == 0 || bottom <= top {
+        return lay;
+    }
+    let rows = bottom - top;
+    let weights: Vec<f64> = node.children.iter().map(|c| c.bytes as f64).collect();
+    let fits = n <= rows as usize;
+    let hs: Vec<u16> = if fits {
+        apportion(rows, &weights)
+    } else {
+        let total = weights.iter().sum::<f64>().max(1.0);
+        weights
+            .iter()
+            .map(|w| ((w / total * rows as f64).round() as u16).max(1))
+            .collect()
+    };
+    let place = |first: usize| {
+        let mut y = if first > 0 { top + 1 } else { top };
+        let mut v = Vec::new();
+        for (i, &h) in hs.iter().enumerate().skip(first) {
+            if y + h > bottom {
+                if v.is_empty() && y < bottom {
+                    v.push((i, y, bottom - y));
+                }
+                break;
+            }
+            v.push((i, y, h));
+            y += h;
+        }
+        v
+    };
+    let mut first = if fits { 0 } else { pref.min(n - 1) };
+    if let Some(k) = keep
+        && k < first
+    {
+        first = k;
+    }
+    let mut slabs = place(first);
+    if let Some(k) = keep {
+        while first < k && !slabs.iter().any(|s| s.0 == k) {
+            first += 1;
+            slabs = place(first);
+        }
+    }
+    let last = slabs.last().map_or(first, |s| s.0 + 1);
+    lay.above = (first, node.children[..first].iter().map(|c| c.bytes).sum());
+    lay.below = (n - last, node.children[last..].iter().map(|c| c.bytes).sum());
+    lay.first = first;
+    lay.slabs = slabs;
+    lay
+}
+
+/// Follow the largest child while it holds at least 40% of its parent.
+fn heavy_end(n: &Node) -> (&Node, Vec<&str>) {
+    let mut node = n;
+    let mut path = Vec::new();
+    while let Some(c) = node.children.first() {
+        if c.bytes * 10 < node.bytes * 4 {
+            break;
+        }
+        path.push(c.name.as_str());
+        node = c;
+    }
+    (node, path)
+}
+
+/// Something buried inside a folder: its route of child indices below that
+/// folder, the names along it, and the node itself.
+struct Buried<'a> {
+    route: Vec<usize>,
+    names: Vec<&'a str>,
+    node: &'a Node,
+}
+
+/// Up to two things buried inside `n`, in the order of its children: the heavy
+/// end below each of its two largest children, when that end is deeper than
+/// the child or the child dominates `n`.
+fn buried(n: &Node) -> Vec<Buried<'_>> {
+    let mut out = Vec::new();
+    for (i, c) in n.children.iter().enumerate().take(2) {
+        if c.bytes * 10 < n.bytes {
+            continue;
+        }
+        let (end, rest) = heavy_end(c);
+        if rest.is_empty() && c.bytes * 10 < n.bytes * 4 {
+            continue;
+        }
+        let mut route = vec![i];
+        route.extend(std::iter::repeat_n(0, rest.len()));
+        let mut names = vec![c.name.as_str()];
+        names.extend(rest);
+        out.push(Buried { route, names, node: end });
+    }
+    out
+}
+
+#[derive(Clone, Copy)]
+struct Ink {
+    bg: Color,
+    wall: Color,
+    name: Color,
+    bold: bool,
+    size: Color,
+
+}
+
+/// A child's size against its largest sibling, square-rooted: bigger slabs read a little richer.
+fn share(col: &Col, idx: usize) -> f32 {
+    let kids = &col.node.children;
+    match (kids.get(idx), kids.first()) {
+        (Some(c), Some(big)) if big.bytes > 0 => (c.bytes as f32 / big.bytes as f32).sqrt(),
+        _ => 0.5,
+    }
+}
+
+fn ink(col: &Col, idx: usize) -> Ink {
+    let hue = top_hue(col.top.unwrap_or(idx));
+    let lit = col.lit == Some(idx);
+    let root = col.top.is_none();
+    let mut k = match (col.role, lit) {
+        (Role::Focus, true) => Ink {
+            bg: tint(hue, 0.16),
+            wall: lerp(hue, FG, 0.65),
+            name: FG,
+            bold: true,
+            size: lerp(hue, FG, 0.25),
+
+        },
+        (Role::Ancestor, true) => Ink {
+            bg: tint(hue, 0.11),
+            wall: tint(hue, 0.72),
+            name: hue,
+            bold: true,
+            size: lerp(hue, MUTED, 0.35),
+
+        },
+        (_, true) => Ink {
+            bg: tint(hue, 0.07 + 0.03 * share(col, idx)),
+            wall: tint(hue, 0.45),
+            name: if root { hue } else { lerp(MUTED, FG, 0.55) },
+            bold: false,
+            size: lerp(hue, MUTED, 0.35),
+
+        },
+        _ => Ink {
+            bg: tint(hue, 0.035 + 0.045 * share(col, idx)),
+            wall: tint(hue, 0.28),
+            name: if root { hue } else { lerp(MUTED, FG, 0.35) },
+            bold: false,
+            size: lerp(hue, MUTED, 0.4),
+
+        },
+    };
+    if col.role == Role::Ahead {
+        k.wall = lerp(k.wall, BG, 0.3);
+        k.name = lerp(k.name, BG, 0.3);
+        k.size = lerp(k.size, BG, 0.3);
+    }
+    k
+}
+
+/// One wall-and-title row: `├ name/ ◆ ──────── 41.8 GiB ┤`.
+#[allow(clippy::too_many_arguments)]
+fn title_row(
+    b: &mut Buffer,
+    x: u16,
+    cw: u16,
+    y: u16,
+    ends: (&str, &str),
+    name: &str,
+    folder: bool,
+    glyph: Option<(&str, Color)>,
+    value: &str,
+    k: &Ink,
+) {
+    text(b, x, y, 1, ends.0, k.wall, k.bg, false);
+    for xx in x + 1..x + cw - 1 {
+        text(b, xx, y, 1, "─", k.wall, k.bg, false);
+    }
+    text(b, x + cw - 1, y, 1, ends.1, k.wall, k.bg, false);
+    let v = format!(" {value} ");
+    let vw = v.width() as u16;
+    let vx = x + cw - 2 - vw;
+    if !value.is_empty() {
+        text(b, vx, y, vw, &v, k.size, k.bg, k.bold);
+    }
+    let right = if value.is_empty() { x + cw - 2 } else { vx - 1 };
+    let extra = 2 + folder as u16 + if glyph.is_some() { 2 } else { 0 };
+    let room = right.saturating_sub(x + 1 + extra);
+    if room < 2 {
         return;
     }
-    let tiles = layout(&all, map, true).unwrap_or_else(|| vec![(grouped(&all, 0).remove(0), map)]);
-    // Percent sits in the top edge of every titled Tile, or of none.
-    let view = app.current().bytes;
-    let percents = tiles.iter().all(|(blk, r)| {
-        contents(blk, *r, 0).is_none()
-            || blk.label.width()
-                + size(blk.bytes).width()
-                + percent(blk.bytes, view).width()
-                + 9
-                <= r.width as usize
-    });
-    let group: Vec<_> = tiles
-        .into_iter()
-        .map(|(blk, r)| {
-            let selected = blk.members.contains(&app.selected);
-            let color = blk.index.map(|i| color_for(app, i)).unwrap_or(MUTED);
-            (blk, r, color, selected)
-        })
-        .collect();
-    draw_group(b, &group, app, 0, percents);
+    text(b, x + 1, y, 1, " ", k.wall, k.bg, false);
+    text(b, x + 2, y, room, name, k.name, k.bg, k.bold);
+    let mut at = x + 2 + (name.width() as u16).min(room);
+    if folder {
+        text(b, at, y, 1, "/", lerp(k.name, k.bg, 0.45), k.bg, false);
+        at += 1;
+    }
+    if let Some((g, c)) = glyph {
+        text(b, at, y, 2, format!(" {g}"), c, k.bg, true);
+        at += 2;
+    }
+    text(b, at, y, 1, " ", k.wall, k.bg, false);
+}
+
+/// `…/debug/deps/` style: drop leading segments until the path fits.
+fn short_path(segs: &[&str], folder: bool, room: usize) -> (String, String) {
+    let leaf = format!("{}{}", segs[segs.len() - 1], if folder { "/" } else { "" });
+    let mut lead: Vec<&str> = segs[..segs.len() - 1].to_vec();
+    let mut elided = false;
+    loop {
+        let prefix = format!(
+            "{}{}",
+            if elided { "…/" } else { "" },
+            lead.iter().map(|s| format!("{s}/")).collect::<String>()
+        );
+        if prefix.width() + leaf.width() <= room {
+            return (prefix, leaf);
+        }
+        if lead.is_empty() {
+            return (if elided && 2 + leaf.width() <= room { "…/".into() } else { String::new() }, leaf);
+        }
+        lead.remove(0);
+        elided = true;
+    }
+}
+
+fn collected_glyph(app: &App, node: &Node) -> Option<(&'static str, Color)> {
+    match app.collector.mark(&node.path) {
+        Mark::None => None,
+        Mark::Collected => Some(("◆", ACCENT)),
+        Mark::Attention => Some(("!", DANGER)),
+        Mark::Covered => Some(("◇", ACCENT)),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_col(b: &mut Buffer, app: &App, col: &Col, lay: &Lay, x: u16, cw: u16, top: u16, bottom: u16, next_shown: bool) {
+    let node = col.node;
+    if node.children.is_empty() {
+        return draw_card(b, app, col, x, cw, top, bottom);
+    }
+    let neutral = ink(
+        &Col {
+            node,
+            role: col.role,
+            lit: None,
+            top: col.top,
+        },
+        usize::MAX,
+    );
+    // The top wall: the first slab's title, or what is scrolled above.
+    if lay.first > 0 {
+        let k = neutral;
+        fill(b, Rect::new(x, top, cw, 1), BG);
+        title_row(
+            b,
+            x,
+            cw,
+            top,
+            ("╭", "╮"),
+            &format!("↑ {} more", lay.above.0),
+            false,
+            None,
+            &size(lay.above.1),
+            &Ink {
+                name: MUTED,
+                size: MUTED,
+                bg: BG,
+                ..k
+            },
+        );
+    }
+    for &(i, y, h) in &lay.slabs {
+        let c = &node.children[i];
+        let k = ink(col, i);
+        fill(b, Rect::new(x, y, cw, h), k.bg);
+        let ends = if y == top { ("╭", "╮") } else { ("├", "┤") };
+        title_row(
+            b,
+            x,
+            cw,
+            y,
+            ends,
+            &c.name,
+            c.is_dir,
+            collected_glyph(app, c),
+            &size(c.bytes),
+            &k,
+        );
+        for yy in y + 1..y + h {
+            text(b, x, yy, 1, "│", k.wall, k.bg, false);
+            text(b, x + cw - 1, yy, 1, "│", k.wall, k.bg, false);
+        }
+        // Buried heavy things, one per spare row, at most two.
+        let room = cw.saturating_sub(18) as usize;
+        // Hidden on a lit slab outside the focus: the next column shows it.
+        let shown = if col.lit == Some(i) && col.role != Role::Focus && next_shown { 0 } else { h.saturating_sub(1).min(2) };
+        for (j, bur) in buried(c).into_iter().take(shown as usize).enumerate() {
+            let (segs, end) = (bur.names, bur.node);
+            let yy = y + 1 + j as u16;
+            let v = size(end.bytes);
+            let vx = x + cw - 2 - v.width() as u16 - 1;
+            let (prefix, leaf) = short_path(&segs, end.is_dir, room.max(4));
+            let dim = lerp(MUTED, k.bg, 0.45);
+            text(b, x + 2, yy, 2, "↳", dim, k.bg, false);
+            text(b, x + 4, yy, prefix.width() as u16, &prefix, dim, k.bg, false);
+            let lx = x + 4 + prefix.width() as u16;
+            let target = j == 0 && col.role == Role::Focus && col.lit == Some(i);
+            let leaf_fg = if target { lerp(MUTED, FG, 0.45) } else { lerp(MUTED, k.bg, 0.15) };
+            text(b, lx, yy, vx.saturating_sub(lx + 1), &leaf, leaf_fg, k.bg, false);
+            if let Some((g, gc)) = collected_glyph(app, end) {
+                let gx = lx + leaf.width() as u16 + 1;
+                if gx + 1 < vx {
+                    text(b, gx, yy, 1, g, gc, k.bg, true);
+                }
+            }
+            text(b, vx, yy, v.width() as u16, &v, lerp(MUTED, k.bg, 0.3), k.bg, false);
+        }
+    }
+    // Rows left under the last whole slab stay empty but walled.
+    let end = lay.slabs.last().map_or(top, |s| s.1 + s.2);
+    for yy in end..bottom {
+        fill(b, Rect::new(x, yy, cw, 1), BG);
+        text(b, x, yy, 1, "│", neutral.wall, BG, false);
+        text(b, x + cw - 1, yy, 1, "│", neutral.wall, BG, false);
+    }
+    // The bottom wall closes the last slab, or says what is below.
+    let last = lay.slabs.last().map(|s| s.0);
+    if lay.below.0 > 0 {
+        let k = neutral;
+        title_row(
+            b,
+            x,
+            cw,
+            bottom,
+            ("╰", "╯"),
+            &format!("+ {} more", lay.below.0),
+            false,
+            None,
+            &size(lay.below.1),
+            &Ink {
+                name: MUTED,
+                size: MUTED,
+                bg: BG,
+                ..k
+            },
+        );
+    } else {
+        let k = last.map(|i| ink(col, i)).unwrap_or(neutral);
+        fill(b, Rect::new(x, bottom, cw, 1), BG);
+        text(b, x, bottom, 1, "╰", k.wall, BG, false);
+        for xx in x + 1..x + cw - 1 {
+            text(b, xx, bottom, 1, "─", k.wall, BG, false);
+        }
+        text(b, x + cw - 1, bottom, 1, "╯", k.wall, BG, false);
+    }
+}
+
+/// A file, or a folder with nothing listed inside: one full-height slab.
+#[allow(clippy::too_many_arguments)]
+fn draw_card(b: &mut Buffer, app: &App, col: &Col, x: u16, cw: u16, top: u16, bottom: u16) {
+    let n = col.node;
+    let mut k = ink(
+        &Col {
+            node: n,
+            role: col.role,
+            lit: None,
+            top: col.top,
+        },
+        usize::MAX,
+    );
+    if col.role == Role::Focus {
+        k.bg = BG;
+    }
+    fill(b, Rect::new(x, top, cw, bottom - top + 1), k.bg);
+    title_row(
+        b,
+        x,
+        cw,
+        top,
+        ("╭", "╮"),
+        &n.name,
+        n.is_dir,
+        collected_glyph(app, n),
+        &size(n.bytes),
+        &Ink {
+            name: lerp(MUTED, FG, 0.5),
+            ..k
+        },
+    );
+    for yy in top + 1..bottom {
+        text(b, x, yy, 1, "│", k.wall, k.bg, false);
+        text(b, x + cw - 1, yy, 1, "│", k.wall, k.bg, false);
+    }
+    text(b, x, bottom, 1, "╰", k.wall, k.bg, false);
+    for xx in x + 1..x + cw - 1 {
+        text(b, xx, bottom, 1, "─", k.wall, k.bg, false);
+    }
+    text(b, x + cw - 1, bottom, 1, "╯", k.wall, k.bg, false);
+    let kind = if n.is_symlink {
+        "symbolic link".to_string()
+    } else if !n.is_dir {
+        "file".into()
+    } else if n.files == 0 && n.bytes == 0 {
+        "empty folder".into()
+    } else {
+        format!("folder · {} files", n.files)
+    };
+    let quiet = lerp(MUTED, k.bg, 0.25);
+    text(b, x + 3, top + 2, cw - 5, kind, quiet, k.bg, false);
+    if n.is_dir && n.bytes > 0 && top + 3 < bottom {
+        text(b, x + 3, top + 3, cw - 5, "contents not listed", quiet, k.bg, false);
+    }
+    if col.role != Role::Preview {
+        if col.role == Role::Focus && top + 4 < bottom {
+            text(b, x + 3, top + 4, cw - 5, "← back", quiet, k.bg, false);
+        }
+        return;
+    }
+    // The selection has nothing further inside: this is where to act on it.
+    let collected = matches!(app.collector.mark(&n.path), Mark::Collected);
+    let acts = [
+        ("Space", if collected { "take out of the collector" } else { "collect for review" }),
+        ("t", "move to Trash"),
+        ("d", "delete permanently"),
+    ];
+    for (i, (key, what)) in acts.iter().enumerate() {
+        let y = top + 4 + i as u16;
+        if y < bottom {
+            text(b, x + 3, y, 6, key, lerp(MUTED, FG, 0.3), k.bg, false);
+            text(b, x + 10, y, cw.saturating_sub(12), what, quiet, k.bg, false);
+        }
+    }
 }
 
 const UP: u8 = 1;
@@ -887,399 +950,179 @@ const WALLS: [(&str, u8); 11] = [
     ("┼", UP | DOWN | LEFT | RIGHT),
 ];
 
-/// One wall cell. A wall that two siblings share becomes a junction rather than a second line.
-fn wall(b: &mut Buffer, x: u16, y: u16, bits: u8, fg: Color, strong: bool) {
+/// Add strokes to a wall cell, merging with what is there.
+fn wall(b: &mut Buffer, x: u16, y: u16, bits: u8, fg: Color) {
     let cell = &mut b[(x, y)];
     let old = WALLS
         .iter()
         .find(|(s, _)| *s == cell.symbol())
         .map(|(_, bits)| *bits)
         .unwrap_or(0);
-    let merged = if strong { bits } else { bits | old };
-    if let Some((s, _)) = WALLS.iter().find(|(_, bits)| *bits == merged) {
+    if let Some((s, _)) = WALLS.iter().find(|(_, b)| *b == bits | old) {
         cell.set_symbol(s);
         cell.set_fg(fg);
     }
 }
 
-fn outline(b: &mut Buffer, r: Rect, fg: Color, strong: bool) {
-    if r.width < 2 || r.height < 2 {
-        return;
+/// The funnel: the lit slab's two walls (rows y0 and y1 at the right wall
+/// `xr`) run out through the gap to the next column's top and bottom walls.
+fn funnel(b: &mut Buffer, xr: u16, y0: u16, y1: u16, top: u16, bottom: u16, c: Color) {
+    let (g0, gm, g2) = (xr + 1, xr + 1 + GAP / 2, xr + GAP);
+    wall(b, xr, y0, RIGHT, c);
+    wall(b, xr, y1, RIGHT, c);
+    for x in g0..gm {
+        wall(b, x, y0, LEFT | RIGHT, c);
+        wall(b, x, y1, LEFT | RIGHT, c);
     }
-    let (x1, y1) = (r.right() - 1, r.bottom() - 1);
-    for x in r.x + 1..x1 {
-        wall(b, x, r.y, LEFT | RIGHT, fg, strong);
-        wall(b, x, y1, LEFT | RIGHT, fg, strong);
+    for y in top..=bottom {
+        let mut bits = 0;
+        if y == y0 {
+            bits |= LEFT | if top < y0 { UP } else { RIGHT };
+        }
+        if top < y0 && y == top {
+            bits |= DOWN | RIGHT;
+        } else if y > top && y < y0 {
+            bits |= UP | DOWN;
+        }
+        if y == y1 {
+            bits |= LEFT | if bottom > y1 { DOWN } else { RIGHT };
+        }
+        if bottom > y1 && y == bottom {
+            bits |= UP | RIGHT;
+        } else if y > y1 && y < bottom {
+            bits |= UP | DOWN;
+        }
+        if bits != 0 {
+            wall(b, gm, y, bits, c);
+        }
     }
-    for y in r.y + 1..y1 {
-        wall(b, r.x, y, UP | DOWN, fg, strong);
-        wall(b, x1, y, UP | DOWN, fg, strong);
+    for x in gm + 1..=g2 {
+        wall(b, x, top, LEFT | RIGHT, c);
+        wall(b, x, bottom, LEFT | RIGHT, c);
     }
-    wall(b, r.x, r.y, DOWN | RIGHT, fg, strong);
-    wall(b, x1, r.y, DOWN | LEFT, fg, strong);
-    wall(b, r.x, y1, UP | RIGHT, fg, strong);
-    wall(b, x1, y1, UP | LEFT, fg, strong);
 }
 
-/// One sibling set: every background, then every wall (so shared walls merge), then labels and contents.
-fn draw_group(
-    b: &mut Buffer,
-    group: &[(Blk<'_>, Rect, Color, bool)],
-    app: &App,
-    depth: usize,
-    percents: bool,
-) {
-    let bg_of = |color: Color, selected: bool| {
-        tint(color, tone(depth) + if selected { 0.035 } else { 0.0 })
+/// Longer shifts take a little longer, within the 350 ms the brief allows.
+fn slide_for(delta: i32) -> Duration {
+    if let Some(ms) = std::env::var("M_SLIDE_MS").ok().and_then(|v| v.parse().ok()) {
+        return Duration::from_millis(ms);
+    }
+    SLIDE + Duration::from_millis(40 * (delta.unsigned_abs().saturating_sub(1) as u64).min(2))
+}
+
+fn ease(t: f32) -> f32 {
+    if t < 0.5 {
+        4.0 * t * t * t
+    } else {
+        1.0 - (-2.0 * t + 2.0).powi(3) / 2.0
+    }
+}
+
+fn columns(b: &mut Buffer, app: &App, w: u16, rule_y: u16, top: u16, bottom: u16) {
+    let span = w - 4;
+    let k = if w < 90 {
+        2
+    } else if w < 170 {
+        3
+    } else {
+        (((span + GAP) / (MIN_COL + 12 + GAP)) as usize).clamp(4, 6)
     };
-    for (_, r, color, selected) in group {
-        fill(b, *r, bg_of(*color, *selected));
+    let cw = (span - GAP * (k as u16 - 1)) / k as u16;
+    let used = cw * k as u16 + GAP * (k as u16 - 1);
+    let x0 = 2 + (span - used) / 2;
+    let pitch = cw + GAP;
+    let d = app.route.len();
+    let s = (d + 2).saturating_sub(k);
+    let Ok(mut st) = STATE.lock() else { return };
+    st.memory.insert(app.current().path.clone(), app.selected);
+    if let Some((ps, pk)) = st.win
+        && pk == k
+        && ps != s
+        && ps.abs_diff(s) <= k
+    {
+        st.slide = Some((Instant::now(), s as i32 - ps as i32));
     }
-    for (_, r, color, selected) in group {
-        let line = if *selected {
-            lerp(*color, FG, 0.6)
-        } else if depth == 0 {
-            tint(*color, 0.45)
-        } else {
-            tint(*color, tone(depth) + 0.16)
-        };
-        outline(b, *r, line, depth == 0);
-    }
-    for (blk, r, color, selected) in group {
-        let (r, color, selected) = (*r, *color, *selected);
-        if r.width < 3 || r.height < 3 {
-            continue;
-        }
-        let bg = bg_of(color, selected);
-        let mut title_end = r.x + 1;
-        if let Some(children) = contents(blk, r, depth) {
-            let name_fg = if selected {
-                FG
-            } else if depth == 0 {
-                color
+    st.win = Some((s, k));
+    let off = match st.slide {
+        Some((t0, dir)) => {
+            let t = t0.elapsed().as_secs_f32() / slide_for(dir).as_secs_f32();
+            if t >= 1.0 {
+                st.slide = None;
+                0
             } else {
-                lerp(MUTED, color, 0.5)
-            };
-            let mut title = vec![(format!(" {}", blk.label), name_fg, depth == 0)];
-            let split = title_split(blk, r, depth) == Some(true);
-            if split {
-                let value = format!(" {} ", size(blk.bytes));
-                let x = r.right() - 2 - value.width() as u16;
-                text(b, x, r.bottom() - 1, value.width() as u16, &value, lerp(color, MUTED, 0.35), bg, false);
-            } else if depth == 0 {
-                title.push((format!("  {}", size(blk.bytes)), lerp(color, MUTED, 0.35), false));
-                if percents {
-                    let pct = percent(blk.bytes, app.current().bytes);
-                    title.push((format!(" · {pct}"), MUTED, false));
-                }
-            }
-            title.push((" ".into(), name_fg, false));
-            let mut x = r.x + 1;
-            for (s, fg, bold) in title {
-                text(b, x, r.y, s.width() as u16, &s, fg, bg, bold);
-                x += s.width() as u16;
-            }
-            title_end = x;
-            let nested: Vec<_> = children
-                .into_iter()
-                .map(|(child, rect)| (child, rect, color, false))
-                .collect();
-            draw_group(b, &nested, app, depth + 1, false);
-        } else {
-            let inner = Rect::new(r.x + 1, r.y + 1, r.width - 2, r.height - 2);
-            if !draw_label(b, inner, blk, color, bg, depth, selected) && blk.loose {
-                // Too small to name: a grain of small things rather than a hollow box.
-                let grain = tint(color, tone(depth) + 0.13);
-                for y in inner.y..inner.bottom() {
-                    for x in inner.x..inner.right() {
-                        if inner.width < 3 || (x + y) % 2 == 0 {
-                            text(b, x, y, 1, "·", grain, bg, false);
-                        }
-                    }
-                }
+                (dir as f32 * (1.0 - ease(t)) * pitch as f32).round() as i32
             }
         }
-        if let Some((glyph, fg)) = blk.node.and_then(|n| collected_glyph(app, n))
-            && title_end + 5 <= r.right()
-        {
-            text(b, r.right() - 5, r.y, 3, format!(" {glyph} "), fg, bg, true);
-        }
-    }
-}
-
-/// Name above size, centred both ways; one line when the block is short; nothing when neither fits.
-fn draw_label(
-    b: &mut Buffer,
-    inner: Rect,
-    blk: &Blk<'_>,
-    color: Color,
-    bg: Color,
-    depth: usize,
-    selected: bool,
-) -> bool {
-    if inner.is_empty() || inner.width < 3 {
-        return false;
-    }
-    let width = inner.width - 2;
-    let value = size(blk.bytes);
-    let name_fg = if selected {
-        FG
-    } else if blk.remainder || blk.node.is_none() {
-        MUTED
-    } else if depth == 0 {
-        color
-    } else {
-        lerp(MUTED, FG, 0.55)
+        None => 0,
     };
-    let value_fg = if blk.remainder || blk.node.is_none() {
-        lerp(MUTED, bg, 0.35)
-    } else {
-        lerp(color, MUTED, 0.35)
-    };
-    let bold = depth == 0 && !blk.remainder;
-    let mut centre = |y: u16, s: &str, fg: Color, bold: bool| {
-        let x = inner.x + (inner.width - s.width() as u16) / 2;
-        text(b, x, y, s.width() as u16, s, fg, bg, bold);
-    };
-    for name in spellings(blk) {
-        let lines = name_lines(&name, width);
-        if value.width() > width as usize || lines.is_empty() {
+    let delta = st.slide.map_or(0, |(_, d)| d);
+    let (lo, hi) = (-(delta.max(1)), k as i32 + (-delta).max(1));
+    let cols = chain(app, &st.memory, (s as i32 + hi + 1) as usize);
+    // Draw slots lo..=hi into a wider scratch buffer, then copy the window.
+    let tw = pitch * (hi - lo + 1) as u16;
+    let base = -lo;
+    let mut tmp = Buffer::empty(Rect::new(0, 0, tw, bottom + 1));
+    fill(&mut tmp, Rect::new(0, 0, tw, bottom + 1), BG);
+    hline(&mut tmp, 0, rule_y, tw, DIM);
+    let mut placed: Vec<(usize, u16, Lay)> = Vec::new();
+    for slot in lo..=hi {
+        let ci = s as i32 + slot;
+        if ci < 0 || ci as usize >= cols.len() {
             continue;
         }
-        if lines.len() <= 2 && lines.len() < inner.height as usize {
-            let y = inner.y + (inner.height - lines.len() as u16 - 1) / 2;
-            for (i, l) in lines.iter().enumerate() {
-                centre(y + i as u16, l, name_fg, bold);
-            }
-            centre(y + lines.len() as u16, &value, value_fg, false);
-            return true;
+        let ci = ci as usize;
+        let col = &cols[ci];
+        let x = (slot + base) as u16 * pitch;
+        let pref = st.first.get(&col.node.path).copied().unwrap_or(0);
+        let lay = lay_out(col.node, top, bottom, col.lit, pref);
+        if !col.node.children.is_empty() {
+            st.first.insert(col.node.path.clone(), lay.first);
         }
-        if name.width() + 2 + value.width() <= width as usize {
-            let y = inner.y + (inner.height - 1) / 2;
-            let x = inner.x + (inner.width - (name.width() + 2 + value.width()) as u16) / 2;
-            text(b, x, y, name.width() as u16, &name, name_fg, bg, bold);
-            text(
-                b,
-                x + name.width() as u16 + 2,
-                y,
-                value.width() as u16,
-                &value,
-                value_fg,
-                bg,
-                false,
-            );
-            return true;
-        }
-    }
-    // A block allowed to go unlabelled still says what it is when only that fits.
-    if blk.loose {
-        for name in spellings(blk) {
-            if name.width() <= inner.width as usize {
-                centre(inner.y + (inner.height - 1) / 2, &name, name_fg, false);
-                return true;
-            }
-        }
-    }
-    false
-}
-
-fn draw_compact_row(b: &mut Buffer, r: Rect, app: &App, i: usize) {
-    let node = app.current();
-    let n = &node.children[i];
-    let selected = i == app.selected;
-    let color = color_for(app, i);
-    let bg = if selected { SURFACE } else { BG };
-    fill(b, r, bg);
-    let rank = format!("{:02}", i + 1);
-    let rank_width = rank.width() as u16;
-    let bar_width = if r.width >= 42 { 4 } else { 2 };
-    let bar_x = r.right() - bar_width;
-    let pct_x = bar_x - 7;
-    let size_x = pct_x - 9;
-    let name_x = r.x + rank_width + 1;
-    text(
-        b,
-        r.x,
-        r.y,
-        rank_width,
-        rank,
-        if selected { color } else { MUTED },
-        bg,
-        true,
-    );
-    let glyph = collected_glyph(app, n);
-    let name_width = size_x.saturating_sub(name_x + 1 + if glyph.is_some() { 2 } else { 0 });
-    text(
-        b,
-        name_x,
-        r.y,
-        name_width,
-        &n.name,
-        if selected { FG } else { MUTED },
-        bg,
-        selected,
-    );
-    if let Some((glyph, fg)) = glyph {
-        text(b, size_x - 2, r.y, 1, glyph, fg, bg, true);
-    }
-    text(
-        b,
-        size_x,
-        r.y,
-        8,
-        format!("{:>8}", size(n.bytes)),
-        color,
-        bg,
-        selected,
-    );
-    text(
-        b,
-        pct_x,
-        r.y,
-        6,
-        format!("{:>6}", percent(n.bytes, node.bytes)),
-        MUTED,
-        bg,
-        false,
-    );
-    // Eighth-cell bars measure each row against the largest sibling.
-    let largest = node
-        .children
-        .iter()
-        .map(|c| c.bytes)
-        .max()
-        .unwrap_or(1)
-        .max(1);
-    let units = (bar_width as f64 * 8.0 * n.bytes as f64 / largest as f64).round() as u16;
-    let units = if n.bytes > 0 { units.max(1) } else { 0 };
-    const BARS: [&str; 9] = [" ", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"];
-    for x in 0..bar_width {
-        let part = units.saturating_sub(x * 8).min(8);
-        text(
-            b,
-            bar_x + x,
-            r.y,
-            1,
-            BARS[part as usize],
-            if part > 0 { color } else { DIM },
-            bg,
-            false,
+        draw_col(&mut tmp, app, col, &lay, x, cw, top, bottom, off != 0 || ci + 1 < s + k);
+        // The column's name on the rule above it.
+        let name = format!(
+            " {}{}{} ",
+            if slot == 0 && ci > 0 { "‹ " } else { "" },
+            col.node.name,
+            if col.node.is_dir && ci > 0 { "/" } else { "" }
         );
+        let (fg, bold) = match col.role {
+            Role::Focus => (FG, true),
+            Role::Ahead => (lerp(MUTED, BG, 0.4), false),
+            _ => (MUTED, false),
+        };
+        text(&mut tmp, x + 1, rule_y, cw - 2, &name, fg, BG, bold);
+        placed.push((ci, x, lay));
     }
-}
-
-/// Marker for entries in the collector: collected, needing attention, or
-/// already included by a collected parent folder.
-fn collected_glyph(app: &App, node: &crate::scan::Node) -> Option<(&'static str, Color)> {
-    match app.collector.mark(&node.path) {
-        Mark::None => None,
-        Mark::Collected => Some(("◆", ACCENT)),
-        Mark::Attention => Some(("!", DANGER)),
-        Mark::Covered => Some(("◇", ACCENT)),
-    }
-}
-/// Runnable first-layout prototype used only to check the visual judging setup.
-/// It retains real navigation and deletion, with no palette or nested previews.
-pub fn draw_wireframe(f: &mut Frame, app: &App) {
-    let area = f.area();
-    let w = area.width;
-    let h = area.height;
-    if w < 30 || h < 12 {
-        return;
-    }
-    let node = app.current();
-    let b = f.buffer_mut();
-    fill(b, area, Color::Black);
-    text(
-        b,
-        1,
-        1,
-        w - 2,
-        format!("{}  {}", node.name, size(node.bytes)),
-        Color::White,
-        Color::Black,
-        false,
-    );
-    let entries = map_entries(node);
-    let weights = entries.iter().map(|n| n.bytes).collect::<Vec<_>>();
-    for tile in tiles(&weights, Rect::new(1, 3, w - 2, h - 8)) {
-        let r = tile.rect;
-        if r.width < 3 || r.height < 3 {
+    for pair in placed.windows(2) {
+        let (ci, x, lay) = (&pair[0].0, pair[0].1, &pair[0].2);
+        if off == 0 && *ci + 1 >= s + k {
             continue;
         }
-        Block::default()
-            .borders(Borders::ALL)
-            .border_type(ratatui::widgets::BorderType::Plain)
-            .border_style(Style::default().fg(Color::Gray))
-            .render(r, b);
-        text(
-            b,
-            r.x + 1,
-            r.y + 1,
-            r.width - 2,
-            &entries[tile.idx].label,
-            Color::White,
-            Color::Black,
-            false,
-        );
+        let col = &cols[*ci];
+        let Some(&(i, y, h)) = lay.slabs.iter().find(|sl| Some(sl.0) == col.lit) else {
+            continue;
+        };
+        let k = ink(col, i);
+        funnel(&mut tmp, x + cw - 1, y, (y + h).min(bottom), top, bottom, k.wall);
     }
-    if let Some(n) = app.selection() {
-        text(
-            b,
-            1,
-            h - 4,
-            w - 2,
-            format!("> {} {}", n.name, size(n.bytes)),
-            Color::White,
-            Color::Black,
-            false,
-        )
-    }
-    text(
-        b,
-        1,
-        h - 2,
-        w - 2,
-        "up/down select | Enter open | Backspace back | d delete | q quit",
-        Color::Gray,
-        Color::Black,
-        false,
-    );
-    if app.confirm {
-        let r = Rect::new(3, h / 2 - 3, w - 6, 7);
-        f.render_widget(Clear, r);
-        f.render_widget(Block::default().title(" Delete? ").borders(Borders::ALL), r);
-        let b = f.buffer_mut();
-        text(
-            b,
-            r.x + 1,
-            r.y + 2,
-            r.width - 2,
-            "Permanently delete selected item?",
-            Color::White,
-            Color::Black,
-            false,
-        );
-        text(
-            b,
-            r.x + 1,
-            r.y + 4,
-            r.width - 2,
-            format!("Type delete: {}  (Esc cancels)", app.typed),
-            Color::White,
-            Color::Black,
-            false,
-        );
+    for yy in std::iter::once(rule_y).chain(top..=bottom) {
+        for sx in 0..used {
+            let src = base * pitch as i32 + sx as i32 - off;
+            if src >= 0 && (src as u16) < tw {
+                b[(x0 + sx, yy)] = tmp[(src as u16, yy)].clone();
+            }
+        }
     }
 }
 
-/// Keys this variant owns in browse mode; true means consumed. Everything
-/// else falls through to the app's own keys.
-pub fn key(_app: &mut App, _key: crossterm::event::KeyEvent) -> bool {
-    false
-}
-
-/// True while this variant animates, so the loop redraws every 16 ms.
-pub fn ticking() -> bool {
-    false
+fn lerp(a: Color, b: Color, t: f32) -> Color {
+    match (a, b) {
+        (Color::Rgb(ar, ag, ab), Color::Rgb(br, bg, bb)) => Color::Rgb(
+            (ar as f32 + (br as f32 - ar as f32) * t) as u8,
+            (ag as f32 + (bg as f32 - ag as f32) * t) as u8,
+            (ab as f32 + (bb as f32 - ab as f32) * t) as u8,
+        ),
+        _ => a,
+    }
 }
