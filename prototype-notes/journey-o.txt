@@ -1,6 +1,6 @@
 # name columns rows keys (tmux key names, comma-separated; - for none)
-# Variant O, outline: ↑↓ row to row, → open / list the rest / first child, ← close / parent,
-# Enter focus (re-root), Backspace back out, Tab / BTab next / previous top-level item.
+# Variant O, outline: ↑↓ row to row, → open / step in (along a shared row: next folder),
+# ← close / step out, Enter focus (re-root), Backspace back out, Tab / BTab next / previous top-level item.
 root-140x44 140 44 -
 root-100x30 100 30 -
 second-140x44 140 44 Tab
@@ -10,6 +10,12 @@ back-140x44 140 44 Enter,Down,Down,Down,BSpace
 cache-140x44 140 44 Tab,Tab,Tab,Enter
 cache-100x30 100 30 Tab,Tab,Tab,Enter
 collect-140x44 140 44 Tab,Down,Down,Down,Down,Space
-reveal-140x44 140 44 Down,Right
 open-140x44 140 44 Tab,Tab,Tab,Right
-target-100x30 100 30 Down,Down,Right,Down,Right,Down
+target-100x30 100 30 Down,Right,Right,Right
+collect-100x30 100 30 Tab,Down,Right,Right,Right,Space
+# The critic's failing sequences (fix round).
+left-root-140x44 140 44 Left
+right-proj-140x44 140 44 Right
+chain-mozilla-140x44 140 44 Tab,Tab,Tab,Enter,Space
+smaller-140x44 140 44 Enter,End,Right
+covered-deps-140x44 140 44 Down,Down,Down,Down,Space

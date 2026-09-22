@@ -1,52 +1,65 @@
-# Variant O, "Outline" (round 6)
+# Variant O, "Outline" (round 6, with fix round)
 
 ## Concept
 
-One surface: an indented tree whose every row carries a bar in a shared column, and the bar is *placed* where the item sits inside the view, over its parent's span drawn as a dim shadow, so the column reads as a sideways icicle ("WHERE IN ~"). At launch the tree opens itself along the largest items anywhere, as many as fit the screen (dust's rule), so the first screen already shows `deps`, `Gustav.pak`, `overlay`, `2024-trip.mov` and `win11.qcow2` in their folders; a folder opened that way says what it still hides (`+ 3 more`). After the first frame nothing opens, closes or moves unless a key asks, and every change of view slides (170 ms) instead of jumping.
+One surface: an indented tree whose every row carries a bar in a shared column, and the bar is *placed* where the item sits inside the view, over its parent's span drawn as a dim shadow, so the column reads as a sideways icicle ("WHERE IN ~"). At launch the tree opens itself along the largest items anywhere, as many as fit the screen (dust's rule); where rows are scarce, a folder that shows only its largest item shares that item's row (`atlas/target/debug/deps/`), and a closed folder names the biggest thing buried in it (`▸ .cache/   ↳ mozilla/firefox/  9.8 GiB`). From the first key on, nothing opens, closes or moves unless a key asks, and every change of view slides (170 ms) instead of jumping.
 
 ## Keys
 
 | Key | Does |
 |---|---|
-| ↑ ↓ (j k) | Row to row through the whole visible tree; never wraps |
-| → (l) | Opens a closed folder; on a folder the launch opened, lists what it hid; on an open folder, steps to its first child; on a `+ N more` row, lists the rest in place |
-| ← (h) | Undoes →: folds back what → listed, then closes; on a closed folder or file, steps to the parent; at the view's own level, backs out like ⌫ |
-| Enter | Focus: the folder becomes the view (header path, total, bar axis follow); on `+ N more`, lists the rest |
-| Backspace | Puts the previous view back exactly as it was, the focused folder selected |
+| ↑ ↓ (j k) | Row to row through the whole visible tree; never wraps. On a shared row, lands on its first folder |
+| → (l) | Tree contract: opens a closed folder; on an open folder, steps to its first child. On a shared row, lights the next folder along it. On `+ N more`, lists the rest in place |
+| ← (h) | Tree contract: closes an open folder; otherwise steps to the parent. On a shared row, lights the folder before. On the view's own level it never folds what the launch opened: it backs out of a focus, or says "Top of the tree" |
+| Enter | Focus: the lit folder becomes the view (header path, total, bar axis follow); on `+ N more`, lists the rest |
+| Backspace | Puts the previous view back exactly as it was, the focused folder lit |
 | Tab / Shift-Tab | Next / previous top-level item |
 | PgUp PgDn Home End | Page, first, last |
-| Space c t d r ? q | The app's own (collect, review, Trash, delete, rescan, help, quit) |
+| Space c t d r ? q | The app's own (collect, review, Trash, delete, rescan, help, quit), always on the lit row |
 
-## Keystroke counts (140 × 44, from launch)
+## Keystroke counts (from launch)
 
-- `deps` selected: **4** (↓ ↓ ↓ ↓). At 100 × 30, where the launch layout has no room for it: 6 (↓ ↓ → ↓ → ↓).
-- `Gustav.pak` collected: **6** (Tab ↓ ↓ ↓ ↓ Space).
+| | 140 × 44 | 100 × 30 |
+|---|---|---|
+| `deps` selected | **4** (↓ ↓ ↓ ↓) | **4** (↓ → → →, along `atlas/target/debug/deps/`) |
+| `Gustav.pak` collected | **6** (Tab ↓ ↓ ↓ ↓ Space) | **6** (Tab ↓ → → → Space) |
+| back to the start | 1 (Home) | 1 (Home) |
 
 ## Jobs
 
-1. **First screen.** The launch layout reveals the largest items anywhere below the view, largest first, one row each, until the rows fill the screen; nothing under 2 % of the view earns a row. At 140 × 44 all five benchmarks are on screen with their ancestors; a folder holding only one folder shares its row (`containers/storage/`), which is what makes room for `Gustav.pak`.
-2. **Orientation.** The header keeps the path to the view. Selecting never moves a row. Opening inserts rows below the folder (the rows below slide down, the new rows are uncovered under their folder); closing removes them; if the opened contents would fall off the bottom, the list scrolls up just enough, sliding. Focus keeps everything that was open inside the folder in the same order, slides those rows to their new places, stretches the bars from the folder's slice to the full width, and fills the room it gained along the largest items. ⌫ restores the previous view exactly (same rows, same scroll) and shrinks the bars back into the slice. Hue always follows the top-level folder, so a focused view keeps its colour.
-3. **One selection.** A lifted band across the whole row, an off-white edge mark, off-white bold name and size, and the row's bar lit toward off-white. The thin strip above the rows lights the selection's slice of the whole view, so "where" survives a scroll.
-4. **Keys.** The WAI-ARIA tree contract (→ opens then steps in, ← closes then steps out) with vi aliases; Enter and ⌫ are the only view changes and are exact inverses; on one row, → and ← undo each other (← folds back a list → revealed before it closes; → reopens a closed folder exactly as it was).
-5. **Decide and act.** Every key sets `app.route` and `app.selected` to the selected row's node, so Space, `c`, `t`, `d` and the detail strip act on exactly what is lit. A `+ N more` row sets `app.selected` one past the last child, so Space, `t` and `d` do nothing there and the strip lists what it stands for.
-6. **Holds up.** 100 × 30 keeps the same grammar without the gaps between groups; below 26 rows the header folds to two lines; 60 × 20 works; live resize never panics and refits the launch layout until the first open or close. A real scan works (no sample metadata).
+1. **First screen.** The launch layout reveals the largest items anywhere below the view, largest first, while the rows fit; nothing under 2 % of the view earns a row. At 140 × 44 all five benchmarks are on screen, each under its own ancestors. At 100 × 30 (fewer than 24 tree rows) a launch-opened folder showing one item shares its row, so all five are there too: `atlas/target/debug/deps/`, `…/Baldurs Gate 3/Data/Gustav.pak`, `containers/storage/overlay/`, `raw-footage/2024-trip.mov`, `win11.qcow2`. Closed folders name their biggest buried item with `↳`.
+2. **Orientation.** The header keeps the path to the view. Selecting never moves a row. Opening inserts rows below the folder (rows below slide down, the new rows are uncovered under their folder); if the opened contents would fall off the bottom, the list scrolls up just enough, sliding. Focus keeps what was open inside in the same order, slides those rows to their places, stretches the bars from the folder's slice to the full width, and fills the room it gained along the largest items. ⌫ restores the previous view exactly and shrinks the bars back. Hue follows the top-level folder, so a focused view keeps its colour. Tree guides are drawn only along the selection's own path.
+3. **One selection.** G's off-white outline around the whole row (its top and bottom edges drawn as off-white lines on the rows' shared borders, thin off-white sides), off-white name and size, and the row's bar lit toward off-white. On a shared row only the lit folder's name is off-white and bold, and the size column shows that folder's size. The thin strip above the rows lights the selection's slice of the whole view.
+4. **Keys.** The WAI-ARIA tree contract (→ opens then steps in, ← closes then steps out) with vi aliases; along a shared row → and ← walk its folders, so the chain behaves exactly like the rows it replaces. Enter and ⌫ are the only view changes and are exact inverses.
+5. **Decide and act.** Every key first makes `app.route` / `app.selected` match the lit row and segment, then acts; keys that fall through to the app (Space, t, d, c) therefore always act on what is lit. A `+ N more` row sets `app.selected` one past the last child, so Space, t and d do nothing there. The sample's gathered `N smaller items` nodes are a quiet grey remainder: → and Enter say they hold nothing to open, Space says it cannot collect them, and no invented path appears.
+6. **Holds up.** 100 × 30 keeps the same grammar without the gaps between groups and with shared rows; below 26 rows the header folds to two lines; 60 × 20 works. The launch layout refits on resize only until the first key; after that a resize never re-lays the tree out, and the lit row stays the item Space acts on (checked in tmux: Gustav.pak lit at 140 → 100 → 80 → 60 → 140, then Space at 100 × 30 collects Gustav.pak). A real scan works.
 
-## Decisions
+## Fix round (critic's items, in rank order)
 
-- **Auto-expansion rule:** dust's — the N largest items anywhere, each with its ancestors, N set by the rows available. A threshold (every item above X %) either missed `deps` or overflowed the screen; a heavy-path rule missed `overlay`. Pure size order is also the easiest to explain.
-- **`+ N more`:** two forms, one phrase. On a folder the launch opened, the count sits quietly on the folder's own row (a row each would have cost ten of the 28 rows and pushed three benchmarks off the first screen). Where a list itself ends (the view's own items, a folder you opened), it is a quiet last row with its size, as the brief suggests: `+ 28 more  4.1 GiB`. → on either lists them.
-- **Folding rule:** a folder you open lists what holds at least 2 % of it (never fewer than five) and folds the rest; the launch layout uses the same 2 % line against the view. Never a `+ 1 more` row: the one item is shown instead.
-- **Bars:** width about 44 % of the screen (50–64 columns at 140), eighth-cell ends, inverse partial glyphs for starts that fall mid-cell. Tone by depth in the view (H's graduation), hue by top-level folder. Parent span as a dim shadow; no track on top-level rows (it turned the gapless 100 × 30 list into a slab).
-- **Rhythm:** a blank row sets apart each top-level group that shows contents; single top-level rows sit together. Off below 24 tree rows.
-- **Whole-view strip:** kept, as one thin half-height line under the column caption. It is the long shot the research asks for and carries the selection's slice when the tree is scrolled.
-- **Dense `.cache`:** focus shows the nine items above 2 % and `+ 28 more  4.1 GiB`; the bars form one clean diagonal. Opening `.cache` in place at the root does the same inside the tree.
+**UX**
+1. *After a live resize the lit row was not the acted-on item (T6 fail).* The launch layout now freezes at the first keypress, not the first open, so a resize never hides the selection. And every key, including the ones that fall through to the app, first sets `app.route` / `app.selected` to the lit row, so the two can never disagree.
+2. *← on a top-level folder wiped the auto-opened subtree.* ← never closes a view-level folder the launch opened: in a focus it backs out (as ⌫), at the root it says "Top of the tree · ← leaves it as it is". A top-level folder you opened yourself with → still closes with ←, so your own → keeps its inverse.
+3. *Job 1 failed at 100 × 30.* Shared rows (`atlas/target/debug/deps/`) where tree rows are scarce; all five benchmarks now show at 100 × 30. At 140 × 44 rows stay unshared, since the critic called the indented path the answer there.
+4. *Twelve inline `+ N more` counts.* Dropped. The detail strip says "shows 1 of 4 inside · ↵ focus lists all", and the bar shows it too: the folder's shadow runs past its listed children.
+5. *Three-state → surprise.* → now follows the tree contract: on any open folder it steps to the first child. **Partial disagreement:** the critic asked for the hidden rest as a quiet last row. For folders the launch opened I did not add one: at 140 × 44 those rows would cost ten of 28 and push three benchmarks off the first screen, and at 100 × 30 they would break every shared row. Instead the rest is shown by the shadow and the strip, ↵ focus lists all of it, and ← then → reopens the folder in full, ending on its quiet `+ N more  size` row. Folders you open, and the view's own list, keep that last row.
+6. *A shared row selected its deepest folder; covered rows offered Space.* ↑↓ now land on a shared row's first folder (`mozilla/`, `atlas/`), → and ← walk it, and only the lit name is off-white; Space collects what is lit. Covered rows say "◇ inside a collected folder" and no longer offer Space.
 
-## Departures from the direction
+**Design**
+1. *Guides dense.* Only the selection's own path has guides, one per level.
+2. *Selection weaker than G's outline.* Added the off-white outline (see job 3). Terminals cannot draw a rounded one-row frame without covering the neighbouring rows, so the top and bottom edges are off-white lines on the row borders; the corners are square.
+3. *Deep bar tones murky.* One step less darkening per level (tones 0.82, 0.72, 0.63, 0.56, 0.50).
 
-- The direction's `+ N more` is a row that → expands. Rows are kept where a list ends, but launch-opened folders carry the count on their own row, for the budget reason above. → on such a folder lists the rest (a third state between closed and open), so walking into an opened chain with → costs one extra key per level; ↓ walks it in one.
-- Focus fills the gained room along the largest items (rule 13 of the research says never expand on the user's behalf after the first frame). It only adds rows, never removes or reorders what was open, and ⌫ discards it.
-- Opening a folder near the bottom scrolls just enough to show its contents; the direction says expand and collapse only insert or remove rows below.
+**Borrows:** M's `↳` buried item on every closed folder whose biggest item holds 2 % of the view (the leaf in the folder's hue, its path grey, its size grey). G's off-white outline (above).
+
+**Shared:** gathered `N smaller items` nodes are a remainder, not a folder (see job 5).
+
+## Decisions kept from the first pass
+
+- **Auto-expansion rule:** dust's, the N largest items anywhere with their ancestors, N set by the rows available; a threshold missed `deps` or overflowed, a heavy-path rule missed `overlay`.
+- **Folding rule:** a folder you open lists what holds at least 2 % of it (never fewer than five) and folds the rest into one quiet `+ N more  size` row; never a row for one.
+- **Bars:** about 44 % of the width, eighth-cell ends. Tone by depth in the view, hue by top-level folder, parent span as a dim shadow; on a shared row, the first folder's span is the shadow and the lit folder's span the bar.
+- **Rhythm:** a blank row sets apart each top-level group that shows contents; off below 24 tree rows.
 
 ## Weakest point
 
-The first screen carries twelve quiet `+ N more` counts; they are honest but add numbers beside names, and the owner disliked numbers close together. Second: at 100 × 30 the launch layout has room for only two levels under each folder, so `deps` and `Gustav.pak` need opening.
+Launch-opened folders still hide their rest without a row of their own; the shadow and the detail strip carry it, which is honest but quiet. Shared rows show the deepest item's size while unselected and the lit folder's size while selected, so the number under the cursor changes as you walk along one; I judged that better than a size that disagrees with the detail strip.
