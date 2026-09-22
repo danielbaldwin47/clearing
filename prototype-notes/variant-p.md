@@ -10,16 +10,20 @@ The whole tree has one geography: every folder's children are laid out once, ins
 |---|---|
 | ↑ ↓ (j k) | Select the previous or next entry, largest first. The outline moves on the Map and the List together. |
 | → Enter (l) | Zoom into the selected folder; its largest child is selected. On a file, a message says it is a file. |
-| ← Backspace (h) | Zoom out; the folder you left is selected. |
+| ← Backspace (h) | Zoom out; the folder you left is selected. At the top, a message says so. |
+| Tab | Jump to the selected Tile's `↳` item (the heaviest thing buried in it, named in its bottom wall), drilling the whole way with one zoom. Tab again straight after steps to that Tile's second `↳` item. |
+| ⇧Tab | Back to where the Tab jump started, selection and all. |
 | Home End PgUp PgDn | The app's own. |
 | Space, c, t, d, r, ?, q | The app's own: collect, review, Trash, delete, rescan, help, quit. |
 
 Any key finishes a running zoom at once, so the keyboard never waits on the animation. A folder whose only child is a folder with contents (`containers/storage/`) is drawn, opened and closed as one place.
 
-## Keystrokes from launch
+## Keystrokes from launch (after the fix round)
 
-- `~/Projects/atlas/target/debug/deps` selected: **4** (→ → → →). `deps` and its size are already readable after 1 (the Projects view).
-- `~/.local/Steam/Baldurs Gate 3/Data/Gustav.pak` collected: **6** (↓ → → → → Space).
+- `deps` selected: **2** (Tab Tab: Projects' first `↳` is `node_modules` 18.9 GiB, its second `deps` 18.4 GiB). → Tab also takes 2.
+- `overlay` collected: **3** (↓ Tab Space). From `deps`: 4 (⇧Tab ↓ Tab Space).
+- `Gustav.pak` collected: **4** (↓ Tab Tab Space). From `overlay`: 2 (Tab Space).
+- Back to the start from a jump: 1 (⇧Tab).
 
 ## The six jobs
 
@@ -49,3 +53,23 @@ Any key finishes a running zoom at once, so the keyboard never waits on the anim
 ## Weakest remaining point
 
 The first screen still does not show the deepest benchmarks: `deps` and `Gustav.pak` need one or two zooms, and the treemap cannot give their parents' frames enough rows at the root. Visually, a view with many small blocks mixes three treatments (outlined boxes, filled bricks, wall labels at the second level such as `interview-a.mov` in the root's Videos Tile), which may read as busy, and nested frames stack their left walls (`││││`) as G's did. The zoom stretches a folder by up to 3×, which a user may notice as blocks changing shape between the root and the zoomed view. The weakest scene is `root-100x30`: the Map is 70 by 14, so it shows two levels, and Pictures and the smaller items are unlabelled bricks.
+
+## Fix round
+
+The critic's items, in rank order, and what changed.
+
+**UX issues**
+1. *Deep items invisible until you drill (T1 fail).* Each Tile of the current folder names its buried items in its bottom wall: `↳ node_modules/  18.9 GiB  ↳ deps/  18.4 GiB`, largest first (M's rule: the heavy end below each of the two largest children, followed while one child holds at least 40%). The line keeps the whole path when it fits, then `…/`, then the name alone. Tab jumps straight to the first, Tab again to the second, ⇧Tab back, each with one zoom (up to 380 ms) and the target outlined all the way. At 140 by 44 the root now names deps, node_modules, overlay, Gustav.pak, 2024-trip.mov and firefox, and win11.qcow2 sits in VMs. At 100 by 30 the root names node_modules, overlay, 2024-trip.mov and firefox.
+2. *The locator frame used the selection's off-white.* The locator is grey throughout: grey blocks, a grey frame, and only the current view keeps a hue. It has a quiet caption, "overview · you are here", so it no longer reads as more Tiles (design issue 2).
+3. *Same-size items treated differently.* Labels that do not fit are cut with `…` rather than dropped (`Localiza…  2.3 GiB` beside `Models.pak  2.3 GiB`). Inside a Tile, names go largest first and stop at the first block that cannot take one, so a smaller block is never named where a larger one is not.
+4. *`9 smaller items` was zoomable and produced an invented path.* A node whose sample metadata has a `tail_count` is a gathered remainder: never opened on the Map, not enterable (→ says "9 smaller items are gathered small items, not a folder"), never collected, never a `↳` or Tab target. The detail strip says "gathered: small items that live directly in ~/Projects" instead of a path.
+5. *60 by 20 drew an empty frame.* Below a Map of 40 by 8 cells, the List fills the width alone. Tab and ⇧Tab still work there. Also: ← at the top and → on a file now say why nothing happened.
+
+**Design issues**
+1. *Stacked walls four deep and three block treatments.* Only the current folder's Tiles (and the frame around the current folder) have outlines. Inside a Tile everything is a brick, a filled rectangle one tone lighter than its parent, separated by one-cell gaps of the parent's tone (H's bricks and mortar), so there are no nested walls. That leaves two treatments, split by level: outlined Tiles, and bricks inside them. A Tile too small for its label inside carries its name in its top wall, cut if it must be. The filled "brick" Tiles and wall labels at the second level are gone.
+2. *Locator bricks read as extra Tiles.* See UX 2.
+3. Kept: the zoomed views, the fixed geography with its bounded stretch, and chain collapse.
+
+**Checks.** A 216-step live-resize sweep from 20 by 8 to 300 by 90, with Tab, ⇧Tab and zooms running, never panicked. A real scan of `~/Work` draws, and Tab jumps inside it.
+
+**Still weak.** At 100 by 30 only one `↳` item fits in most Tiles, so `deps` and `Gustav.pak` are a Tab-Tab away rather than named. Inside a Tile, the bricks after the first unnameable one are left blank (raw-footage and .cache at the root), which is honest but looks empty; the `↳` line is what names their contents. Tab's second press depends on having just jumped: predictable, but a rule to learn.

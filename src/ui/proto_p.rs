@@ -262,6 +262,9 @@ struct Anim {
     from: Vec<usize>,
     to: Vec<usize>,
     start: Instant,
+    ms: f64,
+    /// A Tab jump keeps its target outlined all the way; a zoom, the folder it opens or closes.
+    focus: Option<usize>,
 }
 
 #[derive(Default)]
@@ -276,6 +279,11 @@ struct St {
     /// The Map's shape, columns per row.
     ma: f64,
     anim: Option<Anim>,
+    /// Where each Tab jump started (route, selection, back stack), for ⇧Tab.
+    jumps: Vec<(Vec<usize>, usize, Vec<usize>)>,
+    /// Where the last Tab landed and which ↳ item it was: Tab again from
+    /// there steps to the same Tile's next ↳ item.
+    landed: Option<(Vec<usize>, usize, usize)>,
 }
 
 /// A zoom may stretch a folder along one axis, by up to this much, toward the
@@ -300,7 +308,7 @@ fn pid(n: &Node) -> usize {
 /// one place, `containers/storage/`.
 fn chain(n: &Node) -> Option<&Node> {
     match n.children.as_slice() {
-        [only] if only.is_dir && !only.children.is_empty() => Some(only),
+        [only] if only.is_dir && !only.children.is_empty() && !remainder(only) => Some(only),
         _ => None,
     }
 }
@@ -316,8 +324,50 @@ fn resolve(n: &Node) -> (&Node, String) {
     (at, label)
 }
 
+/// The sample's pre-aggregated "N smaller items": a gathered remainder, not a
+/// folder. It is never opened, entered or collected, so no invented path shows.
 fn remainder(n: &Node) -> bool {
-    n.name.ends_with(" smaller items")
+    crate::sample::meta(&n.path).and_then(|m| m.tail_count).is_some()
+}
+
+/// Something buried inside a Tile: the child indices down to it, the names
+/// along the way (its own last) and the node itself.
+struct Buried<'a> {
+    route: Vec<usize>,
+    names: Vec<&'a str>,
+    node: &'a Node,
+}
+
+/// Up to two things buried inside `n`, largest first: the heavy end below each
+/// of its two largest children, followed while one child holds at least 40% of
+/// its folder, when that end is deeper than the child or the child dominates `n`.
+fn buried(n: &Node) -> Vec<Buried<'_>> {
+    if !n.is_dir || remainder(n) {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for (i, c) in n.children.iter().enumerate().filter(|(_, c)| !remainder(c)).take(2) {
+        if c.bytes * 10 < n.bytes {
+            continue;
+        }
+        let mut route = vec![i];
+        let mut names = vec![c.name.as_str()];
+        let mut end = c;
+        while let Some(next) = end.children.first() {
+            if remainder(next) || next.bytes * 10 < end.bytes * 4 {
+                break;
+            }
+            route.push(0);
+            names.push(next.name.as_str());
+            end = next;
+        }
+        if route.len() == 1 && c.bytes * 10 < n.bytes * 4 {
+            continue;
+        }
+        out.push(Buried { route, names, node: end });
+    }
+    out.sort_by_key(|b| std::cmp::Reverse(b.node.bytes));
+    out
 }
 
 fn label_of(n: &Node) -> String {
@@ -417,8 +467,10 @@ fn adjust(fr: F, rel: F, gap: bool, sign: f64) -> F {
     }
 }
 
-fn gap_at(vd: usize, cam: f64) -> bool {
-    (vd as f64 - cam - 1.0) < 0.5
+/// Siblings keep a one-cell gap at every level: outlined Tiles for the current
+/// folder, bricks and mortar inside them.
+fn gap_at(_vd: usize, _cam: f64) -> bool {
+    true
 }
 
 /// The last node's drawn rectangle when the root is drawn at `root`.
@@ -680,6 +732,16 @@ fn label_plan(n: &Node, label: &str, inner: I) -> Option<(Vec<String>, bool)> {
             return Some((vec![name], true));
         }
     }
+    // Rather than leave it blank beside a same-sized neighbour that has room:
+    // the name cut short with an ellipsis, the size whole.
+    let name = spellings(n, label).pop().unwrap_or_default();
+    let v = value.width() as i32;
+    if inner.h() >= 2 && width >= v.max(5) {
+        return fit(&name, width).map(|cut| (vec![cut], false));
+    }
+    if inner.h() >= 1 {
+        return fit(&name, width - v - 2).filter(|c| c.chars().count() >= 4).map(|cut| (vec![cut], true));
+    }
     None
 }
 
@@ -713,6 +775,8 @@ struct Blk<'a> {
     hue: Color,
     mode: Mode,
     sel: bool,
+    /// Smaller than a sibling that could not be named: left unnamed too.
+    mute: bool,
 }
 
 fn snap(fr: F) -> I {
@@ -728,9 +792,15 @@ fn level(ctx: &Ctx, vdepth: usize) -> f64 {
     vdepth as f64 - ctx.cam - 1.0
 }
 
-fn leaf_fits(n: &Node, label: &str, ir: I, clip: I) -> bool {
+fn leaf_fits(n: &Node, label: &str, ir: I, clip: I, lvl: f64) -> bool {
     let vis = ir.and(clip);
-    vis.w() >= 3 && vis.h() >= 3 && label_plan(n, label, inner_of(vis)).is_some()
+    let inner = inner_for(vis, lvl);
+    inner.w() >= 1 && inner.h() >= 1 && label_plan(n, label, inner).is_some()
+}
+
+/// Where a label may go: inside the walls of an outlined Tile, anywhere on a brick.
+fn inner_for(r: I, lvl: f64) -> I {
+    if lvl < 0.5 { inner_of(r) } else { r }
 }
 
 fn inner_of(r: I) -> I {
@@ -759,13 +829,15 @@ fn visible(fr: F, map: I) -> bool {
 /// Whether a folder block can show its contents: its title fits, and its
 /// largest child can be named at the next level.
 fn opens(st: &mut St, ctx: &Ctx, content: &Node, label: &str, fr: F, ir: I, lvl: f64) -> bool {
-    if content.children.is_empty() {
+    if content.children.is_empty() || remainder(content) {
         return false;
     }
     if ctx.route.contains(&pid(content)) {
         return true;
     }
-    if lvl + 1.0 > MAX_LEVEL + 0.001 || ir.h() < 5 || ir.w() < label.width() as i32 + 4 {
+    // An outlined Tile needs its walls, a title and a row; a brick its title and a row.
+    let min_h = if lvl < 0.5 { 5 } else { 3 };
+    if lvl + 1.0 > MAX_LEVEL + 0.001 || ir.h() < min_h || ir.w() < label.width() as i32 + 4 {
         return false;
     }
     let kids = st.lay(content);
@@ -777,7 +849,7 @@ fn opens(st: &mut St, ctx: &Ctx, content: &Node, label: &str, fr: F, ir: I, lvl:
         .is_some_and(|(i, rel)| {
             let child = &content.children[i];
             let cr = snap(clamp_f(adjust(container.at(rel), rel, gap, 1.0)));
-            leaf_fits(child, &resolve(child).1, cr, ctx.map)
+            leaf_fits(child, &resolve(child).1, cr, ctx.map, lvl + 1.0)
         })
 }
 
@@ -792,8 +864,10 @@ fn draw_kids(
 ) {
     let kids = st.lay(node);
     let lvl = level(ctx, vd);
-    let gap = lvl < 0.5;
+    let gap = gap_at(vd, ctx.cam);
     let mut blocks = Vec::new();
+    // A larger sibling too small to draw at all: no smaller one is named either.
+    let mut dropped = false;
     for (i, rel) in kids.iter().enumerate() {
         let Some(rel) = *rel else { continue };
         let child = &node.children[i];
@@ -806,6 +880,7 @@ fn draw_kids(
         let sel = ctx.focus == Some(pid(child));
         if ir.w() < 1 || ir.h() < 1 {
             if !sel {
+                dropped = true;
                 continue;
             }
             ir.x1 = ir.x1.max(ir.x0 + 1);
@@ -815,13 +890,14 @@ fn draw_kids(
         let (content, label) = resolve(child);
         let mode = if opens(st, ctx, content, &label, fr, ir, lvl) {
             Mode::Frame
-        } else if leaf_fits(child, &label, ir, ctx.map) {
+        } else if leaf_fits(child, &label, ir, ctx.map, lvl) {
             Mode::Leaf
         } else {
             Mode::Tiny
         };
         // Too small to name: a faint box, so what a zoom reveals was already there.
         if mode == Mode::Tiny && !sel && (ir.w() < 2 || ir.h() < 2) {
+            dropped = true;
             continue;
         }
         if ctx.frame_of == Some(pid(content)) {
@@ -836,51 +912,190 @@ fn draw_kids(
             hue,
             mode,
             sel,
+            mute: dropped && lvl >= 0.5 && !sel,
         });
     }
-    let bg_of = |blk: &Blk| tint(blk.hue, tone(lvl) + if blk.sel { 0.035 } else { 0.0 });
-    // A Tile of the current folder too small for walls around its label is a
-    // filled brick with the label on it, not a hollow box.
-    let bar = |blk: &Blk| blk.mode == Mode::Tiny && !blk.sel && lvl < 0.5;
-    for blk in &blocks {
-        let bg = if bar(blk) { tint(blk.hue, tone(lvl) + 0.07) } else { bg_of(blk) };
-        paint(b, ctx.map, blk.ir, bg);
+    // Largest first, the labels stop at the first block that cannot take one:
+    // a smaller block is never named where a larger one is not.
+    if lvl >= 0.5 {
+        let mut failed = false;
+        for blk in blocks.iter_mut().filter(|b| !b.mute) {
+            let named = blk.mode != Mode::Tiny || tiny_named(ctx, blk, lvl);
+            if blk.sel {
+                continue;
+            }
+            if failed {
+                blk.mute = true;
+            } else if !named {
+                failed = true;
+            }
+        }
     }
-    // Below the current folder's own Tiles, small things nobody can name stay
-    // one quiet stretch of fill, not a mesh of empty boxes.
-    let quiet = |blk: &Blk| blk.mode == Mode::Tiny && lvl >= 0.5 && !tiny_named(ctx, blk, lvl);
-    for blk in blocks.iter().filter(|b| !b.sel && !quiet(b) && !bar(b)) {
-        let line = if blk.mode == Mode::Tiny {
-            tint(blk.hue, tone(lvl) + 0.07)
-        } else if lvl < 0.5 {
-            tint(blk.hue, 0.45)
-        } else {
-            tint(blk.hue, tone(lvl) + 0.16)
-        };
-        outline(b, ctx.map, blk.ir, line, lvl < 0.5);
+    // Inside a Tile, blocks are bricks: one tone lighter than the mortar they
+    // sit in, no walls, so nesting never stacks lines. Small things nobody can
+    // name are quieter bricks.
+    let quiet = |blk: &Blk| blk.mute || blk.mode == Mode::Tiny && lvl >= 0.5 && !tiny_named(ctx, blk, lvl);
+    let bgs: Vec<Color> = blocks
+        .iter()
+        .map(|blk| {
+            let lift = if blk.sel { 0.035 } else if quiet(blk) { -0.025 } else { 0.0 };
+            tint(blk.hue, tone(lvl) + lift)
+        })
+        .collect();
+    for (blk, bg) in blocks.iter().zip(&bgs) {
+        paint(b, ctx.map, blk.ir, *bg);
+    }
+    if lvl < 0.5 {
+        // The current folder's Tiles, and everything above them: full outlines.
+        for blk in blocks.iter().filter(|b| !b.sel) {
+            outline(b, ctx.map, blk.ir, tint(blk.hue, 0.45), true);
+        }
     }
     for blk in blocks.iter().filter(|b| b.sel) {
         outline(b, ctx.map, blk.ir, sel_line(blk.hue), true);
     }
-    for blk in &blocks {
-        let bg = bg_of(blk);
+    for (blk, &bg) in blocks.iter().zip(&bgs) {
         let mut title_end = blk.ir.x0 + 1;
+        if blk.mute {
+            continue;
+        }
         match blk.mode {
             Mode::Frame => {
                 title_end = draw_title(b, ctx, blk, lvl, bg);
                 draw_kids(b, st, ctx, blk.content, blk.fr.inset(1.0), vd + 1, Some(blk.hue));
             }
             Mode::Leaf => draw_label(b, ctx, blk, lvl, bg),
-            Mode::Tiny if bar(blk) => draw_bar(b, ctx, blk, lvl),
+            Mode::Tiny if lvl < 0.5 => title_end = draw_small_tile(b, ctx, blk, bg),
             Mode::Tiny => title_end = draw_tiny(b, ctx, blk, lvl, bg),
+        }
+        if lvl < 0.5 && lvl > -0.5 {
+            draw_buried(b, ctx, blk, bg);
         }
         if let Some((glyph, fg)) = collected_glyph(ctx.app, blk.node).filter(|g| g.0 != "◇") {
             let vis = blk.ir.and(ctx.map);
-            if vis.w() >= 5 && blk.ir.y0 >= ctx.map.y0 && title_end + 4 < vis.x1 {
+            let y = blk.ir.y0 as u16;
+            let blank = |x: i32| {
+                ctx.map.has(x, y as i32) && {
+                    let sym = b[(x as u16, y)].symbol();
+                    sym == " " || sym == "─"
+                }
+            };
+            let free = (vis.x1 - 4..vis.x1 - 1).all(blank);
+            if vis.w() >= 5 && blk.ir.y0 >= ctx.map.y0 && title_end + 4 < vis.x1 && free {
                 put(b, ctx.map, vis.x1 - 4, blk.ir.y0, &format!(" {glyph} "), fg, bg, true);
             }
         }
     }
+}
+
+/// A label cut to `width` with an ellipsis; nothing when not even a few letters fit.
+fn fit(label: &str, width: i32) -> Option<String> {
+    if label.width() as i32 <= width {
+        return Some(label.to_owned());
+    }
+    if width < 4 {
+        return None;
+    }
+    let mut s: String = label.chars().take((width - 1) as usize).collect();
+    s.push('…');
+    Some(s)
+}
+
+/// A Tile of the current folder too small for its label inside: name in the
+/// top wall (cut if it must be), size inside or in the bottom wall.
+fn draw_small_tile(b: &mut Buffer, ctx: &Ctx, blk: &Blk, bg: Color) -> i32 {
+    let vis = blk.ir.and(ctx.map);
+    let r = blk.ir;
+    if r.y0 < ctx.map.y0 || vis.w() < 6 {
+        return r.x0 + 1;
+    }
+    let value = size(blk.node.bytes);
+    let name_fg = if blk.sel { FG } else { blk.hue };
+    let value_fg = lerp(blk.hue, MUTED, 0.35);
+    let Some(name) = fit(&blk.label, vis.w() - 4) else {
+        return r.x0 + 1;
+    };
+    let x = vis.x0 + 1;
+    put_name(b, ctx.map, x, r.y0, &format!(" {name} "), name_fg, bg, true);
+    let inner = inner_of(vis);
+    let v = value.width() as i32;
+    if inner.h() >= 1 && v + 2 <= inner.w() {
+        let y = inner.y0 + (inner.h() - 1) / 2;
+        put(b, ctx.map, inner.x0 + (inner.w() - v) / 2, y, &value, value_fg, bg, false);
+    } else if r.y1 <= ctx.map.y1 && v + 4 <= vis.w() {
+        put(b, ctx.map, vis.x1 - 3 - v, r.y1 - 1, &format!(" {value} "), value_fg, bg, false);
+    }
+    x + name.width() as i32 + 2
+}
+
+/// The Tile's heaviest buried item, set into its bottom wall: `↳ …/debug/deps/  18.4 GiB`.
+fn draw_buried(b: &mut Buffer, ctx: &Ctx, blk: &Blk, bg: Color) {
+    let r = blk.ir;
+    if r.h() < 3 || r.y1 > ctx.map.y1 || blk.mode == Mode::Tiny && r.h() < 4 {
+        return;
+    }
+    let items = buried(blk.node);
+    if items.is_empty() {
+        return;
+    }
+    let vis = r.and(ctx.map);
+    // The bottom wall may already carry this Tile's size at its right.
+    let taken = if bottom_size(ctx, blk) {
+        size(blk.node.bytes).width() as i32 + 3
+    } else {
+        0
+    };
+    let room = vis.w() - 3 - taken;
+    // 0: the whole path; 1: `…/` for it; 2: the name alone.
+    let piece = |bur: &Buried, how: u8| -> (String, String, String) {
+        let path: String = match how {
+            0 => bur.names[..bur.names.len() - 1].iter().map(|n| format!("{n}/")).collect(),
+            1 if bur.names.len() > 1 => "…/".into(),
+            _ => String::new(),
+        };
+        (path, label_of(bur.node), size(bur.node.bytes))
+    };
+    let width = |p: &(String, String, String)| (3 + p.0.width() + p.1.width() + 2 + p.2.width() + 1) as i32;
+    // Both ↳ items when they fit, the first with its whole path if it can.
+    let mut plans = Vec::new();
+    for (first, count) in [(0, 2), (1, 2), (2, 2), (0, 1), (1, 1), (2, 1)] {
+        let pieces: Vec<_> = items
+            .iter()
+            .take(count)
+            .enumerate()
+            .map(|(i, bur)| piece(bur, if i == 0 { first } else { first.max(1) }))
+            .collect();
+        if pieces.len() == count.min(items.len()) {
+            plans.push(pieces);
+        }
+    }
+    let Some(plan) = plans
+        .into_iter()
+        .find(|p| p.iter().map(width).sum::<i32>() < room)
+    else {
+        return;
+    };
+    let y = r.y1 - 1;
+    let mut x = vis.x0 + 1;
+    let grey = lerp(MUTED, bg, 0.15);
+    for (path, leaf, value) in plan {
+        put(b, ctx.map, x, y, " ↳ ", grey, bg, false);
+        x += 3;
+        put_name(b, ctx.map, x, y, &path, grey, bg, false);
+        x += path.width() as i32;
+        put_name(b, ctx.map, x, y, &leaf, blk.hue, bg, true);
+        x += leaf.width() as i32;
+        put(b, ctx.map, x, y, &format!("  {value} "), lerp(blk.hue, MUTED, 0.35), bg, false);
+        x += value.width() as i32 + 3;
+    }
+}
+
+/// Whether the Tile's size went to its bottom wall because its title was too long.
+fn bottom_size(ctx: &Ctx, blk: &Blk) -> bool {
+    let vis = blk.ir.and(ctx.map);
+    let room = vis.w() - 4;
+    blk.mode == Mode::Frame
+        && (blk.label.width() + size(blk.node.bytes).width() + 4) as i32 > room
 }
 
 /// `name/  size` set into the top wall (the size only at level 0 and above);
@@ -921,7 +1136,7 @@ fn draw_title(b: &mut Buffer, ctx: &Ctx, blk: &Blk, lvl: f64, bg: Color) -> i32 
 
 fn tiny_named(ctx: &Ctx, blk: &Blk, lvl: f64) -> bool {
     let vis = blk.ir.and(ctx.map);
-    let inner = inner_of(vis);
+    let inner = inner_for(vis, lvl);
     let name = blk.label.width() as i32;
     let value = size(blk.node.bytes).width() as i32;
     let wall = blk.ir.y0 >= ctx.map.y0 && blk.ir.h() >= 2;
@@ -934,7 +1149,7 @@ fn tiny_named(ctx: &Ctx, blk: &Blk, lvl: f64) -> bool {
 /// name and size in its top wall; otherwise the name alone, inside or in the wall.
 fn draw_tiny(b: &mut Buffer, ctx: &Ctx, blk: &Blk, lvl: f64, bg: Color) -> i32 {
     let vis = blk.ir.and(ctx.map);
-    let inner = inner_of(vis);
+    let inner = inner_for(vis, lvl);
     let name = blk.label.width() as i32;
     let value = size(blk.node.bytes).width() as i32;
     let wall = blk.ir.y0 >= ctx.map.y0 && blk.ir.h() >= 2;
@@ -960,24 +1175,9 @@ fn draw_tiny(b: &mut Buffer, ctx: &Ctx, blk: &Blk, lvl: f64, bg: Color) -> i32 {
     blk.ir.x0 + 1
 }
 
-fn draw_bar(b: &mut Buffer, ctx: &Ctx, blk: &Blk, lvl: f64) {
-    let bg = tint(blk.hue, tone(lvl) + 0.07);
-    let vis = blk.ir.and(ctx.map);
-    let value = size(blk.node.bytes);
-    let (name, v) = (blk.label.width() as i32, value.width() as i32);
-    let x = vis.x0 + 1;
-    let y = vis.y0 + (vis.h() - 1) / 2;
-    if name + 2 + v + 2 <= vis.w() {
-        put_name(b, ctx.map, x, y, &blk.label, blk.hue, bg, true);
-        put(b, ctx.map, x + name + 2, y, &value, lerp(blk.hue, MUTED, 0.35), bg, false);
-    } else if name + 2 <= vis.w() {
-        put_name(b, ctx.map, x, y, &blk.label, blk.hue, bg, true);
-    }
-}
-
 /// Name above size, centred in the block's visible part.
 fn draw_label(b: &mut Buffer, ctx: &Ctx, blk: &Blk, lvl: f64, bg: Color) {
-    let inner = inner_of(blk.ir.and(ctx.map));
+    let inner = inner_for(blk.ir.and(ctx.map), lvl);
     let Some((lines, one_line)) = label_plan(blk.node, &blk.label, inner) else {
         return;
     };
@@ -1027,16 +1227,18 @@ fn draw_atlas(b: &mut Buffer, st: &mut St, map: Rect, app: &App) -> F {
     st.reset(mapf, &app.root);
     let now = app.route.clone();
     let running = st.anim.as_ref().is_some_and(|a| {
-        a.to == now && a.start.elapsed().as_secs_f64() * 1000.0 < ANIM_MS
+        a.to == now && a.start.elapsed().as_secs_f64() * 1000.0 < a.ms
     });
     if !running {
         st.anim = None;
     }
-    let (root, cam, focus, frame_route, open_route) = match &st.anim {
-        Some(a) => {
-            let t = a.start.elapsed().as_secs_f64() * 1000.0 / ANIM_MS;
+    let anim = st
+        .anim
+        .as_ref()
+        .map(|a| (a.start.elapsed().as_secs_f64() * 1000.0 / a.ms, a.from.clone(), a.to.clone(), a.focus));
+    let (root, cam, focus, frame_route, open_route) = match anim {
+        Some((t, from, to, jump_focus)) => {
             let e = ease(t);
-            let (from, to) = (a.from.clone(), a.to.clone());
             let deep = if to.len() > from.len() { to.clone() } else { from.clone() };
             let shallow = from.len().min(to.len());
             let nf = nodes_of(&app.root, &from);
@@ -1050,7 +1252,7 @@ fn draw_atlas(b: &mut Buffer, st: &mut St, map: Rect, app: &App) -> F {
             let p = F::lerp(a_rect, b_rect, e);
             let cam = cf + (ct - cf) * e;
             let root = root_for(st, &nd, &deep, p, cam);
-            let focus = nd.get(shallow + 1).map(|n| pid(n));
+            let focus = jump_focus.or_else(|| nd.get(shallow + 1).map(|n| pid(n)));
             (root, cam, focus, to, deep)
         }
         None => {
@@ -1144,6 +1346,9 @@ fn draw_locator(b: &mut Buffer, st: &mut St, r: Rect, app: &App, view: F) {
     let vy0 = (view.y0 / mh * ph as f64).floor() as i32;
     let vx1 = ((view.x1 / mw * pw as f64).ceil() as i32 - 1).max(vx0);
     let vy1 = ((view.y1 / mh * ph as f64).ceil() as i32 - 1).max(vy0);
+    // Grey, so it never reads as more Tiles; only where you are carries a hue,
+    // and its frame is grey too: off-white belongs to the selection.
+    let ground = lerp(BG, MUTED, 0.16);
     let pixel = |px: i32, py: i32| -> Color {
         let i = at(px, py);
         let hue = i.map(|i| COLORS[i % COLORS.len()]).unwrap_or(MUTED);
@@ -1151,21 +1356,29 @@ fn draw_locator(b: &mut Buffer, st: &mut St, r: Rect, app: &App, view: F) {
             let across = px >= vx0 && px <= vx1;
             let down = py >= vy0 && py <= vy1;
             if across && (py == vy0 || py == vy1) || down && (px == vx0 || px == vx1) {
-                return lerp(MUTED, FG, 0.75);
+                return MUTED;
             }
         }
         let Some(i) = i else { return BG };
         if at(px + 1, py) != Some(i) && px + 1 < pw || at(px, py + 1) != Some(i) && py + 1 < ph {
             return BG;
         }
-        if root {
-            tint(hue, 0.15)
-        } else if in_view(px, py) {
-            tint(hue, 0.32)
+        if !root && in_view(px, py) {
+            tint(hue, 0.30)
         } else {
-            tint(hue, 0.11)
+            ground
         }
     };
+    put(
+        b,
+        I::of(Rect::new(r.x, r.y - 1, r.width, 1)),
+        r.x as i32,
+        r.y as i32 - 1,
+        if root { "overview" } else { "overview · you are here" },
+        lerp(MUTED, BG, 0.2),
+        BG,
+        false,
+    );
     for cy_ in 0..r.height as i32 {
         for x in 0..pw {
             let top = pixel(x, cy_ * 2);
@@ -1340,30 +1553,31 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
     hline(b, 2, 7, w - 4, DIM);
     let map = Rect::new(2, 9, w - side - 6, h - 16);
-    text(b, 2, 7, 13, " SPACE MAP  ", FG, BG, true);
-    if map.width >= 55 {
-        text(b, 17, 7, map.width - 15, "area = allocated bytes", MUTED, BG, false);
-    }
-    text(b, list_x, 7, side, " LARGEST FIRST ", FG, BG, true);
-    let view = ST.with(|s| {
-        let mut st = s.borrow_mut();
-        let view = draw_atlas(b, &mut st, map, app);
-        // The locator: the whole root in miniature, at the foot of the List.
-        let (loc_w, loc_h) = locator_size(side, map);
-        if map.height >= 18 {
-            let loc = Rect::new(list_x, map.bottom() - loc_h, loc_w, loc_h);
-            draw_locator(b, &mut st, loc, app, view);
-        }
-        view
-    });
-    let _ = view;
-    let (_, loc_h) = locator_size(side, map);
-    let list_h = if map.height >= 18 {
-        map.height - loc_h - 1
+    // Below this the Map cannot hold one labelled Tile: the List alone.
+    if map.width < 40 || map.height < 8 {
+        ST.with(|s| s.borrow_mut().anim = None);
+        text(b, 2, 7, 16, " LARGEST FIRST ", FG, BG, true);
+        draw_list(b, Rect::new(2, 9, w - 4, h - 16), app);
     } else {
-        map.height
-    };
-    draw_list(b, Rect::new(list_x, map.y, side, list_h), app);
+        text(b, 2, 7, 13, " SPACE MAP  ", FG, BG, true);
+        if map.width >= 55 {
+            text(b, 17, 7, map.width - 15, "area = allocated bytes", MUTED, BG, false);
+        }
+        text(b, list_x, 7, side, " LARGEST FIRST ", FG, BG, true);
+        let (loc_w, loc_h) = locator_size(side, map);
+        let locator = map.height >= 18;
+        ST.with(|s| {
+            let mut st = s.borrow_mut();
+            let view = draw_atlas(b, &mut st, map, app);
+            // The locator: the whole root in miniature, at the foot of the List.
+            if locator {
+                let loc = Rect::new(list_x, map.bottom() - loc_h, loc_w, loc_h);
+                draw_locator(b, &mut st, loc, app, view);
+            }
+        });
+        let list_h = if locator { map.height - loc_h - 2 } else { map.height };
+        draw_list(b, Rect::new(list_x, map.y, side, list_h), app);
+    }
     let detail = Rect::new(2, h - 6, w - 4, 3);
     fill(b, detail, PANEL);
     if let Some(n) = app.selection() {
@@ -1373,17 +1587,18 @@ pub fn draw(f: &mut Frame, app: &App) {
         let fw = figures.width() as u16;
         text(b, 5, h - 6, w - 10 - fw, &n.name, FG, PANEL, true);
         text(b, w - 4 - fw, h - 6, fw, &figures, color, PANEL, true);
-        text(
-            b,
-            5,
-            h - 5,
-            w - 9,
-            tail(&crate::scan::display_path(n.path.as_os_str()), (w - 9) as usize),
-            MUTED,
-            PANEL,
-            false,
-        );
-        let kind = if n.is_symlink {
+        let place = if remainder(n) {
+            format!(
+                "gathered: small items that live directly in {}",
+                crate::scan::display_path(node.path.as_os_str())
+            )
+        } else {
+            crate::scan::display_path(n.path.as_os_str())
+        };
+        text(b, 5, h - 5, w - 9, tail(&place, (w - 9) as usize), MUTED, PANEL, false);
+        let kind = if remainder(n) {
+            "gathered"
+        } else if n.is_symlink {
             "symbolic link"
         } else if n.is_dir {
             "folder"
@@ -1399,8 +1614,8 @@ pub fn draw(f: &mut Frame, app: &App) {
                 "{}  ·  {} files{}{}",
                 kind,
                 n.files,
-                if n.is_dir { "  ·  → zoom in" } else { "" },
-                if w >= 80 { "  ·  t move to Trash" } else { "" }
+                if n.is_dir && !remainder(n) { "  ·  → zoom in  ·  Tab ↳" } else { "" },
+                if w >= 80 && !remainder(n) { "  ·  t move to Trash" } else { "" }
             ),
             MUTED,
             PANEL,
@@ -1412,11 +1627,11 @@ pub fn draw(f: &mut Frame, app: &App) {
     let footer = if !app.message.is_empty() {
         app.message.clone()
     } else if w < 80 {
-        "↑↓ choose  → in  ← out  Space add  c review  ? help  q quit".into()
+        "↑↓ choose  → in  ← out  Tab ↳  Space add  c review  q quit".into()
     } else if w < 108 {
-        "↑↓ choose  → zoom in  ← zoom out  Space collect  c review  t Trash  d delete  ? help  q quit".into()
+        "↑↓ choose  → in  ← out  Tab ↳  ⇧Tab back  Space collect  c review  t Trash  ? help".into()
     } else {
-        "↑↓ choose   → zoom in   ← zoom out   Space collect   c review   t Trash   d delete   r rescan   ? help   q quit".into()
+        "↑↓ choose   → zoom in   ← zoom out   Tab jump to ↳   ⇧Tab jump back   Space collect   c review   t Trash   d delete   ? help".into()
     };
     text(b, 2, h - 2, w - 4, footer, MUTED, BG, false);
     if node.errors > 0 {
@@ -1457,7 +1672,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         );
         f.render_widget(
             Paragraph::new(
-                "↑ / ↓ or j / k    Select an entry\n→ / Enter / l     Zoom into the selected folder\n← / Backspace / h Zoom out, back to the folder you left\nHome / End        First / last entry\nPgUp / PgDn       Move eight entries\nSpace             Collect / uncollect entry for Trash\nc                 Review collector, t moves it to Trash\nt                 Move selected entry to system Trash\nd                 Delete selected entry permanently\nr                 Rescan root (Esc cancels)\n?                 Toggle this help\nq / Esc           Quit (or close dialog)\n\nThe Map is laid out once: zooming never moves anything.\nSizes include allocated blocks. Hard links count once.",
+                "↑ / ↓ or j / k    Select an entry\n→ / Enter / l     Zoom into the selected folder\n← / Backspace / h Zoom out, back to the folder you left\nTab / Shift-Tab   Jump to the ↳ item inside / back again\nHome / End        First / last entry\nPgUp / PgDn       Move eight entries\nSpace             Collect / uncollect entry for Trash\nc                 Review collector, t moves it to Trash\nt                 Move selected entry to system Trash\nd                 Delete selected entry permanently\nr                 Rescan root (Esc cancels)\n?                 Toggle this help\nq / Esc           Quit (or close dialog)\n\nThe Map is laid out once: zooming never moves anything.\nSizes include allocated blocks. Hard links count once.",
             )
             .style(Style::default().fg(FG).bg(PANEL)),
             Rect::new(r.x + 2, r.y + 1, r.width - 4, r.height - 2),
@@ -1493,11 +1708,18 @@ fn collected_glyph(app: &App, node: &Node) -> Option<(&'static str, Color)> {
 pub fn key(app: &mut App, key: KeyEvent) -> bool {
     ST.with(|s| s.borrow_mut().anim = None);
     let from = app.route.clone();
+    let mut jumped = false;
     match key.code {
         KeyCode::Enter | KeyCode::Right | KeyCode::Char('l') => {
-            if let Some(n) = app.selection().filter(|n| !n.is_dir) {
-                app.message = format!("{} is a file · Space collects it · ← zooms out", n.name);
-                return true;
+            if let Some(n) = app.selection() {
+                if remainder(n) {
+                    app.message = format!("{} are gathered small items, not a folder", n.name);
+                    return true;
+                }
+                if !n.is_dir {
+                    app.message = format!("{} is a file · Space collects it · ← zooms out", n.name);
+                    return true;
+                }
             }
             app.drill();
             while app.route != from && chain(app.current()).is_some() {
@@ -1506,19 +1728,132 @@ pub fn key(app: &mut App, key: KeyEvent) -> bool {
             }
         }
         KeyCode::Backspace | KeyCode::Left | KeyCode::Char('h') => {
+            if app.route.is_empty() {
+                app.message = format!("{} is the top of this scan", app.root.name);
+                return true;
+            }
             app.back();
             while !app.route.is_empty() && chain(app.current()).is_some() {
                 app.back();
             }
         }
+        KeyCode::Tab => {
+            // Straight to the selected Tile's ↳ item, drilling the whole way;
+            // Tab again right after steps to that Tile's next ↳ item.
+            let landed = ST.with(|s| s.borrow().landed.clone());
+            let again = landed
+                .as_ref()
+                .filter(|l| l.0 == app.route && l.1 == app.selected)
+                .map(|l| l.2 + 1);
+            let origin = if again.is_some() {
+                ST.with(|s| s.borrow().jumps.last().cloned())
+            } else {
+                None
+            };
+            let k = again.unwrap_or(0);
+            let (start_route, start_sel, start_prev) = match &origin {
+                Some(o) => o.clone(),
+                None => (app.route.clone(), app.selected, app.previous.clone()),
+            };
+            let tile = nodes_of(&app.root, &start_route)
+                .last()
+                .and_then(|n| n.children.get(start_sel));
+            let Some(tile) = tile else { return true };
+            let all = buried(tile);
+            let count = all.len();
+            let found = all.into_iter().nth(k).map(|b| (b.route, b.node.name.clone()));
+            let Some((route, name)) = found else {
+                app.message = if k > 0 {
+                    format!("No more ↳ in {} · ⇧Tab jumps back", tile.name)
+                } else if tile.is_dir && !remainder(tile) {
+                    format!("Nothing buried in {}: its largest item is in plain view", tile.name)
+                } else {
+                    format!("{} has nothing inside to jump to", tile.name)
+                };
+                return true;
+            };
+            if origin.is_none() {
+                ST.with(|s| s.borrow_mut().jumps.push((start_route.clone(), start_sel, start_prev.clone())));
+            }
+            app.route = start_route.clone();
+            app.selected = start_sel;
+            app.previous = start_prev;
+            app.drill();
+            for (j, &i) in route.iter().enumerate() {
+                app.selected = i;
+                if j + 1 < route.len() {
+                    app.drill();
+                }
+            }
+            while chain(app.current()).is_some() {
+                app.selected = 0;
+                app.drill();
+            }
+            let next = count > k + 1;
+            app.message = if next {
+                format!("↳ {name} · Tab next ↳ · ⇧Tab jumps back")
+            } else {
+                format!("↳ {name} · ⇧Tab jumps back")
+            };
+            ST.with(|s| s.borrow_mut().landed = Some((app.route.clone(), app.selected, k)));
+            jumped = true;
+            // A step to the next ↳ zooms in from the Tile's own view.
+            if origin.is_some() {
+                let to = app.route.clone();
+                ST.with(|s| {
+                    s.borrow_mut().anim = Some(Anim {
+                        from: start_route,
+                        to,
+                        start: Instant::now(),
+                        ms: 340.0,
+                        focus: app.selection().map(pid),
+                    })
+                });
+                return true;
+            }
+        }
+        KeyCode::BackTab => {
+            ST.with(|s| s.borrow_mut().landed = None);
+            let Some((route, selected, previous)) = ST.with(|s| s.borrow_mut().jumps.pop()) else {
+                app.message = "No ↳ jump to go back from · ← zooms out".into();
+                return true;
+            };
+            let mut node = &app.root;
+            let valid = route.iter().all(|&i| match node.children.get(i) {
+                Some(c) => {
+                    node = c;
+                    true
+                }
+                None => false,
+            });
+            if valid && selected < node.children.len() {
+                app.route = route;
+                app.selected = selected;
+                app.previous = previous;
+                app.message.clear();
+            }
+            jumped = true;
+        }
+        KeyCode::Char(' ') if app.selection().is_some_and(remainder) => {
+            app.message = "Gathered small items are not collected as one · the List names each item where it lives".into();
+            return true;
+        }
         _ => return false,
     }
-    if app.route != from {
+    let to = app.route.clone();
+    let related = to.starts_with(&from) || from.starts_with(&to);
+    if to != from && related {
+        // Longer jumps take a little longer, never past 400 ms.
+        let levels = to.len().abs_diff(from.len()) as f64;
+        let ms = (ANIM_MS + 40.0 * (levels - 1.0)).min(380.0);
+        let focus = if jumped { app.selection().map(pid) } else { None };
         ST.with(|s| {
             s.borrow_mut().anim = Some(Anim {
                 from,
-                to: app.route.clone(),
+                to,
                 start: Instant::now(),
+                ms,
+                focus,
             })
         });
     }

@@ -1,5 +1,6 @@
 # name columns rows keys (tmux key names, comma-separated; - for none)
-# Variant P, atlas: Enter or Right zooms into the selected folder, Backspace or Left zooms out.
+# Variant P, atlas: Enter or Right zooms into the selected folder, Backspace or Left zooms out,
+# Tab jumps to the selected Tile's buried item (the ↳ line in its bottom wall), BTab jumps back.
 root-140x44 140 44 -
 root-100x30 100 30 -
 second-140x44 140 44 Down
@@ -9,6 +10,20 @@ target-140x44 140 44 Enter,Enter,Enter,Enter
 back-140x44 140 44 Enter,Enter,Enter,Enter,BSpace,BSpace,BSpace,BSpace
 cache-140x44 140 44 Down,Down,Down,Enter
 cache-100x30 100 30 Down,Down,Down,Enter
-gustav-140x44 140 44 Down,Enter,Enter,Enter,Enter,Space
+# Fix round: Tab to the buried item, and back.
+tab-deps-140x44 140 44 Tab
+tab-back-140x44 140 44 Tab,BTab
+tab-next-140x44 140 44 Tab,Tab
+tab-overlay-140x44 140 44 Down,Tab,Space
+gustav-140x44 140 44 Down,Tab,Tab,Space
+gustav-steam-140x44 140 44 Down,Right,Tab,Space
+deps-to-overlay-140x44 140 44 Tab,Tab,BTab,Down,Tab,Space
+gustav-100x30 100 30 Down,Right,Tab,Space
 storage-140x44 140 44 Down,Enter,Down,Enter
 videos-100x30 100 30 Down,Down,Enter
+# The critic's failing sequences.
+smaller-140x44 140 44 Enter,Down,Down,Down,Enter
+data-100x30 100 30 Down,Enter,Enter,Enter,Enter
+small-80x24 80 24 Down,Right,Tab
+small-60x20 60 20 Down,Right,Tab
+left-root-140x44 140 44 Left
