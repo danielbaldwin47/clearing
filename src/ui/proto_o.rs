@@ -1,82 +1,862 @@
-//! PROTOTYPE (ticket #3), variant O: outline (round 6). Starts as a copy of variant G; throwaway.
-#![allow(dead_code)]
+//! PROTOTYPE (ticket #3), variant O: outline (round 6). One indented tree whose bars are positioned slices of the view, opened along the largest items at launch; throwaway.
+//!
+//! The list is the map. Every row carries a bar in one shared column, placed
+//! where the item sits inside its parent (as `dust` draws them), with the
+//! parent's span as a dim shadow behind it. At launch the tree opens itself
+//! along the largest items anywhere, as many as fit the screen; a folder opened
+//! that way names what it still hides (`+ 3 more`). After the first frame
+//! nothing opens, closes or moves unless a key asks for it.
 use super::{
     App,
     confirm::draw_confirm,
     foundation::*,
     review::{collector_status, draw_review, draw_trash_confirm},
 };
-use crate::{collector::Mark, theme::*};
+use crate::{collector::Mark, scan::Node, theme::*};
+use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
     buffer::Buffer,
     layout::Rect,
     style::{Color, Style},
-    widgets::{Block, Borders, Clear, Paragraph, Widget},
+    widgets::{Block, Borders, Clear, Paragraph},
+};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    path::{Path, PathBuf},
+    time::Instant,
 };
 use unicode_width::UnicodeWidthStr;
 
-const NARROW_MAP_WIDTH: u16 = 80;
+// ------------------------------------------------------------------ state
+
+/// An open folder: how many of its children (largest first) are listed, and
+/// whether the launch opened it (then it names its hidden rest on its own row).
+#[derive(Clone, Copy, PartialEq, Debug)]
+struct Open {
+    shown: usize,
+    auto: bool,
+}
+
+#[derive(Clone)]
+struct View {
+    root: PathBuf,
+    open: HashMap<PathBuf, Open>,
+    /// What a closed folder showed, so → gives back exactly what ← took away.
+    closed: HashMap<PathBuf, Open>,
+    /// Launch-opened folders whose rest → listed: how many the launch showed,
+    /// so ← folds them back before it closes anything.
+    folded: HashMap<PathBuf, usize>,
+    scroll: usize,
+    /// A folder just opened: scroll so its contents show, if they fit.
+    /// Its path, and whether what to show is its later siblings (after `+ N more`)
+    /// rather than its contents.
+    reveal: Option<(PathBuf, bool)>,
+    /// No open or close yet: a resize may still refit the launch layout.
+    touched: bool,
+    /// The open folders before the launch layout ran, for a refit.
+    before_auto: Option<HashMap<PathBuf, Open>>,
+    fitted: Option<(u16, u16)>,
+}
+
+/// A change of view played out: rows slide from where they were, and on a
+/// focus the bars stretch from the old axis to the new one.
+struct Anim {
+    at: Instant,
+    /// The old axis as a fraction of the new one.
+    zoom: Option<(f64, f64)>,
+    /// Path → screen row before the change.
+    slide: HashMap<PathBuf, i32>,
+}
+const ANIM_MS: f64 = 170.0;
+
+struct State {
+    view: View,
+    stack: Vec<View>,
+    size: (u16, u16),
+    anim: Option<Anim>,
+}
+
+thread_local! {
+    static STATE: RefCell<Option<State>> = const { RefCell::new(None) };
+}
+
+fn init_state(app: &App) {
+    STATE.with(|cell| {
+        let mut slot = cell.borrow_mut();
+        slot.get_or_insert_with(|| {
+            let root = app.root.path.clone();
+            let mut open = HashMap::new();
+            open.insert(
+                root.clone(),
+                Open {
+                    shown: default_shown(&app.root),
+                    auto: false,
+                },
+            );
+            State {
+                view: View {
+                    root,
+                    open,
+                    closed: HashMap::new(),
+                    folded: HashMap::new(),
+                    scroll: 0,
+                    reveal: None,
+                    touched: false,
+                    before_auto: None,
+                    fitted: None,
+                },
+                stack: Vec::new(),
+                size: (0, 0),
+                anim: None,
+            }
+        });
+    })
+}
+
+fn with_state<R>(f: impl FnOnce(&mut State) -> R) -> R {
+    STATE.with(|cell| f(cell.borrow_mut().as_mut().expect("initialised in draw")))
+}
+
+/// A folder the user opens lists what holds at least 2 % of it (never fewer
+/// than five), and folds the rest into one `+ N more` row; never a row for one.
+fn default_shown(n: &Node) -> usize {
+    let len = n.children.len();
+    let big = n
+        .children
+        .iter()
+        .take_while(|c| c.bytes.saturating_mul(50) >= n.bytes)
+        .count();
+    let k = big.max(len.min(5));
+    if len - k <= 1 { len } else { k }
+}
+
+/// The route to `path`, or to its nearest ancestor still in the tree.
+fn route_of(root: &Node, path: &Path) -> Vec<usize> {
+    let mut route = Vec::new();
+    let mut node = root;
+    while node.path != path {
+        let Some(i) = node
+            .children
+            .iter()
+            .position(|c| path.starts_with(&c.path))
+        else {
+            break;
+        };
+        route.push(i);
+        node = &node.children[i];
+    }
+    route
+}
+
+// ------------------------------------------------------------------ rows
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Kind {
+    Item,
+    More,
+    Gap,
+}
+
+#[derive(Clone)]
+struct Row {
+    kind: Kind,
+    /// Item: the node. More: the folder whose rest it stands for.
+    route: Vec<usize>,
+    /// 0 for the view's own children.
+    depth: usize,
+    /// Item: children an opened-at-launch folder still hides. More: how many it stands for.
+    hidden: usize,
+    bytes: u64,
+    /// Offset along the view's byte axis.
+    start: u64,
+    parent: (u64, u64),
+    open: bool,
+    folder: bool,
+    hue: Color,
+    path: PathBuf,
+    /// A chain of single folders shares one row (`containers/storage`): the
+    /// route of its first folder, and every name in it.
+    head: Vec<usize>,
+    names: Vec<String>,
+}
+
+fn gap_row() -> Row {
+    Row {
+        kind: Kind::Gap,
+        route: Vec::new(),
+        depth: 0,
+        hidden: 0,
+        bytes: 0,
+        start: 0,
+        parent: (0, 0),
+        open: false,
+        folder: false,
+        hue: MUTED,
+        path: PathBuf::new(),
+        head: Vec::new(),
+        names: Vec::new(),
+    }
+}
+
+fn build_rows(app: &App, v: &View, gaps: bool) -> Vec<Row> {
+    let route = route_of(&app.root, &v.root);
+    let node = app.root.at(&route);
+    let open = v.open.get(&node.path).copied().unwrap_or(Open {
+        shown: default_shown(node),
+        auto: false,
+    });
+    let mut out = Vec::new();
+    push_children(v, node, &route, 0, 0, open, gaps, &mut out);
+    out
+}
+
+#[allow(clippy::too_many_arguments)]
+fn push_children(
+    v: &View,
+    node: &Node,
+    route: &[usize],
+    depth: usize,
+    start: u64,
+    open: Open,
+    gaps: bool,
+    out: &mut Vec<Row>,
+) {
+    let n = node.children.len();
+    let mut shown = open.shown.min(n);
+    // The view's own rest, and the rest of a folder the user opened, is a row.
+    let as_row = depth == 0 || !open.auto;
+    if as_row && n - shown == 1 {
+        shown = n;
+    }
+    let hue_of = |r: &[usize]| {
+        r.first()
+            .map(|i| COLORS[i % COLORS.len()])
+            .unwrap_or(MUTED)
+    };
+    let mut at = start;
+    // Top-level groups with open contents stand apart; single rows sit together.
+    let mut prev_open = false;
+    for (i, c) in node.children[..shown].iter().enumerate() {
+        let mut r = route.to_vec();
+        r.push(i);
+        let head = r.clone();
+        // A folder holding nothing but one folder shares that folder's row.
+        let mut c = c;
+        let mut names = vec![c.name.clone()];
+        while c.children.len() == 1 && c.children[0].is_dir {
+            c = &c.children[0];
+            r.push(0);
+            names.push(c.name.clone());
+        }
+        let copen = v.open.get(&c.path).copied().filter(|_| !c.children.is_empty());
+        if depth == 0 && gaps && !out.is_empty() && (prev_open || copen.is_some()) {
+            out.push(gap_row());
+        }
+        prev_open = copen.is_some();
+        let hidden = match copen {
+            Some(o) if o.auto => c.children.len() - o.shown.min(c.children.len()),
+            _ => 0,
+        };
+        out.push(Row {
+            kind: Kind::Item,
+            route: r.clone(),
+            depth,
+            hidden,
+            bytes: c.bytes,
+            start: at,
+            parent: (start, start + node.bytes),
+            open: copen.is_some(),
+            folder: !c.children.is_empty(),
+            hue: hue_of(&r),
+            path: c.path.clone(),
+            head,
+            names,
+        });
+        if let Some(o) = copen {
+            push_children(v, c, &r, depth + 1, at, o, gaps, out);
+        }
+        at += c.bytes;
+    }
+    if shown < n && as_row {
+        if depth == 0 && gaps && prev_open {
+            out.push(gap_row());
+        }
+        let rest: u64 = node.children[shown..].iter().map(|c| c.bytes).sum();
+        out.push(Row {
+            kind: Kind::More,
+            route: route.to_vec(),
+            depth,
+            hidden: n - shown,
+            bytes: rest,
+            start: at,
+            parent: (start, start + node.bytes),
+            open: false,
+            folder: false,
+            hue: if depth == 0 && route.is_empty() {
+                MUTED
+            } else {
+                hue_of(route)
+            },
+            path: node.path.join("\u{0}more"),
+            head: route.to_vec(),
+            names: Vec::new(),
+        });
+    }
+}
+
+/// Launch layout: reveal the largest items anywhere below the view, one row
+/// each, largest first, until the screen is full (as `dust` picks its rows).
+/// Items under 2 % of the view never earn a row: the same line an opened folder folds at.
+fn auto_open(app: &App, v: &mut View, budget: usize, gaps: bool) {
+    let view = app.root.at(&route_of(&app.root, &v.root));
+    let total = view.bytes.max(1);
+    loop {
+        let rows = build_rows(app, v, gaps);
+        if rows.len() >= budget {
+            return;
+        }
+        // The view's own next item, then every folder the launch may open further.
+        let mut candidates: Vec<(u64, &Node, Option<Open>, bool)> = Vec::new();
+        if let Some(o) = v.open.get(&view.path)
+            && o.shown < view.children.len()
+        {
+            candidates.push((view.children[o.shown].bytes, view, Some(*o), true));
+        }
+        for r in rows.iter().filter(|r| r.kind == Kind::Item && r.folder) {
+            let node = app.root.at(&r.route);
+            match v.open.get(&node.path) {
+                None if v.closed.contains_key(&node.path) => {}
+                None => candidates.push((node.children[0].bytes, node, None, false)),
+                Some(o) if o.auto && o.shown < node.children.len() => {
+                    candidates.push((node.children[o.shown].bytes, node, Some(*o), false))
+                }
+                _ => {}
+            }
+        }
+        let Some(&(_, node, o, top)) = candidates
+            .iter()
+            .filter(|c| c.0.saturating_mul(50) >= total)
+            .max_by_key(|c| c.0)
+        else {
+            return;
+        };
+        let path = node.path.clone();
+        let next = match o {
+            None => Open { shown: 1, auto: true },
+            Some(o) => Open {
+                shown: o.shown + 1,
+                auto: o.auto || !top,
+            },
+        };
+        let before = v.open.insert(path.clone(), next);
+        if build_rows(app, v, gaps).len() > budget {
+            match before {
+                Some(b) => v.open.insert(path, b),
+                None => v.open.remove(&path),
+            };
+            return;
+        }
+    }
+}
+
+fn selected_row(app: &App, rows: &[Row]) -> Option<usize> {
+    let parent = app.root.at(&app.route);
+    if app.selected >= parent.children.len()
+        && let Some(i) = rows
+            .iter()
+            .position(|r| r.kind == Kind::More && r.route == app.route)
+    {
+        return Some(i);
+    }
+    let mut want = app.route.clone();
+    want.push(app.selected);
+    // The row itself, or the nearest ancestor that is listed.
+    while !want.is_empty() {
+        if let Some(i) = rows.iter().position(|r| {
+            r.kind == Kind::Item && r.route.starts_with(&want) && want.starts_with(&r.head)
+        }) {
+            return Some(i);
+        }
+        want.pop();
+    }
+    rows.iter().position(|r| r.kind != Kind::Gap)
+}
+
+fn select(app: &mut App, row: &Row) {
+    match row.kind {
+        Kind::Item => {
+            let (last, parent) = row.route.split_last().expect("an item has a route");
+            app.route = parent.to_vec();
+            app.selected = *last;
+        }
+        Kind::More => {
+            app.route = row.route.clone();
+            app.selected = app.root.at(&row.route).children.len();
+        }
+        Kind::Gap => {}
+    }
+}
+
+// ------------------------------------------------------------------ geometry
+
+struct Geo {
+    w: u16,
+    h: u16,
+    compact: bool,
+    top: u16,
+    rows: usize,
+    gaps: bool,
+    bar_x: u16,
+    bar_w: u16,
+    size_x: u16,
+    name_end: u16,
+    detail_y: u16,
+}
+
+fn geo(w: u16, h: u16) -> Geo {
+    let compact = h < 26;
+    let (top, detail_y) = if compact { (4, h - 5) } else { (9, h - 6) };
+    let rows = detail_y.saturating_sub(top + 1) as usize;
+    let bar_w = (((w.saturating_sub(8)) as f32 * 0.44) as u16).clamp(12, 64);
+    let bar_x = w.saturating_sub(3 + bar_w);
+    let size_x = bar_x.saturating_sub(3 + 9);
+    Geo {
+        w,
+        h,
+        compact,
+        top,
+        rows,
+        gaps: rows >= 24,
+        bar_x,
+        bar_w,
+        size_x,
+        name_end: size_x.saturating_sub(2),
+        detail_y,
+    }
+}
+
+// ------------------------------------------------------------------ keys
+
+/// Keys this variant owns in browse mode; true means consumed. Everything
+/// else falls through to the app's own keys (Space, c, t, d, r, ?, q).
+pub fn key(app: &mut App, key: KeyEvent) -> bool {
+    use KeyCode::*;
+    if app.help || app.confirm || app.review || app.single_trash.is_some() {
+        return false;
+    }
+    let handled = matches!(
+        key.code,
+        Down | Up
+            | PageDown
+            | PageUp
+            | Home
+            | End
+            | Tab
+            | BackTab
+            | Right
+            | Left
+            | Enter
+            | Backspace
+            | Char('j')
+            | Char('k')
+            | Char('h')
+            | Char('l')
+    );
+    if !handled {
+        return false;
+    }
+    init_state(app);
+    with_state(|st| {
+        st.anim = None;
+        let g = geo(st.size.0.max(60), st.size.1.max(20));
+        let rows = build_rows(app, &st.view, g.gaps);
+        if rows.is_empty() {
+            if matches!(key.code, Backspace | Left | Char('h')) {
+                unroot(app, st, &g, &rows);
+            }
+            return;
+        }
+        let cur = selected_row(app, &rows).unwrap_or(0);
+        let page = g.rows.saturating_sub(2).max(1) as isize;
+        match key.code {
+            Down | Char('j') => step(app, &rows, cur, 1),
+            Up | Char('k') => step(app, &rows, cur, -1),
+            PageDown => step(app, &rows, cur, page),
+            PageUp => step(app, &rows, cur, -page),
+            Home => step(app, &rows, cur, -(rows.len() as isize)),
+            End => step(app, &rows, cur, rows.len() as isize),
+            Tab => {
+                if let Some(r) = rows[cur + 1..]
+                    .iter()
+                    .find(|r| r.kind != Kind::Gap && r.depth == 0)
+                {
+                    select(app, r)
+                }
+            }
+            BackTab => {
+                if let Some(r) = rows[..cur]
+                    .iter()
+                    .rev()
+                    .find(|r| r.kind != Kind::Gap && r.depth == 0)
+                {
+                    select(app, r)
+                }
+            }
+            Right | Char('l') => right(app, st, &rows, cur),
+            Left | Char('h') => left(app, st, &g, &rows, cur),
+            Enter => match rows[cur].kind {
+                Kind::More => right(app, st, &rows, cur),
+                _ => reroot(app, st, &rows, &rows[cur]),
+            },
+            Backspace => unroot(app, st, &g, &rows),
+            _ => {}
+        }
+    });
+    true
+}
+
+fn step(app: &mut App, rows: &[Row], cur: usize, delta: isize) {
+    let items: Vec<usize> = (0..rows.len())
+        .filter(|&i| rows[i].kind != Kind::Gap)
+        .collect();
+    let at = items.iter().position(|&i| i == cur).unwrap_or(0) as isize;
+    let to = (at + delta).clamp(0, items.len() as isize - 1) as usize;
+    select(app, &rows[items[to]]);
+}
+
+/// Screen row of every listed path, for a slide.
+fn positions(rows: &[Row], scroll: usize) -> HashMap<PathBuf, i32> {
+    rows.iter()
+        .enumerate()
+        .filter(|(_, r)| r.kind != Kind::Gap)
+        .map(|(i, r)| (r.path.clone(), i as i32 - scroll as i32))
+        .collect()
+}
+
+fn slide(st: &mut State, rows: &[Row]) {
+    st.anim = Some(Anim {
+        at: Instant::now(),
+        zoom: None,
+        slide: positions(rows, st.view.scroll),
+    });
+}
+
+/// → opens a closed folder; on a folder the launch opened, lists what it
+/// still hides; on an open folder, steps to its first child. On `+ N more`,
+/// lists the rest in place.
+fn right(app: &mut App, st: &mut State, rows: &[Row], cur: usize) {
+    let row = &rows[cur];
+    match row.kind {
+        Kind::More => {
+            let node = app.root.at(&row.route);
+            let len = node.children.len();
+            let first = len - row.hidden;
+            slide(st, rows);
+            st.view.open.insert(
+                node.path.clone(),
+                Open {
+                    shown: len,
+                    auto: false,
+                },
+            );
+            st.view.touched = true;
+            st.view.reveal = Some((node.children[first].path.clone(), true));
+            app.route = row.route.clone();
+            app.selected = first;
+            app.message.clear();
+        }
+        Kind::Item => {
+            let node = app.root.at(&row.route);
+            if node.children.is_empty() {
+                return;
+            }
+            let path = node.path.clone();
+            match st.view.open.get(&path).copied() {
+                None => {
+                    slide(st, rows);
+                    let o = st.view.closed.remove(&path).unwrap_or(Open {
+                        shown: default_shown(node),
+                        auto: false,
+                    });
+                    st.view.open.insert(path.clone(), o);
+                    st.view.touched = true;
+                    st.view.reveal = Some((path, false));
+                }
+                Some(o) if o.auto && o.shown < node.children.len() => {
+                    slide(st, rows);
+                    st.view.folded.insert(path.clone(), o.shown);
+                    st.view.open.insert(
+                        path.clone(),
+                        Open {
+                            shown: o.shown.max(default_shown(node)),
+                            auto: false,
+                        },
+                    );
+                    st.view.touched = true;
+                    st.view.reveal = Some((path, false));
+                }
+                Some(_) => {
+                    if let Some(next) = rows.get(cur + 1)
+                        && next.depth == row.depth + 1
+                    {
+                        select(app, next)
+                    }
+                }
+            }
+            app.message.clear();
+        }
+        Kind::Gap => {}
+    }
+}
+
+/// ← undoes →: folds back what → listed, then closes the folder; on a closed
+/// folder or a file it steps to the parent, and at the view's own level it
+/// steps back out of a focused folder (as ⌫ does).
+fn left(app: &mut App, st: &mut State, g: &Geo, rows: &[Row], cur: usize) {
+    let row = &rows[cur];
+    if row.kind == Kind::Item && row.open {
+        slide(st, rows);
+        if let Some(shown) = st.view.folded.remove(&row.path) {
+            st.view.open.insert(row.path.clone(), Open { shown, auto: true });
+        } else if let Some(o) = st.view.open.remove(&row.path) {
+            st.view.closed.insert(row.path.clone(), o);
+        }
+        st.view.touched = true;
+        app.message.clear();
+        return;
+    }
+    if row.depth > 0 {
+        let parent: &[usize] = if row.kind == Kind::More {
+            &row.route
+        } else {
+            &row.head[..row.head.len() - 1]
+        };
+        if let Some(p) = rows
+            .iter()
+            .find(|r| r.kind == Kind::Item && r.route == parent)
+        {
+            select(app, p)
+        }
+    } else {
+        unroot(app, st, g, rows)
+    }
+}
+
+/// ↵ makes the selected folder the view: the header, the total and the bar
+/// axis follow it. What was open inside it stays open, in the same order;
+/// the room it gains fills with its largest items, as at launch.
+fn reroot(app: &mut App, st: &mut State, rows: &[Row], row: &Row) {
+    if row.kind != Kind::Item || !row.folder {
+        let name = app.root.at(&row.route).name.clone();
+        app.message = format!("{name} holds nothing to focus on · Space collects it");
+        return;
+    }
+    let node = app.root.at(&row.route);
+    let old_total = app.root.at(&route_of(&app.root, &st.view.root)).bytes.max(1) as f64;
+    let before = positions(rows, st.view.scroll);
+    let mut nv = st.view.clone();
+    nv.root = node.path.clone();
+    nv.scroll = 0;
+    nv.reveal = None;
+    nv.open.entry(node.path.clone()).or_insert(Open {
+        shown: default_shown(node),
+        auto: false,
+    });
+    nv.touched = false;
+    nv.fitted = None;
+    nv.before_auto = None;
+    let old = std::mem::replace(&mut st.view, nv);
+    st.stack.push(old);
+    // The old axis, measured on the new one: the focused slice stretches to fill it.
+    let (a, z) = (row.start as f64 / old_total, (row.start + row.bytes) as f64 / old_total);
+    let span = (z - a).max(1e-9);
+    st.anim = Some(Anim {
+        at: Instant::now(),
+        zoom: Some((-a / span, (1.0 - a) / span)),
+        slide: before,
+    });
+    app.route = row.route.clone();
+    app.selected = 0;
+    app.message.clear();
+}
+
+/// ⌫ puts the previous view back as it was, with the folder you focused selected.
+fn unroot(app: &mut App, st: &mut State, g: &Geo, rows: &[Row]) {
+    let Some(prev) = st.stack.pop() else { return };
+    let before = positions(rows, st.view.scroll);
+    let from = std::mem::replace(&mut st.view, prev);
+    let route = route_of(&app.root, &from.root);
+    let back = build_rows(app, &st.view, g.gaps);
+    if let Some(r) = back.iter().find(|r| {
+        r.kind == Kind::Item && r.route.starts_with(&route) && route.starts_with(&r.head)
+    }) {
+        select(app, r);
+        let total = app.root.at(&route_of(&app.root, &st.view.root)).bytes.max(1) as f64;
+        let (a, z) = (r.start as f64 / total, (r.start + r.bytes) as f64 / total);
+        st.anim = Some(Anim {
+            at: Instant::now(),
+            zoom: Some((a, z)),
+            slide: before,
+        });
+    } else if let Some((last, parent)) = route.split_last() {
+        app.route = parent.to_vec();
+        app.selected = *last;
+    }
+    app.message.clear();
+}
+
+/// True while this variant animates, so the loop redraws every 16 ms.
+pub fn ticking() -> bool {
+    STATE.with(|cell| {
+        cell.borrow()
+            .as_ref()
+            .and_then(|s| s.anim.as_ref())
+            .is_some_and(|a| a.at.elapsed().as_secs_f64() * 1000.0 < ANIM_MS + 20.0)
+    })
+}
+
+fn ease(t: f64) -> f64 {
+    let t = t.clamp(0.0, 1.0);
+    1.0 - (1.0 - t).powi(3)
+}
+
+// ------------------------------------------------------------------ colour
+
+fn lerp(a: Color, b: Color, t: f32) -> Color {
+    match (a, b) {
+        (Color::Rgb(ar, ag, ab), Color::Rgb(br, bg, bb)) => Color::Rgb(
+            (ar as f32 + (br as f32 - ar as f32) * t) as u8,
+            (ag as f32 + (bg as f32 - ag as f32) * t) as u8,
+            (ab as f32 + (bb as f32 - ab as f32) * t) as u8,
+        ),
+        _ => a,
+    }
+}
+const SEL: Color = Color::Rgb(40, 49, 60);
+const TONES: [f32; 5] = [0.82, 0.64, 0.52, 0.44, 0.38];
+fn tone(depth: usize) -> f32 {
+    TONES[depth.min(TONES.len() - 1)]
+}
+
+// ------------------------------------------------------------------ draw
 
 pub fn draw(f: &mut Frame, app: &App) {
     let area = f.area();
-    let w = area.width;
-    let h = area.height;
+    let (w, h) = (area.width, area.height);
     let b = f.buffer_mut();
     fill(b, area, BG);
     if w < 60 || h < 20 {
         if w > 4 && h > 3 {
-            text(
-                b,
-                2,
-                2,
-                w - 4,
-                "Resize to at least 60 × 20 · q quit",
-                FG,
-                BG,
-                true,
-            )
+            text(b, 2, 2, w - 4, "Resize to at least 60 × 20 · q quit", FG, BG, true)
         }
         return;
     }
-    let node = app.current();
+    let g = geo(w, h);
+    init_state(app);
+    with_state(|st| {
+        st.size = (w, h);
+        let v = &mut st.view;
+        if v.fitted != Some((w, h)) {
+            if !v.touched {
+                let base = v.before_auto.get_or_insert_with(|| v.open.clone()).clone();
+                v.open = base;
+                auto_open(app, v, g.rows, g.gaps);
+            }
+            v.fitted = Some((w, h));
+        }
+        let rows = build_rows(app, &st.view, g.gaps);
+        let cur = selected_row(app, &rows);
+        // Scroll only as far as keeps the selection on screen, or as shows
+        // what a key just opened.
+        let v = &mut st.view;
+        let max_scroll = rows.len().saturating_sub(g.rows);
+        v.scroll = v.scroll.min(max_scroll);
+        if let Some((path, siblings)) = v.reveal.take()
+            && let Some(at) = rows.iter().position(|r| r.kind == Kind::Item && r.path.starts_with(&path))
+        {
+            let d = rows[at].depth;
+            let end = rows[at + 1..]
+                .iter()
+                .position(|r| r.kind != Kind::Gap && if siblings { r.depth < d } else { r.depth <= d })
+                .map_or(rows.len(), |k| at + 1 + k);
+            v.scroll = v.scroll.max(end.saturating_sub(g.rows)).min(at);
+        }
+        if let Some(c) = cur {
+            if c < v.scroll {
+                v.scroll = c.saturating_sub(usize::from(c > 0 && rows[c - 1].kind == Kind::Gap));
+            } else if c >= v.scroll + g.rows {
+                v.scroll = c + 1 - g.rows;
+            }
+        }
+        let scroll = v.scroll;
+        let view_route = route_of(&app.root, &v.root);
+        let anim = st.anim.as_ref().and_then(|a| {
+            let t = a.at.elapsed().as_secs_f64() * 1000.0 / ANIM_MS;
+            (t < 1.0).then_some((ease(t), a))
+        });
+        draw_header(b, app, &g, &view_route);
+        draw_rows(b, app, &g, &rows, cur, scroll, anim);
+        draw_detail(b, app, &g, &rows, cur, &view_route);
+    });
+    draw_footer(b, app, &g);
+    if app.confirm {
+        draw_confirm(f, app)
+    } else if app.single_trash.is_some() {
+        draw_trash_confirm(f, app);
+    } else if app.review {
+        draw_review(f, app);
+        if app.trash_confirm {
+            draw_trash_confirm(f, app)
+        }
+    } else if app.help {
+        draw_help(f, w, h);
+    }
+}
+
+fn draw_header(b: &mut Buffer, app: &App, g: &Geo, view_route: &[usize]) {
+    let (w, _) = (g.w, g.h);
+    let node = app.root.at(view_route);
     let total = size(node.bytes);
-    let wide = w >= 110;
-    let spacious_row_height = if h >= 34 {
-        4
-    } else if h >= 25 {
-        3
+    // The path to the view: ancestors grey, the view itself bright.
+    let mut names = vec![app.root.name.clone()];
+    let mut n = &app.root;
+    for &i in view_route {
+        n = &n.children[i];
+        names.push(n.name.clone());
+    }
+    let crumb_width = if g.compact {
+        w - 30
+    } else if w >= 110 {
+        w - 73
     } else {
-        2
+        w - 31
     };
-    let compact = node.children.len() > ((h - 16) / spacious_row_height).max(1) as usize;
-    let side = if compact {
-        (w / 2 + 6).min(46)
-    } else if wide {
-        34
-    } else {
-        24
-    };
-    let list_x = w - side - 2;
-    let header_width = if wide { w - 73 } else { w - 31 };
-    text(
-        b,
-        2,
-        1,
-        header_width,
-        "D I S K   A L L O C A T I O N",
-        MUTED,
-        BG,
-        false,
-    );
-    text(b, 2, 3, header_width, breadcrumb(app), FG, BG, true);
+    let crumb_y = if g.compact { 1 } else { 3 };
+    let last = names.pop().unwrap_or_default();
+    let mut x = 2;
+    let head: String = names.iter().map(|s| format!("{s}  /  ")).collect();
+    let head = tail(&head, (crumb_width as usize).saturating_sub(last.width() + 1));
+    text(b, x, crumb_y, crumb_width, &head, MUTED, BG, false);
+    x += head.width() as u16;
+    text(b, x, crumb_y, (2 + crumb_width).saturating_sub(x), &last, FG, BG, true);
+    if g.compact {
+        let right = format!("{total} in this view");
+        text(b, w - 2 - right.width() as u16, 1, right.width() as u16, &right, ACCENT, BG, true);
+        let (status, active) = collector_status(app, 26);
+        text(b, 2, 2, w - 4, status, if active { ACCENT } else { MUTED }, BG, false);
+        hline(b, 2, 3, w - 4, DIM);
+        return;
+    }
+    text(b, 2, 1, crumb_width, "D I S K   A L L O C A T I O N", MUTED, BG, false);
     let mut stats = format!(
         "{} files  ·  {} folders  ·  {} here",
         node.files,
         node.directories,
         node.children.len()
     );
-    if stats.width() > header_width as usize {
+    if stats.width() > crumb_width as usize {
         stats = format!(
             "{} files · {} dirs · {} here",
             node.files,
@@ -84,39 +864,21 @@ pub fn draw(f: &mut Frame, app: &App) {
             node.children.len()
         );
     }
-    text(b, 2, 5, header_width, stats, MUTED, BG, false);
-    if wide {
+    text(b, 2, 5, crumb_width, stats, MUTED, BG, false);
+    if w >= 110 {
         let mx = w - 66;
         let list_x = w - 36;
         let side = 34;
         let (number, unit) = total.split_once(' ').unwrap_or((&total, ""));
         text(b, mx, 1, 27, "ALLOCATED IN THIS VIEW", MUTED, BG, false);
         metric(b, mx, 3, number, FG);
-        text(
-            b,
-            mx + (number.len() as u16 * 4).saturating_sub(1),
-            5,
-            7,
-            unit,
-            ACCENT,
-            BG,
-            true,
-        );
+        text(b, mx + (number.len() as u16 * 4).saturating_sub(1), 5, 7, unit, ACCENT, BG, true);
         for y in 1..6 {
             text(b, list_x - 3, y, 1, "│", DIM, BG, false);
         }
         text(b, list_x, 1, side, "COLLECTOR", MUTED, BG, false);
         let (status, active) = collector_status(app, side);
-        text(
-            b,
-            list_x,
-            3,
-            side,
-            status,
-            if active { ACCENT } else { FG },
-            BG,
-            true,
-        );
+        text(b, list_x, 3, side, status, if active { ACCENT } else { FG }, BG, true);
         text(
             b,
             list_x,
@@ -134,218 +896,365 @@ pub fn draw(f: &mut Frame, app: &App) {
     } else {
         text(b, w - 27, 1, 25, &total, ACCENT, BG, true);
         let (status, active) = collector_status(app, 25);
-        text(
-            b,
-            w - 27,
-            3,
-            25,
-            status,
-            if active { ACCENT } else { MUTED },
-            BG,
-            active,
-        );
-        text(
-            b,
-            w - 27,
-            5,
-            25,
-            "Space collect · c review",
-            MUTED,
-            BG,
-            false,
-        );
+        text(b, w - 27, 3, 25, status, if active { ACCENT } else { MUTED }, BG, active);
+        text(b, w - 27, 5, 25, "Space collect · c review", MUTED, BG, false);
     }
     hline(b, 2, 7, w - 4, DIM);
-    let map = Rect::new(2, 9, w - side - 6, h - 16);
-    text(b, 2, 7, 13, " SPACE MAP  ", FG, BG, true);
-    if map.width >= 55 {
-        text(
-            b,
-            17,
-            7,
-            map.width - 15,
-            "area = allocated bytes",
-            MUTED,
-            BG,
-            false,
-        );
+    text(b, 2, 7, 16, " LARGEST FIRST ", FG, BG, true);
+    // The bar column's caption: the whole width is the whole view.
+    let caption = format!(" WHERE IN {} ", last.to_uppercase());
+    let cw = caption.width() as u16;
+    if cw + 2 < g.bar_w {
+        text(b, g.bar_x - 1, 7, cw, &caption, FG, BG, true);
     }
-    text(b, list_x, 7, side, " LARGEST FIRST ", FG, BG, true);
-    let narrow_map = w < NARROW_MAP_WIDTH;
-    draw_cutaway_map(b, map, app);
-    let row_height = if compact { 1 } else { spacious_row_height };
-    let max_rows = (map.height / row_height).max(1) as usize;
-    let start = if app.selected >= max_rows {
-        app.selected - max_rows + 1
-    } else {
-        0
+}
+
+type AnimRef<'a> = Option<(f64, &'a Anim)>;
+
+fn draw_rows(
+    b: &mut Buffer,
+    app: &App,
+    g: &Geo,
+    rows: &[Row],
+    cur: Option<usize>,
+    scroll: usize,
+    anim: AnimRef<'_>,
+) {
+    if rows.is_empty() {
+        text(b, 4, g.top, g.w - 8, "This folder is empty", MUTED, BG, false);
+        return;
+    }
+    // The bar axis: the view's bytes, stretched while a zoom plays.
+    let axis_total = rows
+        .iter()
+        .find(|r| r.kind != Kind::Gap)
+        .map(|r| r.parent.1 - r.parent.0)
+        .unwrap_or(1)
+        .max(1) as f64;
+    let (a0, a1) = match anim {
+        Some((t, Anim { zoom: Some(from), .. })) => {
+            (from.0 * (1.0 - t), 1.0 + (from.1 - 1.0) * (1.0 - t))
+        }
+        _ => (0.0, 1.0),
     };
-    for (i, n) in node.children.iter().enumerate().skip(start).take(max_rows) {
-        let y = map.y + ((i - start) * row_height as usize) as u16;
-        if compact {
-            draw_compact_row(b, Rect::new(list_x, y, side, 1), app, i);
-            continue;
+    // Where each row is drawn: its own place, or sliding in from its old one.
+    let slide_from = anim.map(|(t, a)| (t, &a.slide));
+    // The long shot: every top-level slice of the view on one thin strip above
+    // the rows, with the selection's own slice lit, so "where" survives a scroll.
+    if !g.compact {
+        let y = g.top - 1;
+        let map = |v: u64| (v as f64 / axis_total - a0) / (a1 - a0);
+        let cell = |f: f64| (f.clamp(0.0, 1.0) * g.bar_w as f64).round() as u16;
+        for r in rows.iter().filter(|r| r.depth == 0 && r.kind != Kind::Gap) {
+            let (c0, c1) = (cell(map(r.start)), cell(map(r.start + r.bytes)));
+            for c in c0..c1.max(c0 + 1).min(g.bar_w) {
+                text(b, g.bar_x + c, y, 1, "▀", tint(r.hue, 0.42), BG, false);
+            }
         }
-        let selected = i == app.selected;
-        let bg = if selected { SURFACE } else { BG };
-        fill(
-            b,
-            Rect::new(list_x, y, side, row_height.saturating_sub(1).max(2)),
-            bg,
-        );
-        let color = color_for(app, i);
-        text(
-            b,
-            list_x,
-            y,
-            3,
-            format!("{:02}", i + 1),
-            if selected { color } else { DIM },
-            bg,
-            true,
-        );
-        let glyph = collected_glyph(app, n);
-        text(
-            b,
-            list_x + 4,
-            y,
-            side - 5 - if glyph.is_some() { 2 } else { 0 },
-            &n.name,
-            if selected { FG } else { MUTED },
-            bg,
-            selected,
-        );
-        if let Some((glyph, fg)) = glyph {
-            text(b, list_x + side - 2, y, 1, glyph, fg, bg, true)
-        }
-        text(
-            b,
-            list_x + 4,
-            y + 1,
-            side - 13,
-            size(n.bytes),
-            color,
-            bg,
-            true,
-        );
-        let pct = percent(n.bytes, node.bytes);
-        text(
-            b,
-            list_x + side - 8,
-            y + 1,
-            7,
-            format!("{:>7}", pct),
-            MUTED,
-            bg,
-            false,
-        );
-        if row_height == 4 {
-            let bar_width = side - 5;
-            let used =
-                (bar_width as f64 * n.bytes as f64 / node.bytes.max(1) as f64).round() as u16;
-            for x in 0..bar_width {
-                text(
-                    b,
-                    list_x + 4 + x,
-                    y + 2,
-                    1,
-                    "▁",
-                    if x < used { color } else { DIM },
-                    bg,
-                    false,
-                )
+        if let Some(r) = cur.map(|c| &rows[c]) {
+            let (c0, c1) = (cell(map(r.start)), cell(map(r.start + r.bytes)));
+            for c in c0..c1.max(c0 + 1).min(g.bar_w) {
+                text(b, g.bar_x + c, y, 1, "▀", lerp(r.hue, FG, 0.5), BG, false);
             }
         }
     }
-    if node.children.len() > max_rows {
-        text(
-            b,
-            list_x,
-            map.bottom(),
-            side,
-            format!(
-                "{}–{} of {}  ·  ↑↓ scroll",
-                start + 1,
-                (start + max_rows).min(node.children.len()),
-                node.children.len()
-            ),
-            MUTED,
-            BG,
-            false,
-        )
-    }
-    let detail = Rect::new(2, h - 6, w - 4, 3);
-    fill(b, detail, PANEL);
-    if let Some(n) = app.selection() {
-        let color = color_for(app, app.selected);
-        text(b, 3, h - 6, 1, "▎", color, PANEL, true);
-        // The figures sit flush with the panel's right edge, under the list.
-        let figures = format!("{}  ·  {}", size(n.bytes), percent(n.bytes, node.bytes));
-        let fw = figures.width() as u16;
-        text(b, 5, h - 6, w - 10 - fw, &n.name, FG, PANEL, true);
-        text(b, w - 4 - fw, h - 6, fw, &figures, color, PANEL, true);
-        text(
-            b,
-            5,
-            h - 5,
-            w - 9,
-            tail(
-                &crate::scan::display_path(n.path.as_os_str()),
-                (w - 9) as usize,
-            ),
-            MUTED,
-            PANEL,
-            false,
-        );
-        let kind = if n.is_symlink {
-            "symbolic link"
-        } else if n.is_dir {
-            "folder"
-        } else {
-            "file"
+    let indent: u16 = 2;
+    // Each row's line. In a slide, rows that were on screen move from their
+    // old line; new rows travel with the row above them and are uncovered as
+    // the rows below move away, so nothing jumps.
+    let mut lines: Vec<(usize, i32, bool)> = Vec::new();
+    let mut anchor: Option<(usize, i32)> = None;
+    for (i, row) in rows.iter().enumerate() {
+        let to = i as i32 - scroll as i32;
+        let (line, old) = match slide_from {
+            Some((t, from)) => {
+                let start = match from.get(&row.path) {
+                    Some(&o) => {
+                        anchor = Some((i, o));
+                        Some(o)
+                    }
+                    None => None,
+                };
+                let from_line = start.or(anchor.map(|(ai, ao)| ao + (i - ai) as i32)).unwrap_or(to);
+                ((from_line as f64 + (to - from_line) as f64 * t).round() as i32, start.is_some())
+            }
+            None => (to, true),
         };
-        text(
-            b,
-            5,
-            h - 4,
-            w - 9,
-            format!(
-                "{}  ·  {} files{}{}",
-                kind,
-                n.files,
-                if n.is_dir { "  ·  Enter open" } else { "" },
-                if !narrow_map {
-                    "  ·  t move to Trash"
-                } else {
-                    ""
-                }
-            ),
-            MUTED,
-            PANEL,
-            false,
-        );
-    } else {
-        text(
-            b,
-            5,
-            h - 5,
-            w - 9,
-            "This directory is empty",
-            MUTED,
-            PANEL,
-            false,
-        )
+        if row.kind != Kind::Gap && line >= 0 && (line as usize) < g.rows {
+            lines.push((i, line, old));
+        }
     }
+    lines.sort_by_key(|l| l.2);
+    for (i, line, _) in lines {
+        let row = &rows[i];
+        let y = g.top + line as u16;
+        let selected = cur == Some(i);
+        let bg = if selected { SEL } else { BG };
+        fill(b, Rect::new(2, y, g.w - 4, 1), bg);
+        if selected {
+            text(b, 2, y, 1, "▎", FG, SEL, false);
+        }
+        let x0 = 4 + row.depth as u16 * indent;
+        // Guides: one faint line under each open ancestor.
+        let guide = tint(row.hue, 0.24);
+        for d in 0..row.depth {
+            let gx = 4 + d as u16 * indent;
+            if gx < g.name_end {
+                text(b, gx, y, 1, "│", guide, bg, false);
+            }
+        }
+        let node = (row.kind == Kind::Item).then(|| app.root.at(&row.route));
+        let tail_folder = node.is_some_and(|n| n.name.ends_with(" smaller items"));
+        let fg_name = if selected {
+            FG
+        } else if row.kind == Kind::More || tail_folder {
+            lerp(MUTED, BG, 0.2)
+        } else if row.depth == 0 {
+            row.hue
+        } else if row.depth == 1 {
+            lerp(MUTED, FG, 0.45)
+        } else {
+            lerp(MUTED, FG, 0.2)
+        };
+        let mut x = x0;
+        let room = |x: u16| g.name_end.saturating_sub(x);
+        match row.kind {
+            Kind::Item => {
+                let n = node.expect("item");
+                if row.folder {
+                    let glyph = if row.open { "▾" } else { "▸" };
+                    let gfg = if selected {
+                        FG
+                    } else {
+                        tint(row.hue, if row.open { 0.7 } else { 0.5 })
+                    };
+                    text(b, x, y, 1, glyph, gfg, bg, false);
+                }
+                x += 2;
+                let slash = n.is_dir && !tail_folder;
+                let quiet = lerp(fg_name, BG, 0.45);
+                let whole = row.names.join("/").width() + usize::from(slash);
+                let fits = whole <= room(x) as usize;
+                if !fits {
+                    // Too long for its column: one string, cut at the end.
+                    let label = row.names.join("/");
+                    text(b, x, y, room(x), &label, fg_name, bg, row.depth == 0 || selected);
+                    x = g.name_end;
+                }
+                for (k, name) in row.names.iter().enumerate().filter(|_| fits) {
+                    let last = k + 1 == row.names.len();
+                    let nw = (name.width() as u16).min(room(x).saturating_sub(u16::from(slash)));
+                    text(b, x, y, nw, name, fg_name, bg, row.depth == 0 || selected);
+                    x += nw;
+                    if (slash || !last) && room(x) > 0 {
+                        text(b, x, y, 1, "/", quiet, bg, false);
+                        x += 1;
+                    }
+                }
+                if let Some((glyph, fg)) = collected_glyph(app, n)
+                    && room(x) >= 3
+                {
+                    text(b, x + 2, y, 1, glyph, fg, bg, true);
+                    x += 3;
+                }
+                if row.hidden > 0 {
+                    let more = format!("+ {} more", row.hidden);
+                    if room(x) as usize >= more.width() + 3 {
+                        text(
+                            b,
+                            x + 3,
+                            y,
+                            more.width() as u16,
+                            &more,
+                            if selected { lerp(FG, BG, 0.35) } else { lerp(MUTED, BG, 0.45) },
+                            bg,
+                            false,
+                        );
+                    }
+                }
+            }
+            Kind::More => {
+                let more = format!("+ {} more", row.hidden);
+                text(b, x + 2, y, room(x + 2), &more, fg_name, bg, false);
+            }
+            Kind::Gap => {}
+        }
+        // Size: one aligned grey column.
+        let s = size(row.bytes);
+        let sfg = if selected {
+            FG
+        } else if row.kind == Kind::More {
+            lerp(MUTED, BG, 0.3)
+        } else if row.depth == 0 {
+            lerp(MUTED, FG, 0.3)
+        } else {
+            MUTED
+        };
+        text(b, g.size_x + 9 - s.width() as u16, y, s.width() as u16, &s, sfg, bg, selected);
+        // The bar: this row's slice of the view, over its parent's shadow.
+        let map = |v: u64| -> f64 { (v as f64 / axis_total - a0) / (a1 - a0) };
+        let span = (map(row.start), map(row.start + row.bytes));
+        let shadow = (map(row.parent.0), map(row.parent.1));
+        let (bar_fg, shadow_fg) = if row.kind == Kind::More {
+            (tint(row.hue, 0.30), if row.depth == 0 { bg } else { lerp(bg, row.hue, 0.10) })
+        } else {
+            let base = tint(row.hue, tone(row.depth));
+            (
+                if selected { lerp(row.hue, FG, 0.45) } else { base },
+                if row.depth == 0 { bg } else { lerp(bg, row.hue, 0.10) },
+            )
+        };
+        draw_bar(b, g.bar_x, y, g.bar_w, span, shadow, bar_fg, shadow_fg, bg);
+    }
+    // A slim scroll thumb when the tree is longer than the screen.
+    if rows.len() > g.rows {
+        let x = g.w - 2;
+        let track = g.rows as f64;
+        let top = (scroll as f64 / rows.len() as f64 * track).floor() as u16;
+        let len = ((g.rows as f64 / rows.len() as f64) * track).ceil().max(1.0) as u16;
+        for dy in 0..g.rows as u16 {
+            let on = dy >= top && dy < top + len;
+            text(b, x, g.top + dy, 1, if on { "┃" } else { "│" }, if on { MUTED } else { DIM }, BG, false);
+        }
+    }
+}
+
+const LEFT: [&str; 9] = [" ", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"];
+
+/// One bar in eighth cells. `span` and `shadow` are fractions of the axis.
+#[allow(clippy::too_many_arguments)]
+fn draw_bar(
+    b: &mut Buffer,
+    x: u16,
+    y: u16,
+    width: u16,
+    span: (f64, f64),
+    shadow: (f64, f64),
+    fg: Color,
+    sh: Color,
+    bg: Color,
+) {
+    let units = width as f64 * 8.0;
+    let u = |f: f64| (f.clamp(0.0, 1.0) * units).round() as i64;
+    let (s0, mut s1) = (u(span.0), u(span.1));
+    if s1 <= s0 && span.1 > span.0 && span.1 > 0.0 && span.0 < 1.0 {
+        s1 = s0 + 1;
+    }
+    let (p0, p1) = (u(shadow.0), u(shadow.1));
+    for c in 0..width as i64 {
+        let lo = c * 8;
+        let cov = |a: i64, z: i64| ((a - lo).clamp(0, 8), (z - lo).clamp(0, 8));
+        let (ba, bz) = cov(s0, s1);
+        let (pa, pz) = cov(p0, p1);
+        let base = if pz - pa >= 4 { sh } else { bg };
+        let cell = &mut b[(x + c as u16, y)];
+        let (sym, f, k) = if bz > ba {
+            if ba == 0 && bz == 8 {
+                (" ", fg, fg)
+            } else if ba == 0 {
+                (LEFT[bz as usize], fg, base)
+            } else if bz == 8 {
+                (LEFT[ba as usize], base, fg)
+            } else {
+                (LEFT[(bz - ba).max(1) as usize], fg, base)
+            }
+        } else if pz > pa {
+            if pa == 0 && pz == 8 {
+                (" ", sh, sh)
+            } else if pa == 0 {
+                (LEFT[pz as usize], sh, bg)
+            } else if pz == 8 {
+                (LEFT[pa as usize], bg, sh)
+            } else {
+                (" ", bg, bg)
+            }
+        } else {
+            (" ", bg, bg)
+        };
+        cell.set_symbol(sym).set_fg(f).set_bg(k);
+    }
+}
+
+fn draw_detail(b: &mut Buffer, app: &App, g: &Geo, rows: &[Row], cur: Option<usize>, view_route: &[usize]) {
+    let (w, y0) = (g.w, g.detail_y);
+    let detail = Rect::new(2, y0, w - 4, 3);
+    fill(b, detail, PANEL);
+    let view = app.root.at(view_route);
+    let Some(row) = cur.map(|c| &rows[c]) else {
+        text(b, 5, y0 + 1, w - 9, "This folder is empty", MUTED, PANEL, false);
+        return;
+    };
+    text(b, 3, y0, 1, "▎", tint(row.hue, 0.9), PANEL, true);
+    let mut figures = format!("{}  ·  {} of {}", size(row.bytes), percent(row.bytes, view.bytes), view.name);
+    if figures.width() > (w / 2) as usize {
+        figures = format!("{}  ·  {}", size(row.bytes), percent(row.bytes, view.bytes));
+    }
+    let fw = figures.width() as u16;
+    text(b, w - 4 - fw, y0, fw, &figures, tint(row.hue, 0.9), PANEL, true);
+    match row.kind {
+        Kind::More => {
+            let parent = app.root.at(&row.route);
+            let first = parent.children.len() - row.hidden;
+            let names: Vec<&str> = parent.children[first..].iter().map(|c| c.name.as_str()).collect();
+            text(b, 5, y0, w - 10 - fw, format!("{} more in {}", row.hidden, parent.name), FG, PANEL, true);
+            text(b, 5, y0 + 1, w - 9, names.join(", "), MUTED, PANEL, false);
+            text(b, 5, y0 + 2, w - 9, "each under 2 % of the folder  ·  → or ↵ list them", MUTED, PANEL, false);
+        }
+        _ => {
+            let n = app.root.at(&row.route);
+            let name = if n.is_dir { format!("{}/", row.names.join("/")) } else { n.name.clone() };
+            text(b, 5, y0, w - 10 - fw, &name, FG, PANEL, true);
+            text(
+                b,
+                5,
+                y0 + 1,
+                w - 9,
+                tail(&crate::scan::display_path(n.path.as_os_str()), (w - 9) as usize),
+                MUTED,
+                PANEL,
+                false,
+            );
+            let kind = if n.is_symlink {
+                "symbolic link".to_string()
+            } else if n.is_dir {
+                format!("folder  ·  {} files", n.files)
+                    + match app.collector.mark(&n.path) {
+                        Mark::Covered => "  ·  ◇ inside a collected folder",
+                        Mark::Collected => "  ·  ◆ collected",
+                        _ => "",
+                    }
+            } else {
+                "file".to_string()
+            };
+            let action = if !n.children.is_empty() {
+                if row.hidden > 0 {
+                    format!("  ·  → list the {} more  ·  ↵ focus", row.hidden)
+                } else if row.open {
+                    "  ·  ← close  ·  ↵ focus".to_string()
+                } else {
+                    "  ·  → open  ·  ↵ focus".to_string()
+                }
+            } else {
+                String::new()
+            };
+            text(b, 5, y0 + 2, w - 9, format!("{kind}{action}  ·  Space collect"), MUTED, PANEL, false);
+        }
+    }
+}
+
+fn draw_footer(b: &mut Buffer, app: &App, g: &Geo) {
+    let (w, h) = (g.w, g.h);
     let footer = if !app.message.is_empty() {
         app.message.clone()
-    } else if narrow_map {
-        "t Trash  d delete  Space add  c review  ? help  q quit".into()
-    } else if w < 108 {
-        "↑↓ move  ↵ open  t Trash  d delete  Space collect  c review  ? help  q quit".into()
+    } else if w < 100 {
+        "↑↓ move  →/← open/close  ↵ focus  ⌫ back  Space collect  c review  ? help".into()
+    } else if w < 136 {
+        "↑↓ move  → open  ← close  ↵ focus  ⌫ back  ⇥ next  Space collect  c review  ? help".into()
     } else {
-        "↑↓ choose   ↵ open   ⌫ back   Space collect   c review   t Trash   d delete   r rescan   ? help   q quit".into()
+        "↑↓ move   → open   ← close   ↵ focus   ⌫ back   ⇥ next group   Space collect   c review   t Trash   d delete   ? help   q quit".into()
     };
     text(b, 2, h - 2, w - 4, footer, MUTED, BG, false);
+    let node = &app.root;
     if node.errors > 0 {
         text(
             b,
@@ -362,924 +1271,47 @@ pub fn draw(f: &mut Frame, app: &App) {
             false,
         );
     }
-    if app.confirm {
-        draw_confirm(f, app)
-    } else if app.single_trash.is_some() {
-        draw_trash_confirm(f, app);
-    } else if app.review {
-        draw_review(f, app);
-        if app.trash_confirm {
-            draw_trash_confirm(f, app)
-        }
-    } else if app.help {
-        let r = Rect::new((w - 60) / 2, (h - 20) / 2, 60, 20);
-        f.render_widget(Clear, r);
-        f.render_widget(
-            Block::default()
-                .title(" Keys ")
-                .borders(Borders::ALL)
-                .border_type(ratatui::widgets::BorderType::Rounded)
-                .style(Style::default().bg(PANEL).fg(ACCENT)),
-            r,
-        );
-        f.render_widget(Paragraph::new("↑ / ↓ or j / k    Select an entry\nEnter / →         Open directory\nBackspace / ←     Parent directory\nHome              Jump to the first entry\nEnd               Jump to the last entry\nPgUp              Move eight entries\nPgDn              Move eight entries\nSpace             Collect / uncollect entry for Trash\nc                 Review collector, t moves it to Trash\nt                 Move selected entry to system Trash\nd                 Delete selected entry permanently\nr                 Rescan root (Esc cancels)\n?                 Toggle this help\nq / Esc           Quit (or close dialog)\n\nSizes include allocated file and directory blocks.\nSymlinks stay separate. Hard links count once.").style(Style::default().fg(FG).bg(PANEL)),Rect::new(r.x+2,r.y+1,r.width-4,r.height-2));
-    }
-}
-// ---------------------------------------------------------------------------
-// Variant G, "shared walls": every block has its own thin outline and siblings
-// sit wall to wall inside a folder. Gaps exist only between top-level Tiles.
-// ---------------------------------------------------------------------------
-
-const COL_GAP: u16 = 1;
-const ROW_GAP: u16 = 1;
-const MAX_DEPTH: usize = 4;
-const MAX_KEEP: usize = 26;
-
-#[derive(Clone)]
-struct Blk<'a> {
-    node: Option<&'a crate::scan::Node>,
-    /// Index among the current view's children (top level only).
-    index: Option<usize>,
-    /// Top-level indices gathered into a remainder block.
-    members: Vec<usize>,
-    bytes: u64,
-    label: String,
-    count: usize,
-    remainder: bool,
-    /// May go unlabelled (a grain of small things) when no label fits.
-    loose: bool,
 }
 
-fn item_count(label: &str) -> usize {
-    if label.ends_with(" smaller items") {
-        label
-            .split_whitespace()
-            .next()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(1)
-    } else {
-        1
-    }
-}
-
-fn blocks_of(node: &crate::scan::Node) -> Vec<Blk<'_>> {
-    let mut out: Vec<_> = node
-        .children
-        .iter()
-        .enumerate()
-        .filter(|(_, n)| n.bytes > 0)
-        .map(|(i, n)| Blk {
-            node: Some(n),
-            index: Some(i),
-            members: vec![i],
-            bytes: n.bytes,
-            label: if n.is_dir && !n.name.ends_with(" smaller items") {
-                format!("{}/", n.name)
-            } else {
-                n.name.clone()
-            },
-            count: item_count(&n.name),
-            remainder: n.name.ends_with(" smaller items"),
-            loose: n.name.ends_with(" smaller items"),
-        })
-        .collect();
-    let metadata = node
-        .bytes
-        .saturating_sub(out.iter().map(|n| n.bytes).sum());
-    if metadata > 0 {
-        out.push(Blk {
-            node: None,
-            index: None,
-            members: Vec::new(),
-            bytes: metadata,
-            label: "metadata".into(),
-            count: 0,
-            remainder: false,
-            loose: true,
-        });
-    }
-    // A tail node already stands for many small items: it always ends in the remainder.
-    out.sort_by(|a, b| a.remainder.cmp(&b.remainder).then(b.bytes.cmp(&a.bytes)));
-    out
-}
-
-/// The first `keep` blocks, then one block for everything after them.
-fn grouped<'a>(all: &[Blk<'a>], keep: usize) -> Vec<Blk<'a>> {
-    let mut out: Vec<Blk<'a>> = all[..keep].to_vec();
-    let rest = &all[keep..];
-    if rest.len() == 1 {
-        out.push(Blk {
-            loose: true,
-            ..rest[0].clone()
-        });
-    } else if !rest.is_empty() {
-        let count: usize = rest.iter().map(|n| n.count).sum();
-        out.push(Blk {
-            node: None,
-            index: None,
-            members: rest.iter().flat_map(|n| n.members.clone()).collect(),
-            bytes: rest.iter().map(|n| n.bytes).sum(),
-            label: format!("{count} smaller items"),
-            count,
-            remainder: true,
-            loose: true,
-        });
-    }
-    out
-}
-
-/// Label spellings, longest first. Only the remainder block has a short form.
-fn spellings(blk: &Blk<'_>) -> Vec<String> {
-    if blk.remainder {
-        vec![blk.label.clone(), format!("{} smaller", blk.count)]
-    } else {
-        vec![blk.label.clone()]
-    }
-}
-
-fn name_lines(name: &str, width: u16) -> Vec<String> {
-    if width == 0 {
-        return Vec::new();
-    }
-    let mut lines = Vec::new();
-    let mut rest = name;
-    while rest.width() > width as usize {
-        let mut used = 0;
-        let mut boundary = 0;
-        for (i, ch) in rest.char_indices() {
-            let next = used + ch.to_string().width();
-            if next > width as usize {
-                break;
-            }
-            used = next;
-            if matches!(ch, ' ' | '.' | '-' | '_') && used >= width as usize / 3 {
-                boundary = i + ch.len_utf8();
-            }
-        }
-        if boundary == 0 {
-            return Vec::new();
-        }
-        lines.push(rest[..boundary].trim().to_owned());
-        rest = rest[boundary..].trim_start();
-    }
-    if !rest.is_empty() {
-        lines.push(rest.to_owned());
-    }
-    lines
-}
-
-/// Narrowest outline that still holds this block's whole label at height `h`.
-fn need_w(blk: &Blk<'_>, h: u16) -> Option<u16> {
-    if h < 3 {
-        return None;
-    }
-    let value = size(blk.bytes).width();
-    let name = spellings(blk).last().map(|s| s.width()).unwrap_or(0);
-    let mut best = if h == 3 {
-        name + 2 + value
-    } else {
-        name.max(value)
-    };
-    if h >= 5 && !blk.remainder {
-        for width in value.max(5)..name {
-            let lines = name_lines(&blk.label, width as u16);
-            if !lines.is_empty() && lines.len() <= 2 {
-                best = best.min(width);
-                break;
-            }
-        }
-    }
-    Some(best as u16 + 4)
-}
-
-/// Largest-remainder shares of `cells`, then each share lifted to its minimum
-/// at the cost of whichever share has the most slack.
-fn shares_min(weights: &[f64], cells: u16, mins: &[u16]) -> Option<Vec<u16>> {
-    if mins.iter().map(|m| *m as u32).sum::<u32>() > cells as u32 {
-        return None;
-    }
-    let total = weights.iter().sum::<f64>().max(0.000001);
-    let exact: Vec<_> = weights.iter().map(|n| *n / total * cells as f64).collect();
-    let mut sizes: Vec<_> = exact.iter().map(|n| n.floor() as u16).collect();
-    let mut order: Vec<_> = (0..weights.len()).collect();
-    order.sort_by(|&a, &b| {
-        (exact[b] - sizes[b] as f64)
-            .total_cmp(&(exact[a] - sizes[a] as f64))
-            .then(a.cmp(&b))
-    });
-    let extra = cells.saturating_sub(sizes.iter().sum());
-    for &i in order.iter().take(extra as usize) {
-        sizes[i] += 1;
-    }
-    loop {
-        let Some(short) = (0..sizes.len()).find(|&i| sizes[i] < mins[i]) else {
-            return Some(sizes);
-        };
-        let donor = (0..sizes.len())
-            .filter(|&i| sizes[i] > mins[i])
-            .max_by_key(|&i| sizes[i] - mins[i])?;
-        sizes[donor] -= 1;
-        sizes[short] += 1;
-    }
-}
-
-fn overdrawn(actual: u32, ideal: f64, area: f64, nested: bool) -> bool {
-    let _ = area;
-    let slack = if nested { 16.0 } else { 10.0 };
-    actual as f64 > ideal * 1.3 + slack || (actual as f64) < ideal * 0.7 - slack
-}
-
-fn shape_cost(w: u16, h: u16) -> f64 {
-    // A cell is about twice as tall as wide; blocks a little wider than square read best.
-    (w as f64 * 0.45 / h as f64 / 1.3).ln().abs()
-}
-
-/// One strip of blocks `i..j`. Rows: side by side at one height. Columns: stacked at one width.
-/// Sizes are in layout cells; with shared walls (`ov` = 1) an outline is one cell larger each way.
-fn strip_with(
-    blks: &[Blk<'_>],
-    total: f64,
-    r: Rect,
-    gaps: (u16, u16),
-    ov: u16,
-    columns: bool,
-    thickness: u16,
-    relax: bool,
-) -> Option<(f64, Vec<(u16, u16)>)> {
-    let n = blks.len() as u16;
-    let weights: Vec<_> = blks.iter().map(|b| b.bytes as f64).collect();
-    let area = r.width as f64 * r.height as f64;
-    let loose = |b: &Blk<'_>| relax && b.loose;
-    let dims: Vec<(u16, u16)> = if columns {
-        let usable = r.height.checked_sub(gaps.1 * (n - 1))?;
-        let heights = shares_min(&weights, usable, &vec![3 - ov; blks.len()])?;
-        for (b, h) in blks.iter().zip(&heights) {
-            let need = if loose(b) { 4 } else { need_w(b, *h + ov)? };
-            if need > thickness + ov {
-                return None;
-            }
-        }
-        heights.into_iter().map(|h| (thickness, h)).collect()
-    } else {
-        let usable = r.width.checked_sub(gaps.0 * (n - 1))?;
-        let mins: Option<Vec<u16>> = blks
-            .iter()
-            .map(|b| {
-                if loose(b) {
-                    Some(4 - ov)
-                } else {
-                    need_w(b, thickness + ov).map(|w| w - ov)
-                }
-            })
-            .collect();
-        let widths = shares_min(&weights, usable, &mins?)?;
-        widths.into_iter().map(|w| (w, thickness)).collect()
-    };
-    let mut cost = if relax { 1.0 } else { 0.0 };
-    for (b, (w, h)) in blks.iter().zip(&dims) {
-        let share = b.bytes as f64 / total;
-        let actual = *w as u32 * *h as u32;
-        // A block that gives up its label must not also give up its area.
-        if overdrawn(actual, area * share, area, ov == 1)
-            || loose(b) && (actual as f64) < area * share * 0.6
-        {
-            return None;
-        }
-        cost += share * shape_cost(*w + ov, *h + ov);
-    }
-    Some((cost, dims))
-}
-
-fn strip(
-    blks: &[Blk<'_>],
-    total: f64,
-    r: Rect,
-    gaps: (u16, u16),
-    ov: u16,
-    columns: bool,
-    thickness: u16,
-) -> Option<(f64, Vec<(u16, u16)>)> {
-    strip_with(blks, total, r, gaps, ov, columns, thickness, false).or_else(|| {
-        blks.last()
-            .filter(|b| ov == 1 && b.loose)
-            .and_then(|_| strip_with(blks, total, r, gaps, ov, columns, thickness, true))
-    })
-}
-
-fn strips(
-    blks: &[Blk<'_>],
-    r: Rect,
-    gaps: (u16, u16),
-    ov: u16,
-    columns: bool,
-    min_thick: u16,
-) -> Option<(f64, Vec<Rect>)> {
-    let n = blks.len();
-    let total = blks.iter().map(|b| b.bytes as f64).sum::<f64>().max(1.0);
-    let span = if columns { r.width } else { r.height };
-    let estimate = |i: usize, j: usize| -> u16 {
-        let share = blks[i..j].iter().map(|b| b.bytes as f64).sum::<f64>() / total;
-        ((span as f64 * share).round() as u16).clamp(min_thick, span.max(min_thick))
-    };
-    // Shortest path over strip breaks.
-    let mut best: Vec<Option<(f64, usize)>> = vec![None; n + 1];
-    best[0] = Some((0.0, 0));
-    for j in 1..=n {
-        for i in 0..j {
-            let Some((before, _)) = best[i] else { continue };
-            let Some((cost, _)) = strip(&blks[i..j], total, r, gaps, ov, columns, estimate(i, j))
-            else {
-                continue;
-            };
-            if best[j].is_none_or(|(c, _)| before + cost < c) {
-                best[j] = Some((before + cost, i));
-            }
-        }
-    }
-    best[n]?;
-    let mut breaks = vec![n];
-    while *breaks.last().unwrap() > 0 {
-        breaks.push(best[*breaks.last().unwrap()].unwrap().1);
-    }
-    breaks.reverse();
-    let count = breaks.len() - 1;
-    let gap = if columns { gaps.0 } else { gaps.1 };
-    let usable = span.checked_sub(gap * (count as u16 - 1))?;
-    let strip_weights: Vec<_> = breaks
-        .windows(2)
-        .map(|p| blks[p[0]..p[1]].iter().map(|b| b.bytes as f64).sum::<f64>())
-        .collect();
-    // A column must be wide enough for whatever its blocks need at their heights.
-    let mins: Vec<u16> = breaks
-        .windows(2)
-        .map(|p| {
-            if columns {
-                let e = estimate(p[0], p[1]);
-                let mut lo = min_thick;
-                while lo < e && strip(&blks[p[0]..p[1]], total, r, gaps, ov, true, lo).is_none() {
-                    lo += 1;
-                }
-                lo
-            } else {
-                min_thick
-            }
-        })
-        .collect();
-    let thick = shares_min(&strip_weights, usable, &mins)?;
-    let mut rects = Vec::new();
-    let mut cost = 0.0;
-    let mut at = if columns { r.x } else { r.y };
-    for (p, t) in breaks.windows(2).zip(thick) {
-        let (c, dims) = strip(&blks[p[0]..p[1]], total, r, gaps, ov, columns, t)?;
-        cost += c;
-        let mut along = if columns { r.y } else { r.x };
-        for (w, h) in dims {
-            if columns {
-                rects.push(Rect::new(at, along, w + ov, h + ov));
-                along += h + gaps.1;
-            } else {
-                rects.push(Rect::new(along, at, w + ov, h + ov));
-                along += w + gaps.0;
-            }
-        }
-        at += t + gap;
-    }
-    // Cells round, but never so far that a smaller block outgrows a clearly larger one.
-    let cells = |r: &Rect| (r.width - ov) as u32 * (r.height - ov) as u32;
-    for (i, a) in blks.iter().enumerate() {
-        for (j, b) in blks.iter().enumerate() {
-            if a.bytes as f64 > b.bytes as f64 * 1.15 && cells(&rects[i]) < cells(&rects[j]) {
-                return None;
-            }
-        }
-    }
-    Some((cost, rects))
-}
-
-/// As many blocks as stay readable, then one block for the rest. `None` when
-/// not even the largest child fits: the folder is then drawn as a leaf.
-/// Top-level Tiles keep gaps; nested siblings share their walls.
-fn layout<'a>(all: &[Blk<'a>], r: Rect, top: bool) -> Option<Vec<(Blk<'a>, Rect)>> {
-    if all.is_empty() || r.width < 4 || r.height < 4 {
-        return None;
-    }
-    let (gaps, ov, work) = if top {
-        ((COL_GAP, ROW_GAP), 0, r)
-    } else {
-        ((0, 0), 1, Rect::new(r.x, r.y, r.width - 1, r.height - 1))
-    };
-    let area = r.width as usize * r.height as usize;
-    for keep in (1..=all.len().min(MAX_KEEP).min(area / 30 + 1)).rev() {
-        let blks = grouped(all, keep);
-        let rows = strips(&blks, work, gaps, ov, false, if !top {
-            2
-        } else if r.height >= 24 {
-            6
-        } else {
-            4
-        });
-        let cols = if top {
-            None
-        } else {
-            strips(&blks, work, gaps, ov, true, 4)
-        };
-        let chosen = match (rows, cols) {
-            (Some(a), Some(b)) => Some(if b.0 < a.0 { b } else { a }),
-            (a, b) => a.or(b),
-        };
-        if let Some((_, rects)) = chosen {
-            return Some(blks.into_iter().zip(rects).collect());
-        }
-    }
-    None
-}
-
-fn lerp(a: Color, b: Color, t: f32) -> Color {
-    match (a, b) {
-        (Color::Rgb(ar, ag, ab), Color::Rgb(br, bg, bb)) => Color::Rgb(
-            (ar as f32 + (br as f32 - ar as f32) * t) as u8,
-            (ag as f32 + (bg as f32 - ag as f32) * t) as u8,
-            (ab as f32 + (bb as f32 - ab as f32) * t) as u8,
-        ),
-        _ => a,
-    }
-}
-
-/// Whether a folder's title fits its top edge. `Some(true)`: a narrow top-level
-/// Tile keeps its name in the top edge and moves its size to the bottom edge.
-fn title_split(blk: &Blk<'_>, r: Rect, depth: usize) -> Option<bool> {
-    let (name, value) = (blk.label.width(), size(blk.bytes).width());
-    let room = (r.width as usize).saturating_sub(4);
-    if depth > 0 || name + 2 + value <= room {
-        (name <= room).then_some(false)
-    } else {
-        (name <= room && value <= room).then_some(true)
-    }
-}
-
-fn tone(depth: usize) -> f32 {
-    0.07 + depth.min(4) as f32 * 0.05
-}
-
-/// The drawn contents of a folder block, when its title and at least its largest child fit.
-fn contents<'a>(blk: &Blk<'a>, r: Rect, depth: usize) -> Option<Vec<(Blk<'a>, Rect)>> {
-    let node = blk.node?;
-    if node.children.is_empty() || depth >= MAX_DEPTH || r.height < 5 || blk.remainder {
-        return None;
-    }
-    title_split(blk, r, depth)?;
-    let inner = Rect::new(r.x + 1, r.y + 1, r.width - 2, r.height - 2);
-    layout(&blocks_of(node), inner, false)
-}
-
-fn draw_cutaway_map(b: &mut Buffer, map: Rect, app: &App) {
-    let all = blocks_of(app.current());
-    if all.is_empty() {
-        text(
-            b,
-            map.x,
-            map.y,
-            map.width,
-            "No allocated blocks in this directory",
-            MUTED,
-            BG,
-            false,
-        );
-        return;
-    }
-    let tiles = layout(&all, map, true).unwrap_or_else(|| vec![(grouped(&all, 0).remove(0), map)]);
-    // Percent sits in the top edge of every titled Tile, or of none.
-    let view = app.current().bytes;
-    let percents = tiles.iter().all(|(blk, r)| {
-        contents(blk, *r, 0).is_none()
-            || blk.label.width()
-                + size(blk.bytes).width()
-                + percent(blk.bytes, view).width()
-                + 9
-                <= r.width as usize
-    });
-    let group: Vec<_> = tiles
-        .into_iter()
-        .map(|(blk, r)| {
-            let selected = blk.members.contains(&app.selected);
-            let color = blk.index.map(|i| color_for(app, i)).unwrap_or(MUTED);
-            (blk, r, color, selected)
-        })
-        .collect();
-    draw_group(b, &group, app, 0, percents);
-}
-
-const UP: u8 = 1;
-const DOWN: u8 = 2;
-const LEFT: u8 = 4;
-const RIGHT: u8 = 8;
-const WALLS: [(&str, u8); 11] = [
-    ("─", LEFT | RIGHT),
-    ("│", UP | DOWN),
-    ("╭", DOWN | RIGHT),
-    ("╮", DOWN | LEFT),
-    ("╰", UP | RIGHT),
-    ("╯", UP | LEFT),
-    ("├", UP | DOWN | RIGHT),
-    ("┤", UP | DOWN | LEFT),
-    ("┬", LEFT | RIGHT | DOWN),
-    ("┴", LEFT | RIGHT | UP),
-    ("┼", UP | DOWN | LEFT | RIGHT),
-];
-
-/// One wall cell. A wall that two siblings share becomes a junction rather than a second line.
-fn wall(b: &mut Buffer, x: u16, y: u16, bits: u8, fg: Color, strong: bool) {
-    let cell = &mut b[(x, y)];
-    let old = WALLS
-        .iter()
-        .find(|(s, _)| *s == cell.symbol())
-        .map(|(_, bits)| *bits)
-        .unwrap_or(0);
-    let merged = if strong { bits } else { bits | old };
-    if let Some((s, _)) = WALLS.iter().find(|(_, bits)| *bits == merged) {
-        cell.set_symbol(s);
-        cell.set_fg(fg);
-    }
-}
-
-fn outline(b: &mut Buffer, r: Rect, fg: Color, strong: bool) {
-    if r.width < 2 || r.height < 2 {
-        return;
-    }
-    let (x1, y1) = (r.right() - 1, r.bottom() - 1);
-    for x in r.x + 1..x1 {
-        wall(b, x, r.y, LEFT | RIGHT, fg, strong);
-        wall(b, x, y1, LEFT | RIGHT, fg, strong);
-    }
-    for y in r.y + 1..y1 {
-        wall(b, r.x, y, UP | DOWN, fg, strong);
-        wall(b, x1, y, UP | DOWN, fg, strong);
-    }
-    wall(b, r.x, r.y, DOWN | RIGHT, fg, strong);
-    wall(b, x1, r.y, DOWN | LEFT, fg, strong);
-    wall(b, r.x, y1, UP | RIGHT, fg, strong);
-    wall(b, x1, y1, UP | LEFT, fg, strong);
-}
-
-/// One sibling set: every background, then every wall (so shared walls merge), then labels and contents.
-fn draw_group(
-    b: &mut Buffer,
-    group: &[(Blk<'_>, Rect, Color, bool)],
-    app: &App,
-    depth: usize,
-    percents: bool,
-) {
-    let bg_of = |color: Color, selected: bool| {
-        tint(color, tone(depth) + if selected { 0.035 } else { 0.0 })
-    };
-    for (_, r, color, selected) in group {
-        fill(b, *r, bg_of(*color, *selected));
-    }
-    for (_, r, color, selected) in group {
-        let line = if *selected {
-            lerp(*color, FG, 0.6)
-        } else if depth == 0 {
-            tint(*color, 0.45)
-        } else {
-            tint(*color, tone(depth) + 0.16)
-        };
-        outline(b, *r, line, depth == 0);
-    }
-    for (blk, r, color, selected) in group {
-        let (r, color, selected) = (*r, *color, *selected);
-        if r.width < 3 || r.height < 3 {
-            continue;
-        }
-        let bg = bg_of(color, selected);
-        let mut title_end = r.x + 1;
-        if let Some(children) = contents(blk, r, depth) {
-            let name_fg = if selected {
-                FG
-            } else if depth == 0 {
-                color
-            } else {
-                lerp(MUTED, color, 0.5)
-            };
-            let mut title = vec![(format!(" {}", blk.label), name_fg, depth == 0)];
-            let split = title_split(blk, r, depth) == Some(true);
-            if split {
-                let value = format!(" {} ", size(blk.bytes));
-                let x = r.right() - 2 - value.width() as u16;
-                text(b, x, r.bottom() - 1, value.width() as u16, &value, lerp(color, MUTED, 0.35), bg, false);
-            } else if depth == 0 {
-                title.push((format!("  {}", size(blk.bytes)), lerp(color, MUTED, 0.35), false));
-                if percents {
-                    let pct = percent(blk.bytes, app.current().bytes);
-                    title.push((format!(" · {pct}"), MUTED, false));
-                }
-            }
-            title.push((" ".into(), name_fg, false));
-            let mut x = r.x + 1;
-            for (s, fg, bold) in title {
-                text(b, x, r.y, s.width() as u16, &s, fg, bg, bold);
-                x += s.width() as u16;
-            }
-            title_end = x;
-            let nested: Vec<_> = children
-                .into_iter()
-                .map(|(child, rect)| (child, rect, color, false))
-                .collect();
-            draw_group(b, &nested, app, depth + 1, false);
-        } else {
-            let inner = Rect::new(r.x + 1, r.y + 1, r.width - 2, r.height - 2);
-            if !draw_label(b, inner, blk, color, bg, depth, selected) && blk.loose {
-                // Too small to name: a grain of small things rather than a hollow box.
-                let grain = tint(color, tone(depth) + 0.13);
-                for y in inner.y..inner.bottom() {
-                    for x in inner.x..inner.right() {
-                        if inner.width < 3 || (x + y) % 2 == 0 {
-                            text(b, x, y, 1, "·", grain, bg, false);
-                        }
-                    }
-                }
-            }
-        }
-        if let Some((glyph, fg)) = blk.node.and_then(|n| collected_glyph(app, n))
-            && title_end + 5 <= r.right()
-        {
-            text(b, r.right() - 5, r.y, 3, format!(" {glyph} "), fg, bg, true);
-        }
-    }
-}
-
-/// Name above size, centred both ways; one line when the block is short; nothing when neither fits.
-fn draw_label(
-    b: &mut Buffer,
-    inner: Rect,
-    blk: &Blk<'_>,
-    color: Color,
-    bg: Color,
-    depth: usize,
-    selected: bool,
-) -> bool {
-    if inner.is_empty() || inner.width < 3 {
-        return false;
-    }
-    let width = inner.width - 2;
-    let value = size(blk.bytes);
-    let name_fg = if selected {
-        FG
-    } else if blk.remainder || blk.node.is_none() {
-        MUTED
-    } else if depth == 0 {
-        color
-    } else {
-        lerp(MUTED, FG, 0.55)
-    };
-    let value_fg = if blk.remainder || blk.node.is_none() {
-        lerp(MUTED, bg, 0.35)
-    } else {
-        lerp(color, MUTED, 0.35)
-    };
-    let bold = depth == 0 && !blk.remainder;
-    let mut centre = |y: u16, s: &str, fg: Color, bold: bool| {
-        let x = inner.x + (inner.width - s.width() as u16) / 2;
-        text(b, x, y, s.width() as u16, s, fg, bg, bold);
-    };
-    for name in spellings(blk) {
-        let lines = name_lines(&name, width);
-        if value.width() > width as usize || lines.is_empty() {
-            continue;
-        }
-        if lines.len() <= 2 && lines.len() < inner.height as usize {
-            let y = inner.y + (inner.height - lines.len() as u16 - 1) / 2;
-            for (i, l) in lines.iter().enumerate() {
-                centre(y + i as u16, l, name_fg, bold);
-            }
-            centre(y + lines.len() as u16, &value, value_fg, false);
-            return true;
-        }
-        if name.width() + 2 + value.width() <= width as usize {
-            let y = inner.y + (inner.height - 1) / 2;
-            let x = inner.x + (inner.width - (name.width() + 2 + value.width()) as u16) / 2;
-            text(b, x, y, name.width() as u16, &name, name_fg, bg, bold);
-            text(
-                b,
-                x + name.width() as u16 + 2,
-                y,
-                value.width() as u16,
-                &value,
-                value_fg,
-                bg,
-                false,
-            );
-            return true;
-        }
-    }
-    // A block allowed to go unlabelled still says what it is when only that fits.
-    if blk.loose {
-        for name in spellings(blk) {
-            if name.width() <= inner.width as usize {
-                centre(inner.y + (inner.height - 1) / 2, &name, name_fg, false);
-                return true;
-            }
-        }
-    }
-    false
-}
-
-fn draw_compact_row(b: &mut Buffer, r: Rect, app: &App, i: usize) {
-    let node = app.current();
-    let n = &node.children[i];
-    let selected = i == app.selected;
-    let color = color_for(app, i);
-    let bg = if selected { SURFACE } else { BG };
-    fill(b, r, bg);
-    let rank = format!("{:02}", i + 1);
-    let rank_width = rank.width() as u16;
-    let bar_width = if r.width >= 42 { 4 } else { 2 };
-    let bar_x = r.right() - bar_width;
-    let pct_x = bar_x - 7;
-    let size_x = pct_x - 9;
-    let name_x = r.x + rank_width + 1;
-    text(
-        b,
-        r.x,
-        r.y,
-        rank_width,
-        rank,
-        if selected { color } else { MUTED },
-        bg,
-        true,
+fn draw_help(f: &mut Frame, w: u16, h: u16) {
+    let r = Rect::new((w - 60) / 2, (h.saturating_sub(20)) / 2, 60, 20.min(h));
+    f.render_widget(Clear, r);
+    f.render_widget(
+        Block::default()
+            .title(" Keys ")
+            .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .style(Style::default().bg(PANEL).fg(ACCENT)),
+        r,
     );
-    let glyph = collected_glyph(app, n);
-    let name_width = size_x.saturating_sub(name_x + 1 + if glyph.is_some() { 2 } else { 0 });
-    text(
-        b,
-        name_x,
-        r.y,
-        name_width,
-        &n.name,
-        if selected { FG } else { MUTED },
-        bg,
-        selected,
+    f.render_widget(
+        Paragraph::new(
+            "↑ ↓  or  j k      Move row to row\n\
+             → or l            Open a folder; list what it hides;\n                  then step to its first child\n\
+             ← or h            Close a folder; then step to its parent\n\
+             Enter             Focus: make the folder the whole view\n\
+             Backspace         Back out of the focused folder\n\
+             Tab / Shift-Tab   Next / previous top-level item\n\
+             PgUp PgDn Home End\n\
+             Space             Collect / uncollect for Trash\n\
+             c                 Review collector, t moves it to Trash\n\
+             t  /  d           Trash / delete the selected item\n\
+             r                 Rescan · ? this help · q quit\n\n\
+             Bars share one axis: the whole view. Each bar sits\n\
+             inside its folder's shadow, where that folder holds it.",
+        )
+        .style(Style::default().fg(FG).bg(PANEL)),
+        Rect::new(r.x + 2, r.y + 1, r.width - 4, r.height.saturating_sub(2)),
     );
-    if let Some((glyph, fg)) = glyph {
-        text(b, size_x - 2, r.y, 1, glyph, fg, bg, true);
-    }
-    text(
-        b,
-        size_x,
-        r.y,
-        8,
-        format!("{:>8}", size(n.bytes)),
-        color,
-        bg,
-        selected,
-    );
-    text(
-        b,
-        pct_x,
-        r.y,
-        6,
-        format!("{:>6}", percent(n.bytes, node.bytes)),
-        MUTED,
-        bg,
-        false,
-    );
-    // Eighth-cell bars measure each row against the largest sibling.
-    let largest = node
-        .children
-        .iter()
-        .map(|c| c.bytes)
-        .max()
-        .unwrap_or(1)
-        .max(1);
-    let units = (bar_width as f64 * 8.0 * n.bytes as f64 / largest as f64).round() as u16;
-    let units = if n.bytes > 0 { units.max(1) } else { 0 };
-    const BARS: [&str; 9] = [" ", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"];
-    for x in 0..bar_width {
-        let part = units.saturating_sub(x * 8).min(8);
-        text(
-            b,
-            bar_x + x,
-            r.y,
-            1,
-            BARS[part as usize],
-            if part > 0 { color } else { DIM },
-            bg,
-            false,
-        );
-    }
 }
 
 /// Marker for entries in the collector: collected, needing attention, or
 /// already included by a collected parent folder.
-fn collected_glyph(app: &App, node: &crate::scan::Node) -> Option<(&'static str, Color)> {
+fn collected_glyph(app: &App, node: &Node) -> Option<(&'static str, Color)> {
     match app.collector.mark(&node.path) {
         Mark::None => None,
         Mark::Collected => Some(("◆", ACCENT)),
         Mark::Attention => Some(("!", DANGER)),
         Mark::Covered => Some(("◇", ACCENT)),
     }
-}
-/// Runnable first-layout prototype used only to check the visual judging setup.
-/// It retains real navigation and deletion, with no palette or nested previews.
-pub fn draw_wireframe(f: &mut Frame, app: &App) {
-    let area = f.area();
-    let w = area.width;
-    let h = area.height;
-    if w < 30 || h < 12 {
-        return;
-    }
-    let node = app.current();
-    let b = f.buffer_mut();
-    fill(b, area, Color::Black);
-    text(
-        b,
-        1,
-        1,
-        w - 2,
-        format!("{}  {}", node.name, size(node.bytes)),
-        Color::White,
-        Color::Black,
-        false,
-    );
-    let entries = map_entries(node);
-    let weights = entries.iter().map(|n| n.bytes).collect::<Vec<_>>();
-    for tile in tiles(&weights, Rect::new(1, 3, w - 2, h - 8)) {
-        let r = tile.rect;
-        if r.width < 3 || r.height < 3 {
-            continue;
-        }
-        Block::default()
-            .borders(Borders::ALL)
-            .border_type(ratatui::widgets::BorderType::Plain)
-            .border_style(Style::default().fg(Color::Gray))
-            .render(r, b);
-        text(
-            b,
-            r.x + 1,
-            r.y + 1,
-            r.width - 2,
-            &entries[tile.idx].label,
-            Color::White,
-            Color::Black,
-            false,
-        );
-    }
-    if let Some(n) = app.selection() {
-        text(
-            b,
-            1,
-            h - 4,
-            w - 2,
-            format!("> {} {}", n.name, size(n.bytes)),
-            Color::White,
-            Color::Black,
-            false,
-        )
-    }
-    text(
-        b,
-        1,
-        h - 2,
-        w - 2,
-        "up/down select | Enter open | Backspace back | d delete | q quit",
-        Color::Gray,
-        Color::Black,
-        false,
-    );
-    if app.confirm {
-        let r = Rect::new(3, h / 2 - 3, w - 6, 7);
-        f.render_widget(Clear, r);
-        f.render_widget(Block::default().title(" Delete? ").borders(Borders::ALL), r);
-        let b = f.buffer_mut();
-        text(
-            b,
-            r.x + 1,
-            r.y + 2,
-            r.width - 2,
-            "Permanently delete selected item?",
-            Color::White,
-            Color::Black,
-            false,
-        );
-        text(
-            b,
-            r.x + 1,
-            r.y + 4,
-            r.width - 2,
-            format!("Type delete: {}  (Esc cancels)", app.typed),
-            Color::White,
-            Color::Black,
-            false,
-        );
-    }
-}
-
-/// Keys this variant owns in browse mode; true means consumed. Everything
-/// else falls through to the app's own keys.
-pub fn key(_app: &mut App, _key: crossterm::event::KeyEvent) -> bool {
-    false
-}
-
-/// True while this variant animates, so the loop redraws every 16 ms.
-pub fn ticking() -> bool {
-    false
 }

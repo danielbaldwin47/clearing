@@ -1,10 +1,15 @@
 # name columns rows keys (tmux key names, comma-separated; - for none)
-# Required scenes; rewrite the keys for your variant's own navigation.
+# Variant O, outline: ↑↓ row to row, → open / list the rest / first child, ← close / parent,
+# Enter focus (re-root), Backspace back out, Tab / BTab next / previous top-level item.
 root-140x44 140 44 -
 root-100x30 100 30 -
-second-140x44 140 44 Down
+second-140x44 140 44 Tab
 projects-140x44 140 44 Enter
-target-140x44 140 44 Enter,Enter
-back-140x44 140 44 Enter,Enter,BSpace,BSpace
-cache-140x44 140 44 Down,Down,Down,Enter
-cache-100x30 100 30 Down,Down,Down,Enter
+target-140x44 140 44 Down,Down,Down,Down
+back-140x44 140 44 Enter,Down,Down,Down,BSpace
+cache-140x44 140 44 Tab,Tab,Tab,Enter
+cache-100x30 100 30 Tab,Tab,Tab,Enter
+collect-140x44 140 44 Tab,Down,Down,Down,Down,Space
+reveal-140x44 140 44 Down,Right
+open-140x44 140 44 Tab,Tab,Tab,Right
+target-100x30 100 30 Down,Down,Right,Down,Right,Down
