@@ -33,21 +33,50 @@ const GAP: u16 = 3;
 const MIN_COL: u16 = 28;
 /// The one-column shift after → or ←.
 const SLIDE: Duration = Duration::from_millis(260);
+/// The selection's box travelling one column when the highlight steps instead.
+const STEP: Duration = Duration::from_millis(240);
 
 #[derive(Default)]
 struct State {
     /// First chain index shown and the column count, as last drawn.
     win: Option<(usize, usize)>,
+    /// The route last drawn, to tell a focus step from a shift.
+    route: Option<Vec<usize>>,
     /// Last selection per folder: → returns to it and previews show it.
     memory: HashMap<PathBuf, usize>,
     /// First child shown per folder, for columns taller than the screen.
     first: HashMap<PathBuf, usize>,
     /// A running shift: start and columns moved (+: content moves left).
     slide: Option<(Instant, i32)>,
+    /// A running focus step: start and the selection's box it leaves from.
+    step: Option<(Instant, [i32; 4])>,
+    /// The selection's box on screen as last drawn (x, y, w, h).
+    sel_box: Option<[i32; 4]>,
     /// Where each Tab jump started (route, selection, back stack), for Shift-Tab.
     jumps: Vec<(Vec<usize>, usize, Vec<usize>)>,
+    /// Where the last Tab landed and which ↳ a further Tab takes.
+    tab: Option<((Vec<usize>, usize), usize)>,
 }
 static STATE: LazyLock<Mutex<State>> = LazyLock::new(|| Mutex::new(State::default()));
+
+/// The sample's pre-aggregated `N smaller items` rows: a gathered remainder,
+/// not a folder. It is never opened and names no path of its own.
+fn gathered(n: &Node) -> bool {
+    crate::sample::meta(&n.path).is_some_and(|m| m.tail_count.is_some())
+}
+
+/// Open the selection, landing on the child its column had lit.
+fn open(app: &mut App, st: &mut State) {
+    st.memory.insert(app.current().path.clone(), app.selected);
+    let before = app.route.len();
+    app.drill();
+    if app.route.len() > before
+        && let Some(&i) = st.memory.get(&app.current().path)
+        && i < app.current().children.len()
+    {
+        app.selected = i;
+    }
+}
 
 /// Keys this variant owns in browse mode; true means consumed. Everything
 /// else falls through to the app's own keys.
@@ -55,8 +84,9 @@ pub fn key(app: &mut App, key: KeyEvent) -> bool {
     let Ok(mut st) = STATE.lock() else {
         return false;
     };
-    // Any key finishes a running shift at once.
+    // Any key finishes a running animation at once.
     st.slide = None;
+    st.step = None;
     let len = app.current().children.len();
     let step = |app: &mut App, delta: isize| {
         if len > 0 {
@@ -69,27 +99,53 @@ pub fn key(app: &mut App, key: KeyEvent) -> bool {
         KeyCode::PageUp => step(app, -8),
         KeyCode::PageDown => step(app, 8),
         KeyCode::Right | KeyCode::Enter | KeyCode::Char('l') => {
-            st.memory.insert(app.current().path.clone(), app.selected);
-            let before = app.route.len();
-            app.drill();
-            if app.route.len() > before
-                && let Some(&i) = st.memory.get(&app.current().path)
-                && i < app.current().children.len()
-            {
-                app.selected = i;
-            }
+            let Some(n) = app.selection() else {
+                app.message = "This folder is empty · ← back".into();
+                return true;
+            };
+            app.message = if gathered(n) {
+                format!("{} are gathered here, too small to list one by one · not a folder", n.name)
+            } else if !n.is_dir {
+                format!("{} is a file · Space collects it, t moves it to Trash", n.name)
+            } else if n.children.is_empty() {
+                format!("{}/ has nothing listed inside · Space collects it whole", n.name)
+            } else {
+                open(app, &mut st);
+                String::new()
+            };
+        }
+        KeyCode::Char(' ') if app.selection().is_some_and(gathered) => {
+            let name = app.selection().map(|n| n.name.clone()).unwrap_or_default();
+            app.message = format!("{name} is a gathered remainder, not one item · nothing collected");
         }
         KeyCode::Tab => {
-            // Jump to the first thing buried in the selection, drilling the whole way.
-            let Some(route) = app.selection().and_then(|n| buried(n).into_iter().next()).map(|b| b.route) else {
-                if let Some(n) = app.selection() {
-                    app.message = format!("Nothing buried in {}: its largest item is in plain view", n.name);
+            // Jump to the largest ↳ inside the selection; Tab again takes the next.
+            let cycling = st
+                .tab
+                .as_ref()
+                .is_some_and(|(landed, _)| *landed == (app.route.clone(), app.selected));
+            let (origin, n) = match (cycling, st.jumps.last()) {
+                (true, Some(o)) => (o.clone(), st.tab.as_ref().map_or(0, |t| t.1)),
+                _ => ((app.route.clone(), app.selected, app.previous.clone()), 0),
+            };
+            let here = (app.route.clone(), app.selected, app.previous.clone());
+            (app.route, app.selected, app.previous) = origin.clone();
+            let found = app.selection().map(|sel| {
+                let list = things(sel, sel.bytes / 20, 4);
+                let pick = (!list.is_empty()).then(|| list[n % list.len()].route.clone());
+                (sel.name.clone(), list.len(), pick)
+            });
+            let Some((name, count, Some(route))) = found else {
+                (app.route, app.selected, app.previous) = here;
+                if let Some(sel) = app.selection() {
+                    app.message = format!("Nothing buried in {}: everything in it is in plain view", sel.name);
                 }
                 return true;
             };
-            st.jumps.push((app.route.clone(), app.selected, app.previous.clone()));
-            st.memory.insert(app.current().path.clone(), app.selected);
-            app.drill();
+            if !cycling {
+                st.jumps.push(origin);
+            }
+            open(app, &mut st);
             for (j, &i) in route.iter().enumerate() {
                 app.selected = i;
                 if j + 1 < route.len() {
@@ -97,29 +153,43 @@ pub fn key(app: &mut App, key: KeyEvent) -> bool {
                     app.drill();
                 }
             }
+            let idx = n % count;
+            st.tab = Some(((app.route.clone(), app.selected), idx + 1));
+            app.message = if count > 1 {
+                format!("↳ {} of {} inside {name} · Tab next · ⇧Tab back", idx + 1, count)
+            } else {
+                format!("↳ the one buried thing inside {name} · ⇧Tab back")
+            };
         }
         KeyCode::BackTab => {
             // Back to where the last Tab jump started.
+            st.tab = None;
             let here = app.current().path.clone();
             st.memory.insert(here, app.selected);
-            if let Some((route, selected, previous)) = st.jumps.pop() {
-                let mut node = &app.root;
-                let valid = route.iter().all(|&i| match node.children.get(i) {
-                    Some(c) => {
-                        node = c;
-                        true
-                    }
-                    None => false,
-                });
-                if valid && selected < node.children.len() {
-                    app.route = route;
-                    app.selected = selected;
-                    app.previous = previous;
-                    app.message.clear();
+            let Some((route, selected, previous)) = st.jumps.pop() else {
+                app.message = "No jump to go back from · Tab jumps to the largest ↳".into();
+                return true;
+            };
+            let mut node = &app.root;
+            let valid = route.iter().all(|&i| match node.children.get(i) {
+                Some(c) => {
+                    node = c;
+                    true
                 }
+                None => false,
+            });
+            if valid && selected < node.children.len() {
+                app.route = route;
+                app.selected = selected;
+                app.previous = previous;
+                app.message.clear();
             }
         }
         KeyCode::Left | KeyCode::Backspace | KeyCode::Char('h') => {
+            if app.route.is_empty() {
+                app.message = format!("Already at the top: {} is where this scan starts", app.root.name);
+                return true;
+            }
             st.memory.insert(app.current().path.clone(), app.selected);
             app.back();
         }
@@ -132,7 +202,10 @@ pub fn key(app: &mut App, key: KeyEvent) -> bool {
 pub fn ticking() -> bool {
     STATE
         .lock()
-        .map(|st| st.slide.is_some_and(|(t0, d)| t0.elapsed() < slide_for(d)))
+        .map(|st| {
+            st.slide.is_some_and(|(t0, d)| t0.elapsed() < slide_for(d))
+                || st.step.is_some_and(|(t0, _)| t0.elapsed() < step_for())
+        })
         .unwrap_or(false)
 }
 
@@ -148,8 +221,8 @@ pub fn draw(f: &mut Frame, app: &App) {
         }
         return;
     }
-    let rule_y = header(b, app, w, h < 28);
-    columns(b, app, w, rule_y, if h < 28 { rule_y + 1 } else { rule_y + 2 }, h - 8);
+    let rule_y = header(b, app, w, h < 34);
+    columns(b, app, w, rule_y, if h < 34 { rule_y + 1 } else { rule_y + 2 }, h - 8);
     detail(b, app, w, h);
     let footer = if !app.message.is_empty() {
         app.message.clone()
@@ -222,7 +295,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
 }
 
-/// The header (variant G's); a two-row version below 28 rows. Returns the rule's row.
+/// The header (variant G's); a two-row version below 34 rows. Returns the rule's row.
 fn header(b: &mut Buffer, app: &App, w: u16, compact: bool) -> u16 {
     let node = app.current();
     let total = size(node.bytes);
@@ -326,16 +399,35 @@ fn detail(b: &mut Buffer, app: &App, w: u16, h: u16) {
     let fw = figures.width() as u16;
     text(b, 5, h - 6, w - 10 - fw, &n.name, FG, PANEL, true);
     text(b, w - 4 - fw, h - 6, fw, &figures, color, PANEL, true);
-    text(
-        b,
-        5,
-        h - 5,
-        w - 9,
-        tail(&crate::scan::display_path(n.path.as_os_str()), (w - 9) as usize),
-        MUTED,
-        PANEL,
-        false,
-    );
+    if !gathered(n) {
+        text(
+            b,
+            5,
+            h - 5,
+            w - 9,
+            tail(&crate::scan::display_path(n.path.as_os_str()), (w - 9) as usize),
+            MUTED,
+            PANEL,
+            false,
+        );
+    } else {
+        text(
+            b,
+            5,
+            h - 5,
+            w - 9,
+            format!(
+                "{} small items gathered in {}",
+                crate::sample::meta(&n.path).and_then(|m| m.tail_count).unwrap_or(0),
+                tail(&crate::scan::display_path(node.path.as_os_str()), (w - 40) as usize)
+            ),
+            MUTED,
+            PANEL,
+            false,
+        );
+        text(b, 5, h - 4, w - 9, "gathered remainder · not a folder, nothing to open", MUTED, PANEL, false);
+        return;
+    }
     let kind = if n.is_symlink {
         "symbolic link"
     } else if n.is_dir {
@@ -419,7 +511,7 @@ fn chain<'a>(app: &'a App, memory: &HashMap<PathBuf, usize>, want: usize) -> Vec
     let mut role = Role::Preview;
     while cols.len() < want {
         let Some(n) = next else { break };
-        let lit = (!n.children.is_empty()).then(|| {
+        let lit = (!leafish(n)).then(|| {
             memory
                 .get(&n.path)
                 .copied()
@@ -547,47 +639,47 @@ fn lay_out(node: &Node, top: u16, bottom: u16, keep: Option<usize>, pref: usize)
     lay
 }
 
-/// Follow the largest child while it holds at least 40% of its parent.
-fn heavy_end(n: &Node) -> (&Node, Vec<&str>) {
-    let mut node = n;
-    let mut path = Vec::new();
-    while let Some(c) = node.children.first() {
-        if c.bytes * 10 < node.bytes * 4 {
-            break;
-        }
-        path.push(c.name.as_str());
-        node = c;
-    }
-    (node, path)
-}
-
-/// Something buried inside a folder: its route of child indices below that
+/// Something big inside a folder: its route of child indices below that
 /// folder, the names along it, and the node itself.
-struct Buried<'a> {
+struct Thing<'a> {
     route: Vec<usize>,
     names: Vec<&'a str>,
     node: &'a Node,
 }
 
-/// Up to two things buried inside `n`, in the order of its children: the heavy
-/// end below each of its two largest children, when that end is deeper than
-/// the child or the child dominates `n`.
-fn buried(n: &Node) -> Vec<Buried<'_>> {
-    let mut out = Vec::new();
-    for (i, c) in n.children.iter().enumerate().take(2) {
-        if c.bytes * 10 < n.bytes {
-            continue;
+/// The biggest things inside `n`, largest first and never nested: a file, a
+/// folder with nothing listed, or a folder whose largest child holds under 40%
+/// of it is one thing; any other folder is looked into. Gathered remainders
+/// are skipped, and nothing under `floor` bytes is kept.
+fn things(n: &Node, floor: u64, max: usize) -> Vec<Thing<'_>> {
+    fn walk<'a>(n: &'a Node, route: &mut Vec<usize>, names: &mut Vec<&'a str>, floor: u64, out: &mut Vec<Thing<'a>>) {
+        for (i, c) in n.children.iter().enumerate() {
+            if c.bytes < floor.max(1) {
+                break;
+            }
+            if gathered(c) {
+                continue;
+            }
+            route.push(i);
+            names.push(&c.name);
+            let unit = c.children.is_empty() || c.children[0].bytes * 10 < c.bytes * 4;
+            if unit {
+                out.push(Thing {
+                    route: route.clone(),
+                    names: names.clone(),
+                    node: c,
+                });
+            } else {
+                walk(c, route, names, floor, out);
+            }
+            route.pop();
+            names.pop();
         }
-        let (end, rest) = heavy_end(c);
-        if rest.is_empty() && c.bytes * 10 < n.bytes * 4 {
-            continue;
-        }
-        let mut route = vec![i];
-        route.extend(std::iter::repeat_n(0, rest.len()));
-        let mut names = vec![c.name.as_str()];
-        names.extend(rest);
-        out.push(Buried { route, names, node: end });
     }
+    let mut out = Vec::new();
+    walk(n, &mut Vec::new(), &mut Vec::new(), floor, &mut out);
+    out.sort_by_key(|t| std::cmp::Reverse(t.node.bytes));
+    out.truncate(max);
     out
 }
 
@@ -733,7 +825,7 @@ fn collected_glyph(app: &App, node: &Node) -> Option<(&'static str, Color)> {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn draw_col(b: &mut Buffer, app: &App, col: &Col, lay: &Lay, x: u16, cw: u16, top: u16, bottom: u16, next_shown: bool) {
+fn draw_col(b: &mut Buffer, app: &App, col: &Col, lay: &Lay, x: u16, cw: u16, top: u16, bottom: u16) {
     let node = col.node;
     if node.children.is_empty() {
         return draw_card(b, app, col, x, cw, top, bottom);
@@ -781,33 +873,51 @@ fn draw_col(b: &mut Buffer, app: &App, col: &Col, lay: &Lay, x: u16, cw: u16, to
             y,
             ends,
             &c.name,
-            c.is_dir,
+            c.is_dir && !gathered(c),
             collected_glyph(app, c),
             &size(c.bytes),
-            &k,
+            &if gathered(c) { Ink { name: lerp(MUTED, k.bg, 0.2), ..k } } else { k },
         );
         for yy in y + 1..y + h {
             text(b, x, yy, 1, "│", k.wall, k.bg, false);
             text(b, x + cw - 1, yy, 1, "│", k.wall, k.bg, false);
         }
-        // Buried heavy things, one per spare row, at most two.
-        let room = cw.saturating_sub(18) as usize;
-        // Hidden on a lit slab outside the focus: the next column shows it.
-        let shown = if col.lit == Some(i) && col.role != Role::Focus && next_shown { 0 } else { h.saturating_sub(1).min(2) };
-        for (j, bur) in buried(c).into_iter().take(shown as usize).enumerate() {
-            let (segs, end) = (bur.names, bur.node);
+        // The biggest things inside, one per spare row, largest first.
+        let hue = top_hue(col.top.unwrap_or(i));
+        let dim = lerp(MUTED, k.bg, 0.45);
+        // Lines fill at most half of a slab's spare rows, so small slabs stay airy
+        // and tall ones never stand empty.
+        let lines = h.saturating_sub(1).div_ceil(2).min(4) as usize;
+        let list = if h > 1 && !gathered(c) { things(c, c.bytes / 20, lines) } else { Vec::new() };
+        if list.is_empty() && h > 1 {
+            let what = if gathered(c) || !c.is_dir || h < 4 {
+                String::new()
+            } else if c.children.is_empty() {
+                format!("{} files · not listed", c.files)
+            } else {
+                String::new()
+            };
+            text(b, x + 4, y + 1, cw.saturating_sub(7), what, dim, k.bg, false);
+        }
+        let room = cw.saturating_sub(if cw < 34 { 17 } else { 18 }) as usize;
+        for (j, t) in list.iter().enumerate() {
             let yy = y + 1 + j as u16;
-            let v = size(end.bytes);
+            let v = size(t.node.bytes);
             let vx = x + cw - 2 - v.width() as u16 - 1;
-            let (prefix, leaf) = short_path(&segs, end.is_dir, room.max(4));
-            let dim = lerp(MUTED, k.bg, 0.45);
+            let (prefix, leaf) = short_path(&t.names, t.node.is_dir, room.max(4));
+            // Narrow columns spend no cell between the arrow and the path.
+            let px = if cw < 34 { x + 3 } else { x + 4 };
             text(b, x + 2, yy, 2, "↳", dim, k.bg, false);
-            text(b, x + 4, yy, prefix.width() as u16, &prefix, dim, k.bg, false);
-            let lx = x + 4 + prefix.width() as u16;
+            text(b, px, yy, prefix.width() as u16, &prefix, dim, k.bg, false);
+            let lx = px + prefix.width() as u16;
+            // The one Tab takes is a step brighter.
             let target = j == 0 && col.role == Role::Focus && col.lit == Some(i);
-            let leaf_fg = if target { lerp(MUTED, FG, 0.45) } else { lerp(MUTED, k.bg, 0.15) };
+            let mut leaf_fg = if target { lerp(hue, FG, 0.35) } else { lerp(hue, MUTED, 0.35) };
+            if col.role == Role::Ahead {
+                leaf_fg = lerp(leaf_fg, BG, 0.3);
+            }
             text(b, lx, yy, vx.saturating_sub(lx + 1), &leaf, leaf_fg, k.bg, false);
-            if let Some((g, gc)) = collected_glyph(app, end) {
+            if let Some((g, gc)) = collected_glyph(app, t.node) {
                 let gx = lx + leaf.width() as u16 + 1;
                 if gx + 1 < vx {
                     text(b, gx, yy, 1, g, gc, k.bg, true);
@@ -855,79 +965,148 @@ fn draw_col(b: &mut Buffer, app: &App, col: &Col, lay: &Lay, x: u16, cw: u16, to
     }
 }
 
-/// A file, or a folder with nothing listed inside: one full-height slab.
-#[allow(clippy::too_many_arguments)]
-fn draw_card(b: &mut Buffer, app: &App, col: &Col, x: u16, cw: u16, top: u16, bottom: u16) {
+/// What a card says about an item with nothing to show inside: a title that
+/// is new (not the name and size the slab beside it already shows), then its
+/// state and what can be done with it.
+fn card_text(app: &App, col: &Col) -> (String, Vec<(String, Color)>) {
     let n = col.node;
-    let mut k = ink(
-        &Col {
-            node: n,
-            role: col.role,
-            lit: None,
-            top: col.top,
-        },
-        usize::MAX,
-    );
-    if col.role == Role::Focus {
-        k.bg = BG;
+    let quiet = MUTED;
+    if gathered(n) {
+        let count = crate::sample::meta(&n.path).and_then(|m| m.tail_count).unwrap_or(0);
+        return (
+            "gathered remainder".into(),
+            vec![
+                (format!("{count} items too small to list"), quiet),
+                ("one by one · not a folder".into(), quiet),
+            ],
+        );
     }
-    fill(b, Rect::new(x, top, cw, bottom - top + 1), k.bg);
-    title_row(
-        b,
-        x,
-        cw,
-        top,
-        ("╭", "╮"),
-        &n.name,
-        n.is_dir,
-        collected_glyph(app, n),
-        &size(n.bytes),
-        &Ink {
-            name: lerp(MUTED, FG, 0.5),
-            ..k
-        },
-    );
-    for yy in top + 1..bottom {
-        text(b, x, yy, 1, "│", k.wall, k.bg, false);
-        text(b, x + cw - 1, yy, 1, "│", k.wall, k.bg, false);
-    }
-    text(b, x, bottom, 1, "╰", k.wall, k.bg, false);
-    for xx in x + 1..x + cw - 1 {
-        text(b, xx, bottom, 1, "─", k.wall, k.bg, false);
-    }
-    text(b, x + cw - 1, bottom, 1, "╯", k.wall, k.bg, false);
-    let kind = if n.is_symlink {
+    let title = if n.is_symlink {
         "symbolic link".to_string()
     } else if !n.is_dir {
         "file".into()
     } else if n.files == 0 && n.bytes == 0 {
         "empty folder".into()
     } else {
-        format!("folder · {} files", n.files)
+        "folder · nothing listed".into()
     };
-    let quiet = lerp(MUTED, k.bg, 0.25);
-    text(b, x + 3, top + 2, cw - 5, kind, quiet, k.bg, false);
-    if n.is_dir && n.bytes > 0 && top + 3 < bottom {
-        text(b, x + 3, top + 3, cw - 5, "contents not listed", quiet, k.bg, false);
+    if col.role == Role::Focus {
+        return (title, vec![("← back".into(), quiet)]);
     }
-    if col.role != Role::Preview {
-        if col.role == Role::Focus && top + 4 < bottom {
-            text(b, x + 3, top + 4, cw - 5, "← back", quiet, k.bg, false);
+    let mut lines = Vec::new();
+    let covered = n
+        .path
+        .ancestors()
+        .skip(1)
+        .find(|a| matches!(app.collector.mark(a), Mark::Collected));
+    match (app.collector.mark(&n.path), covered) {
+        (Mark::Collected, _) => lines.push(("◆ collected · Space takes it out".into(), ACCENT)),
+        (_, Some(a)) => {
+            let name = a.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+            lines.push((format!("◇ inside collected {name}/"), ACCENT));
+            lines.push(("c reviews it there".into(), quiet));
         }
-        return;
+        _ => {
+            lines.push(("Space collect".into(), lerp(MUTED, FG, 0.25)));
+            lines.push(("t Trash · d delete".into(), lerp(MUTED, FG, 0.25)));
+        }
     }
-    // The selection has nothing further inside: this is where to act on it.
-    let collected = matches!(app.collector.mark(&n.path), Mark::Collected);
-    let acts = [
-        ("Space", if collected { "take out of the collector" } else { "collect for review" }),
-        ("t", "move to Trash"),
-        ("d", "delete permanently"),
-    ];
-    for (i, (key, what)) in acts.iter().enumerate() {
-        let y = top + 4 + i as u16;
+    (title, lines)
+}
+
+fn card_height(app: &App, col: &Col) -> u16 {
+    card_text(app, col).1.len() as u16 + 4
+}
+
+/// A compact card beside the selection, for a file, a folder with nothing
+/// listed, or a gathered remainder.
+fn draw_card(b: &mut Buffer, app: &App, col: &Col, x: u16, cw: u16, top: u16, bottom: u16) {
+    let k = ink(
+        &Col {
+            node: col.node,
+            role: col.role,
+            lit: None,
+            top: col.top,
+        },
+        usize::MAX,
+    );
+    let bg = BG;
+    let (title, lines) = card_text(app, col);
+    fill(b, Rect::new(x, top, cw, bottom - top + 1), bg);
+    title_row(
+        b,
+        x,
+        cw,
+        top,
+        ("╭", "╮"),
+        &title,
+        false,
+        None,
+        "",
+        &Ink {
+            name: lerp(MUTED, FG, 0.3),
+            bg,
+            ..k
+        },
+    );
+    for yy in top + 1..bottom {
+        text(b, x, yy, 1, "│", k.wall, bg, false);
+        text(b, x + cw - 1, yy, 1, "│", k.wall, bg, false);
+    }
+    text(b, x, bottom, 1, "╰", k.wall, bg, false);
+    for xx in x + 1..x + cw - 1 {
+        text(b, xx, bottom, 1, "─", k.wall, bg, false);
+    }
+    text(b, x + cw - 1, bottom, 1, "╯", k.wall, bg, false);
+    for (i, (l, c)) in lines.iter().enumerate() {
+        let y = top + 2 + i as u16;
         if y < bottom {
-            text(b, x + 3, y, 6, key, lerp(MUTED, FG, 0.3), k.bg, false);
-            text(b, x + 10, y, cw.saturating_sub(12), what, quiet, k.bg, false);
+            text(b, x + 3, y, cw - 5, l, *c, bg, false);
+        }
+    }
+}
+
+/// Ancestors that slid off the left edge, as thin proportional strata: one
+/// bar per level, the way down lit in its hue, joined to the first column.
+#[allow(clippy::too_many_arguments)]
+fn draw_strata(b: &mut Buffer, app: &App, levels: &[usize], x_last: u16, top: u16, bottom: u16, col_top: u16, col_bottom: u16) {
+    let rows = (bottom - top + 1) as f64;
+    let count = levels.len();
+    let mut node_at = Vec::new();
+    let mut n = &app.root;
+    for &i in &app.route {
+        node_at.push(n);
+        n = &n.children[i];
+    }
+    for (pos, &lv) in levels.iter().enumerate() {
+        let (Some(a), Some(&lit)) = (node_at.get(lv), app.route.get(lv)) else {
+            continue;
+        };
+        let x = x_last - 2 * (count - 1 - pos) as u16;
+        let total = a.children.iter().map(|c| c.bytes).sum::<u64>().max(1) as f64;
+        let mut cum = 0u64;
+        let mut lit_rows = (top, top);
+        for (i, c) in a.children.iter().enumerate() {
+            let y0 = top + ((cum as f64 / total) * rows).round() as u16;
+            cum += c.bytes;
+            let mut y1 = top + ((cum as f64 / total) * rows).round() as u16;
+            let hue = top_hue(if lv == 0 { i } else { app.route[0] });
+            if i == lit {
+                y1 = y1.max(y0 + 1).min(bottom + 1);
+                lit_rows = (y0.min(bottom), y1 - 1);
+            }
+            let fg = if i == lit {
+                hue
+            } else {
+                tint(hue, if i % 2 == 0 { 0.22 } else { 0.32 })
+            };
+            for y in y0..y1.min(bottom + 1) {
+                text(b, x, y, 1, "█", fg, BG, false);
+            }
+        }
+        if pos + 1 == count {
+            let hue = top_hue(if lv == 0 { lit } else { app.route[0] });
+            funnel(b, x, lit_rows.0, lit_rows.1, col_top, col_bottom, tint(hue, 0.72));
         }
     }
 }
@@ -974,27 +1153,25 @@ fn funnel(b: &mut Buffer, xr: u16, y0: u16, y1: u16, top: u16, bottom: u16, c: C
         wall(b, x, y0, LEFT | RIGHT, c);
         wall(b, x, y1, LEFT | RIGHT, c);
     }
-    for y in top..=bottom {
-        let mut bits = 0;
-        if y == y0 {
-            bits |= LEFT | if top < y0 { UP } else { RIGHT };
+    // Each edge leaves the slab at `from`, turns at the gap's middle and
+    // arrives at `to`, whichever way that lies.
+    let mut bits = HashMap::<u16, u8>::new();
+    for (from, to) in [(y0, top), (y1, bottom)] {
+        let lead = match to.cmp(&from) {
+            std::cmp::Ordering::Less => UP,
+            std::cmp::Ordering::Greater => DOWN,
+            std::cmp::Ordering::Equal => RIGHT,
+        };
+        *bits.entry(from).or_default() |= LEFT | lead;
+        if to != from {
+            *bits.entry(to).or_default() |= RIGHT | if to < from { DOWN } else { UP };
+            for y in from.min(to) + 1..from.max(to) {
+                *bits.entry(y).or_default() |= UP | DOWN;
+            }
         }
-        if top < y0 && y == top {
-            bits |= DOWN | RIGHT;
-        } else if y > top && y < y0 {
-            bits |= UP | DOWN;
-        }
-        if y == y1 {
-            bits |= LEFT | if bottom > y1 { DOWN } else { RIGHT };
-        }
-        if bottom > y1 && y == bottom {
-            bits |= UP | RIGHT;
-        } else if y > y1 && y < bottom {
-            bits |= UP | DOWN;
-        }
-        if bits != 0 {
-            wall(b, gm, y, bits, c);
-        }
+    }
+    for (y, v) in bits {
+        wall(b, gm, y, v, c);
     }
     for x in gm + 1..=g2 {
         wall(b, x, top, LEFT | RIGHT, c);
@@ -1010,6 +1187,10 @@ fn slide_for(delta: i32) -> Duration {
     SLIDE + Duration::from_millis(40 * (delta.unsigned_abs().saturating_sub(1) as u64).min(2))
 }
 
+fn step_for() -> Duration {
+    std::env::var("M_SLIDE_MS").ok().and_then(|v| v.parse().ok()).map_or(STEP, Duration::from_millis)
+}
+
 fn ease(t: f32) -> f32 {
     if t < 0.5 {
         4.0 * t * t * t
@@ -1018,8 +1199,22 @@ fn ease(t: f32) -> f32 {
     }
 }
 
+/// A leaf column: a file, a folder with nothing listed, or a gathered remainder.
+fn leafish(n: &Node) -> bool {
+    n.children.is_empty() || gathered(n)
+}
+
 fn columns(b: &mut Buffer, app: &App, w: u16, rule_y: u16, top: u16, bottom: u16) {
-    let span = w - 4;
+    // Strata levels kept on the far left for ancestors that slid off.
+    let levels_max: usize = if w >= 120 {
+        3
+    } else if w >= 80 {
+        2
+    } else {
+        0
+    };
+    let strip = if levels_max > 0 { 2 * levels_max as u16 - 1 + GAP } else { 0 };
+    let span = w - 4 - strip;
     let k = if w < 90 {
         2
     } else if w < 170 {
@@ -1029,19 +1224,22 @@ fn columns(b: &mut Buffer, app: &App, w: u16, rule_y: u16, top: u16, bottom: u16
     };
     let cw = (span - GAP * (k as u16 - 1)) / k as u16;
     let used = cw * k as u16 + GAP * (k as u16 - 1);
-    let x0 = 2 + (span - used) / 2;
+    let x0 = 2 + strip + (span - used) / 2;
     let pitch = cw + GAP;
     let d = app.route.len();
     let s = (d + 2).saturating_sub(k);
     let Ok(mut st) = STATE.lock() else { return };
     st.memory.insert(app.current().path.clone(), app.selected);
+    let mut shifted = false;
     if let Some((ps, pk)) = st.win
         && pk == k
         && ps != s
         && ps.abs_diff(s) <= k
     {
         st.slide = Some((Instant::now(), s as i32 - ps as i32));
+        shifted = true;
     }
+    let resized = st.win.is_some_and(|(_, pk)| pk != k);
     st.win = Some((s, k));
     let off = match st.slide {
         Some((t0, dir)) => {
@@ -1064,7 +1262,8 @@ fn columns(b: &mut Buffer, app: &App, w: u16, rule_y: u16, top: u16, bottom: u16
     let mut tmp = Buffer::empty(Rect::new(0, 0, tw, bottom + 1));
     fill(&mut tmp, Rect::new(0, 0, tw, bottom + 1), BG);
     hline(&mut tmp, 0, rule_y, tw, DIM);
-    let mut placed: Vec<(usize, u16, Lay)> = Vec::new();
+    // (chain index, x, layout, the column's own top and bottom rows)
+    let mut placed: Vec<(usize, u16, Lay, u16, u16)> = Vec::new();
     for slot in lo..=hi {
         let ci = s as i32 + slot;
         if ci < 0 || ci as usize >= cols.len() {
@@ -1073,18 +1272,29 @@ fn columns(b: &mut Buffer, app: &App, w: u16, rule_y: u16, top: u16, bottom: u16
         let ci = ci as usize;
         let col = &cols[ci];
         let x = (slot + base) as u16 * pitch;
-        let pref = st.first.get(&col.node.path).copied().unwrap_or(0);
-        let lay = lay_out(col.node, top, bottom, col.lit, pref);
-        if !col.node.children.is_empty() {
+        let (ct, cb, lay) = if leafish(col.node) {
+            // A card sits beside the slab it describes.
+            let ch = card_height(app, col).min(bottom - top + 1);
+            let near = placed
+                .last()
+                .and_then(|p| p.2.slabs.iter().find(|sl| Some(sl.0) == cols[p.0].lit).map(|sl| sl.1))
+                .unwrap_or(top);
+            let ct = near.clamp(top, bottom + 1 - ch);
+            draw_card(&mut tmp, app, col, x, cw, ct, ct + ch - 1);
+            (ct, ct + ch - 1, lay_out(col.node, top, top, None, 0))
+        } else {
+            let pref = st.first.get(&col.node.path).copied().unwrap_or(0);
+            let lay = lay_out(col.node, top, bottom, col.lit, pref);
             st.first.insert(col.node.path.clone(), lay.first);
-        }
-        draw_col(&mut tmp, app, col, &lay, x, cw, top, bottom, off != 0 || ci + 1 < s + k);
+            draw_col(&mut tmp, app, col, &lay, x, cw, top, bottom);
+            (top, bottom, lay)
+        };
         // The column's name on the rule above it.
         let name = format!(
             " {}{}{} ",
             if slot == 0 && ci > 0 { "‹ " } else { "" },
             col.node.name,
-            if col.node.is_dir && ci > 0 { "/" } else { "" }
+            if col.node.is_dir && ci > 0 && !gathered(col.node) { "/" } else { "" }
         );
         let (fg, bold) = match col.role {
             Role::Focus => (FG, true),
@@ -1092,19 +1302,21 @@ fn columns(b: &mut Buffer, app: &App, w: u16, rule_y: u16, top: u16, bottom: u16
             _ => (MUTED, false),
         };
         text(&mut tmp, x + 1, rule_y, cw - 2, &name, fg, BG, bold);
-        placed.push((ci, x, lay));
+        placed.push((ci, x, lay, ct, cb));
     }
     for pair in placed.windows(2) {
-        let (ci, x, lay) = (&pair[0].0, pair[0].1, &pair[0].2);
-        if off == 0 && *ci + 1 >= s + k {
+        let (ci, x, lay) = (pair[0].0, pair[0].1, &pair[0].2);
+        let (nt, nb) = (pair[1].3, pair[1].4);
+        if off == 0 && ci + 1 >= s + k {
             continue;
         }
-        let col = &cols[*ci];
+        let col = &cols[ci];
         let Some(&(i, y, h)) = lay.slabs.iter().find(|sl| Some(sl.0) == col.lit) else {
             continue;
         };
         let k = ink(col, i);
-        funnel(&mut tmp, x + cw - 1, y, (y + h).min(bottom), top, bottom, k.wall);
+        // The funnel spans the slab's own rows, never the next slab's wall.
+        funnel(&mut tmp, x + cw - 1, y, y + h - 1, nt, nb, k.wall);
     }
     for yy in std::iter::once(rule_y).chain(top..=bottom) {
         for sx in 0..used {
@@ -1114,6 +1326,73 @@ fn columns(b: &mut Buffer, app: &App, w: u16, rule_y: u16, top: u16, bottom: u16
             }
         }
     }
+    // Strata for the ancestors that slid off, root always first.
+    if levels_max > 0 && s > 0 {
+        let levels: Vec<usize> = if s <= levels_max {
+            (0..s).collect()
+        } else {
+            std::iter::once(0).chain(s + 1 - levels_max..s).collect()
+        };
+        let (ct, cb) = placed.iter().find(|p| p.0 == s).map_or((top, bottom), |p| (p.3, p.4));
+        draw_strata(b, app, &levels, x0 - GAP - 1, top, bottom, ct, cb);
+        text(b, 2, rule_y, strip - GAP + 1, " ~", MUTED, BG, false);
+    }
+    // The selection's box, and its travel when the highlight steps a column.
+    let sel_box = placed.iter().find(|p| p.0 == d).and_then(|p| {
+        let slot = p.0 as i32 - s as i32;
+        p.2.slabs.iter().find(|sl| sl.0 == app.selected).map(|&(_, y, h)| {
+            [x0 as i32 + slot * pitch as i32, y as i32, cw as i32, (h as i32 + 1).min((bottom - y + 1) as i32)]
+        })
+    });
+    let moved = st.route.as_ref().is_some_and(|r| r.len() != app.route.len());
+    if moved && !shifted && !resized && off == 0
+        && let Some(from) = st.sel_box
+    {
+        st.step = Some((Instant::now(), from));
+    }
+    st.route = Some(app.route.clone());
+    st.sel_box = sel_box;
+    if let (Some((t0, from)), Some(to)) = (st.step, sel_box) {
+        let t = t0.elapsed().as_secs_f32() / step_for().as_secs_f32();
+        if t >= 1.0 {
+            st.step = None;
+        } else {
+            let e = ease(t);
+            let r: Vec<i32> = (0..4).map(|j| from[j] + ((to[j] - from[j]) as f32 * e).round() as i32).collect();
+            let hue = top_hue(if d == 0 { app.selected } else { app.route[0] });
+            travel(b, r[0], r[1], r[2], r[3], lerp(hue, FG, 0.65));
+        }
+    }
+}
+
+/// The selection's outline in flight: a rounded box drawn over the screen.
+fn travel(b: &mut Buffer, x: i32, y: i32, w: i32, h: i32, c: Color) {
+    let area = b.area;
+    let mut put = |x: i32, y: i32, sym: &str| {
+        if x >= 0 && y >= 0 && (x as u16) < area.width && (y as u16) < area.height {
+            // It passes behind text: only blank and wall cells take the line.
+            let cell = &mut b[(x as u16, y as u16)];
+            if cell.symbol() == " " || WALLS.iter().any(|(w, _)| *w == cell.symbol()) {
+                cell.set_symbol(sym).set_fg(c);
+            }
+        }
+    };
+    if w < 2 || h < 1 {
+        return;
+    }
+    let (x1, y1) = (x + w - 1, y + h.max(2) - 1);
+    for xx in x + 1..x1 {
+        put(xx, y, "─");
+        put(xx, y1, "─");
+    }
+    for yy in y + 1..y1 {
+        put(x, yy, "│");
+        put(x1, yy, "│");
+    }
+    put(x, y, "╭");
+    put(x1, y, "╮");
+    put(x, y1, "╰");
+    put(x1, y1, "╯");
 }
 
 fn lerp(a: Color, b: Color, t: f32) -> Color {

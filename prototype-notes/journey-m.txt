@@ -2,7 +2,8 @@
 # Variant M, columns. Launch selects ~/Projects (the sample's start). → opens the
 # selected folder and selects what its preview column had lit (its largest
 # child the first time); ← goes back to the folder you came from. Tab jumps to
-# the first ↳ (buried item) inside the selection; Shift-Tab (BTab) jumps back.
+# the largest ↳ (buried item) inside the selection, Tab again to the next;
+# Shift-Tab (BTab) jumps back to where the Tabs started.
 root-140x44 140 44 -
 root-100x30 100 30 -
 second-140x44 140 44 Down
@@ -17,7 +18,14 @@ gustav-140x44 140 44 Down,Right,Right,Right,Right,Space
 file-140x44 140 44 Down,Down,Right,Right
 remember-140x44 140 44 Right,Down,Left
 small-60x20 60 20 Right,Right
-jump-deps-140x44 140 44 Tab
-jump-gustav-140x44 140 44 Down,Tab,Space
-jump-back-140x44 140 44 Down,Tab,Left,Left,Left,Left
-jump-return-140x44 140 44 Down,Tab,BTab
+jump-node-140x44 140 44 Tab
+jump-deps-140x44 140 44 Tab,Tab
+jump-deps-space-140x44 140 44 Tab,Tab,Space
+jump-overlay-140x44 140 44 Down,Tab,Space
+jump-gustav-140x44 140 44 Down,Tab,Tab,Space
+jump-return-140x44 140 44 Down,Tab,Tab,BTab
+jump-100x30 100 30 Down,Tab,Tab
+edge-left-root-140x44 140 44 Left
+edge-right-file-140x44 140 44 Down,Down,Right,Right,Right
+edge-smaller-140x44 140 44 Right,Down,Down,Down,Right
+edge-smaller-root-140x44 140 44 End,Right
