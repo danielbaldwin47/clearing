@@ -53,9 +53,10 @@ const UNITS: [&str; 13] = [
     ".direnv",
 ];
 
-/// The sample's pre-aggregated "N smaller items" folders stand for their children.
+/// The sample's pre-aggregated "N smaller items" nodes: a gathered remainder,
+/// never a folder to open or split, and never a listed thing.
 fn tail_folder(n: &Node) -> bool {
-    n.is_dir && n.name.ends_with(" smaller items")
+    crate::sample::meta(&n.path).and_then(|m| m.tail_count).is_some()
 }
 
 fn unit(n: &Node) -> bool {
@@ -72,7 +73,7 @@ fn splits(n: &Node, total: u64) -> bool {
         return false;
     }
     if tail_folder(n) {
-        return true;
+        return false;
     }
     if unit(n) {
         return false;
@@ -92,6 +93,11 @@ fn splits(n: &Node, total: u64) -> bool {
 fn gather(n: &Node, total: u64, names: &mut Vec<String>, out: &mut Vec<(Vec<String>, u64)>) {
     for c in &n.children {
         if c.bytes == 0 {
+            continue;
+        }
+        if tail_folder(c) {
+            // Counted in the last row with everything else too small to list.
+            out.push((Vec::new(), 0));
             continue;
         }
         names.push(c.name.clone());
@@ -122,9 +128,12 @@ struct State {
     rows: Vec<Row>,
     /// Things below the cutoff, summed in the last row.
     rest_count: usize,
+    /// The selected entry, held by one of its rows so folding never loses it.
     row: usize,
-    /// 0 selects the row's thing; each step selects the folder one level up.
-    level: usize,
+    /// 0 selects the row's thing; each step up selects the folder one level up.
+    /// Below 0 (a collected folder's row only): a step down toward the largest
+    /// listed thing inside it.
+    level: isize,
     hot_scroll: usize,
     browse_scroll: usize,
     browse_route: Vec<usize>,
@@ -132,6 +141,9 @@ struct State {
     /// The folders view keeps its own place while the Hotlist is shown.
     fold_route: Vec<usize>,
     fold_selected: usize,
+    /// The folder Enter opened from the list: ⌫ there goes straight back.
+    entry: Option<Vec<usize>>,
+    size: (u16, u16),
 }
 
 static STATE: Mutex<State> = Mutex::new(State {
@@ -148,6 +160,8 @@ static STATE: Mutex<State> = Mutex::new(State {
     rescan: false,
     fold_route: Vec::new(),
     fold_selected: 0,
+    entry: None,
+    size: (0, 0),
 });
 
 fn lock() -> MutexGuard<'static, State> {
@@ -169,6 +183,7 @@ fn ensure(st: &mut State, app: &App) {
         .take(MAX_ROWS)
         .count();
     st.rest_count = all.len() - listed;
+    all.retain(|t| !t.0.is_empty());
     st.rows = all
         .into_iter()
         .take(listed)
@@ -210,16 +225,98 @@ fn names_of(root: &Node, route: &[usize]) -> Vec<String> {
     out
 }
 
-/// The route of the row's thing, if it still exists.
-fn row_route(st: &State, app: &App, row: usize) -> Option<Vec<usize>> {
-    resolve(&app.root, &st.rows.get(row)?.names)
+/// One line of the list: a listed thing, or a collected folder standing in for
+/// the listed things inside it (they would only repeat it as ◇ rows).
+struct Entry {
+    names: Vec<String>,
+    members: Vec<usize>,
+    folded: bool,
 }
 
-/// The selected item in the Hotlist: the row's thing, or a folder above it.
+fn entries(st: &State, app: &App) -> Vec<Entry> {
+    let root = &app.root;
+    let mark = |names: &[String]| {
+        resolve(root, names)
+            .and_then(|r| node_at(root, &r).map(|n| app.collector.mark(&n.path)))
+            .unwrap_or(Mark::None)
+    };
+    let mut out: Vec<Entry> = Vec::new();
+    for (i, row) in st.rows.iter().enumerate() {
+        let holder = if mark(&row.names) == Mark::Covered {
+            (1..row.names.len())
+                .rev()
+                .map(|k| &row.names[..k])
+                .find(|p| mark(p) == Mark::Collected)
+        } else {
+            None
+        };
+        match holder {
+            Some(p) => {
+                if let Some(e) = out.iter_mut().find(|e| e.folded && e.names == p) {
+                    e.members.push(i)
+                } else {
+                    out.push(Entry {
+                        names: p.to_vec(),
+                        members: vec![i],
+                        folded: true,
+                    })
+                }
+            }
+            None => out.push(Entry {
+                names: row.names.clone(),
+                members: vec![i],
+                folded: false,
+            }),
+        }
+    }
+    out
+}
+
+fn cur(st: &State, es: &[Entry]) -> usize {
+    es.iter().position(|e| e.members.contains(&st.row)).unwrap_or(0)
+}
+
+/// The route of the selected entry's thing, if it still exists.
+fn entry_route(st: &State, app: &App) -> Option<Vec<usize>> {
+    let es = entries(st, app);
+    resolve(&app.root, &es.get(cur(st, &es))?.names)
+}
+
+/// The selected item in the Hotlist: the entry's thing, or a folder above it.
 fn hot_route(st: &State, app: &App) -> Option<Vec<usize>> {
-    let mut r = row_route(st, app, st.row)?;
-    r.truncate(r.len().saturating_sub(st.level).max(1));
+    if st.level < 0 {
+        let es = entries(st, app);
+        let e = es.get(cur(st, &es))?;
+        let inner = &st.rows[e.members[0]].names;
+        let len = (e.names.len() + st.level.unsigned_abs()).min(inner.len());
+        return resolve(&app.root, &inner[..len]);
+    }
+    let mut r = entry_route(st, app)?;
+    r.truncate(r.len().saturating_sub(st.level as usize).max(1));
     Some(r)
+}
+
+/// How far → can narrow the selected entry: into a collected folder's largest listed thing.
+fn depth_below(st: &State, e: &Entry) -> isize {
+    if e.folded {
+        (st.rows[e.members[0]].names.len() - e.names.len()) as isize
+    } else {
+        0
+    }
+}
+
+/// After the list changes shape (a fold or an unfold), keep `want` selected.
+fn reselect(st: &mut State, app: &App, want: &[String]) {
+    let es = entries(st, app);
+    if let Some(e) = es.get(cur(st, &es)) {
+        st.level = if !want.is_empty() && starts_with(&e.names, want) {
+            (e.names.len() - want.len()) as isize
+        } else if e.folded && starts_with(want, &e.names) {
+            -((want.len() - e.names.len()) as isize)
+        } else {
+            0
+        };
+    }
 }
 
 /// The app's own notion of the selection follows the Hotlist, so Space, t, d
@@ -256,32 +353,35 @@ pub fn key(app: &mut App, key: KeyEvent) -> bool {
 }
 
 fn hot_key(st: &mut State, app: &mut App, key: KeyEvent) -> bool {
-    let n = st.rows.len();
+    let es = entries(st, app);
+    let n = es.len();
+    let i = cur(st, &es);
     let gone = hot_route(st, app).is_none();
     sync(st, app);
     let moved = |st: &mut State, to: usize| {
         if n > 0 {
-            st.row = to.min(n - 1);
+            st.row = es[to.min(n - 1)].members[0];
             st.level = 0;
         }
     };
     match key.code {
-        KeyCode::Down | KeyCode::Char('j') => moved(st, st.row + 1),
-        KeyCode::Up | KeyCode::Char('k') => moved(st, st.row.saturating_sub(1)),
+        KeyCode::Down | KeyCode::Char('j') => moved(st, i + 1),
+        KeyCode::Up | KeyCode::Char('k') => moved(st, i.saturating_sub(1)),
         KeyCode::Home => moved(st, 0),
         KeyCode::End => moved(st, n.saturating_sub(1)),
-        KeyCode::PageDown => moved(st, st.row + 8),
-        KeyCode::PageUp => moved(st, st.row.saturating_sub(8)),
+        KeyCode::PageDown => moved(st, i + 8),
+        KeyCode::PageUp => moved(st, i.saturating_sub(8)),
         KeyCode::Left | KeyCode::Char('h') => {
-            let depth = st.rows.get(st.row).map(|r| r.names.len()).unwrap_or(1);
-            if !gone && st.level + 1 < depth {
+            let depth = es.get(i).map(|e| e.names.len()).unwrap_or(1);
+            if !gone && st.level + 1 < depth as isize {
                 st.level += 1;
             }
         }
         // Nothing lies behind the Hotlist; ⌫ never widens by surprise.
         KeyCode::Backspace => {}
         KeyCode::Right | KeyCode::Char('l') => {
-            if st.level > 0 {
+            let floor = es.get(i).map(|e| -depth_below(st, e)).unwrap_or(0);
+            if st.level > floor {
                 st.level -= 1;
             } else if let Some(n) = app.selection() {
                 app.message = format!("Enter shows {} among its folders", label_of(n));
@@ -291,7 +391,8 @@ fn hot_key(st: &mut State, app: &mut App, key: KeyEvent) -> bool {
             if gone {
                 app.message = "That item is gone from the disk".into();
             } else {
-                // Show it in its folder: the folders view moves to it.
+                // Show it in its folder; ⌫ there comes straight back.
+                st.entry = Some(app.route.clone());
                 st.mode = Mode::Browse;
                 app.message.clear();
                 return true;
@@ -306,20 +407,12 @@ fn hot_key(st: &mut State, app: &mut App, key: KeyEvent) -> bool {
                 app.message = "That item is gone from the disk".into();
                 return true;
             }
+            // Collect in place: the row folds or marks, the selection stays.
+            let want = hot_route(st, app)
+                .map(|r| names_of(&app.root, &r))
+                .unwrap_or_default();
             app.toggle_collect();
-            let changed = app.message.starts_with("Collected") || app.message.starts_with("Removed");
-            if changed {
-                // Collect and move on: the list is a queue of decisions.
-                let here = hot_route(st, app).map(|r| names_of(&app.root, &r)).unwrap_or_default();
-                let mut next = st.row + 1;
-                while next < n && starts_with(&st.rows[next].names, &here) {
-                    next += 1;
-                }
-                if next < n {
-                    st.row = next;
-                    st.level = 0;
-                }
-            }
+            reselect(st, app, &want);
         }
         KeyCode::Char('t') | KeyCode::Char('d') if gone => {
             app.message = "That item is gone from the disk".into();
@@ -341,6 +434,7 @@ fn to_folders(st: &mut State, app: &mut App) {
     app.route = st.fold_route.clone();
     app.previous = st.fold_route.clone();
     app.selected = st.fold_selected.min(len.saturating_sub(1));
+    st.entry = None;
     st.mode = Mode::Browse;
     app.message.clear();
 }
@@ -349,32 +443,40 @@ fn to_folders(st: &mut State, app: &mut App) {
 fn to_hot(st: &mut State, app: &mut App) {
     st.fold_route = app.route.clone();
     st.fold_selected = app.selected;
+    st.entry = None;
     st.mode = Mode::Hot;
     app.message.clear();
+    let es = entries(st, app);
+    let depth = es.get(cur(st, &es)).map(|e| e.names.len()).unwrap_or(1);
+    st.level = st.level.min(depth.saturating_sub(1) as isize);
     sync(st, app);
 }
 
 fn browse_key(st: &mut State, app: &mut App, key: KeyEvent) -> bool {
+    let at_entry = st.entry.as_ref() == Some(&app.route);
+    let gathered = app.selection().is_some_and(tail_folder);
     match key.code {
-        KeyCode::Tab => {
-            to_hot(st, app);
-            true
-        }
-        KeyCode::Backspace | KeyCode::Left | KeyCode::Char('h') if app.route.is_empty() => {
-            // The top of the folders: back to the Hotlist, where you left it.
-            to_hot(st, app);
-            true
-        }
-        KeyCode::Char('h') => {
+        KeyCode::Tab => to_hot(st, app),
+        // ⌫ is "back": undo the last open, and from the folder Enter opened
+        // (or the top of the disk) return to the list where you left it.
+        KeyCode::Backspace if at_entry || app.route.is_empty() => to_hot(st, app),
+        KeyCode::Backspace => app.back(),
+        // ← is "up one folder", always; at the top of the disk, the list.
+        KeyCode::Left | KeyCode::Char('h') if app.route.is_empty() => to_hot(st, app),
+        KeyCode::Left | KeyCode::Char('h') => {
             app.back();
-            true
+            if st.entry.as_ref().is_some_and(|e| app.route.len() < e.len()) {
+                st.entry = None;
+            }
         }
-        KeyCode::Char('l') => {
-            app.drill();
-            true
+        KeyCode::Enter | KeyCode::Right | KeyCode::Char('l') if gathered => {
+            let name = app.selection().map(|n| n.name.clone()).unwrap_or_default();
+            app.message = format!("{name} are gathered into one row; they cannot be opened");
         }
-        _ => false,
+        KeyCode::Char('l') => app.drill(),
+        _ => return false,
     }
+    true
 }
 
 /// True while this variant animates, so the loop redraws every 16 ms.
@@ -611,7 +713,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         );
         f.render_widget(
             Paragraph::new(
-                "BIGGEST THINGS\n↑ / ↓             Choose a thing\n← / →             Widen to the folder above / narrow back\nEnter             Show it among its folders\nSpace             Collect it, then go to the next thing\nTab               The folders, where you left them\n\nFOLDERS\nEnter / →         Open a folder\n⌫ / ←             Up one folder; at the top, the list\nTab               The biggest things, where you left them\n\nc review · t Trash · d delete · r rescan · q quit\nThings never overlap; with the last row they add up.\nSizes are allocated blocks.",
+                "BIGGEST THINGS\n↑ / ↓             Choose a thing\n← / →             Widen to the folder above / narrow back\nEnter             Show it among its folders\nSpace             Collect it (again to put it back)\nTab               The folders, where you left them\n\nFOLDERS\nEnter / →         Open a folder\n⌫                 Back the way you came, then the list\n←                 Up one folder\nTab               The biggest things, where you left them\n\nc review · t Trash · d delete · r rescan · q quit\nThings never overlap; with the last row they add up.",
             )
             .style(Style::default().fg(FG).bg(PANEL)),
             Rect::new(r.x + 2, r.y + 1, r.width - 4, r.height - 2),
@@ -641,7 +743,7 @@ fn draw_screen(b: &mut Buffer, app: &App, st: &mut State, w: u16, h: u16) {
     let sel_hue = sel_top.map(hue).unwrap_or(MUTED);
     // In the Hotlist the ancestry runs down to the row's thing, below a widened selection.
     let path: Option<Vec<usize>> = if hot {
-        row_route(st, app, st.row)
+        if st.level < 0 { sel.clone() } else { entry_route(st, app) }
     } else {
         sel.clone()
     };
@@ -749,16 +851,19 @@ fn draw_screen(b: &mut Buffer, app: &App, st: &mut State, w: u16, h: u16) {
     };
     let list_w = if side > 0 { w - 4 - side - 3 } else { w - 4 };
     let list = Rect::new(2, top, list_w, bottom.saturating_sub(top));
-    if hot {
-        draw_hot_list(b, list, app, st, sel.as_deref());
+    // A resize starts the scroll afresh, so the top rows show whenever they fit.
+    let fresh = st.size != (w, h);
+    st.size = (w, h);
+    let row_y = if hot {
+        draw_hot_list(b, list, app, st, sel.as_deref(), fresh)
     } else {
-        draw_browse_list(b, list, app, st);
-    }
+        draw_browse_list(b, list, app, st, fresh)
+    };
     if side > 0 {
         let pane = Rect::new(w - 2 - side, top, side, bottom.saturating_sub(top));
         if let Some(p) = path.as_ref() {
             let sel_depth = sel.as_ref().map(|s| s.len()).unwrap_or(p.len());
-            draw_strata(b, pane, app, p, sel_depth);
+            draw_strata(b, pane, app, p, sel_depth, row_y);
         }
     }
 
@@ -783,8 +888,11 @@ fn draw_screen(b: &mut Buffer, app: &App, st: &mut State, w: u16, h: u16) {
             PANEL,
             false,
         );
+        let gathered = tail_folder(n);
         let kind = if n.is_symlink {
             "symbolic link"
+        } else if gathered {
+            "gathered small items"
         } else if n.is_dir {
             "folder"
         } else {
@@ -792,7 +900,7 @@ fn draw_screen(b: &mut Buffer, app: &App, st: &mut State, w: u16, h: u16) {
         };
         let open = if hot {
             "  ·  Enter show in its folder"
-        } else if n.is_dir {
+        } else if n.is_dir && !gathered {
             "  ·  Enter open"
         } else {
             ""
@@ -829,19 +937,23 @@ fn draw_screen(b: &mut Buffer, app: &App, st: &mut State, w: u16, h: u16) {
         if narrow {
             "↑↓ choose  ←→ widen  ↵ show  Tab folders  Space collect  q quit".into()
         } else if w < 124 {
-            "↑↓ choose  ←→ widen  ↵ show in its folder  Tab folders  Space collect, next  c review  ? help  q quit".into()
+            "↑↓ choose  ←→ widen  ↵ show in its folder  Tab folders  Space collect  c review  ? help  q quit".into()
         } else {
-            "↑↓ choose   ←→ widen · narrow   ↵ show in its folder   Tab all folders   Space collect, next   c review   t Trash   ? help   q quit".into()
+            "↑↓ choose   ←→ widen · narrow   ↵ show in its folder   Tab all folders   Space collect   c review   t Trash   d delete   ? help   q quit".into()
         }
     } else {
-        let back = if app.route.is_empty() { "⌫ biggest things" } else { "⌫ back" };
+        let at_entry = st.entry.as_ref() == Some(&app.route);
+        let back = if app.route.is_empty() || at_entry { "⌫ back to the list" } else { "⌫ back" };
+        let up = if at_entry && !app.route.is_empty() { "← up a folder" } else { "" };
         if narrow {
-            format!("↑↓ choose  ↵ open  {back}  Tab biggest  Space collect  q quit")
+            format!("↑↓ choose  ↵ open  {back}  {up}  Space collect  q quit")
         } else if w < 124 {
-            format!("↑↓ choose  ↵ open  {back}  Tab biggest things  Space collect  c review  t Trash  ? help  q quit")
+            format!("↑↓ choose  ↵ open  {back}  {up}  Tab biggest things  Space collect  c review  ? help  q quit")
         } else {
-            format!("↑↓ choose   ↵ open   {back}   Tab biggest things   Space collect   c review   t Trash   d delete   ? help   q quit")
+            format!("↑↓ choose   ↵ open   {back}   {up}   Tab biggest things   Space collect   c review   t Trash   d delete   ? help   q quit")
         }
+        .replace("      ", "   ")
+        .replace("    ", "  ")
     };
     text(b, 2, h - 2, w - 4, footer, MUTED, BG, false);
     if view.errors > 0 {
@@ -905,14 +1017,14 @@ fn draw_strip(b: &mut Buffer, r: Rect, app: &App, st: &State, sel: Option<&[usiz
     let bar_y = if rows >= 2 { r.y + 1 } else { r.y };
     let mut spans: Vec<(f64, f64, Color)> = Vec::new();
     for &(top, s, wd) in &seg {
-        spans.push((s, s + wd, tint(hue(top), 0.22)));
+        spans.push((s, s + wd, tint(hue(top), 0.16)));
     }
-    for (k, row) in st.rows.iter().enumerate() {
+    // Only the listed things show, in one tone; the rest of a folder stays flat.
+    for row in &st.rows {
         if let Some(route) = resolve(root, &row.names)
             && let Some((a, z)) = span(&route)
         {
-            let t = if k % 2 == 0 { 0.42 } else { 0.34 };
-            spans.push((a, z, tint(hue(route[0]), t)));
+            spans.push((a, z, tint(hue(route[0]), 0.34)));
         }
     }
     let sel_span = sel.and_then(span);
@@ -963,73 +1075,117 @@ fn draw_strip(b: &mut Buffer, r: Rect, app: &App, st: &State, sel: Option<&[usiz
     }
 }
 
-fn draw_hot_list(b: &mut Buffer, r: Rect, app: &App, st: &mut State, sel: Option<&[usize]>) {
+/// The first visible row and how many rows show, keeping `sel` in view. A
+/// scrolled list spends its first line on the wall above. `fresh` (a resize)
+/// starts from the top, so the top rows show whenever they fit.
+fn window(n: usize, sel: usize, avail: usize, scroll: usize, fresh: bool) -> (usize, usize) {
+    if n <= avail {
+        return (0, n);
+    }
+    let walled = avail.saturating_sub(1).max(1);
+    let area = |s: usize| if s > 0 { walled } else { avail };
+    let mut s = if fresh { 0 } else { scroll };
+    if sel < s {
+        s = sel;
+    }
+    if sel >= s + area(s) {
+        s = sel + 1 - walled;
+    }
+    if sel < avail && (fresh || s == 0) {
+        s = 0;
+    }
+    s = s.min(n.saturating_sub(walled));
+    (s, area(s).min(n - s))
+}
+
+fn draw_hot_list(
+    b: &mut Buffer,
+    r: Rect,
+    app: &App,
+    st: &mut State,
+    sel: Option<&[usize]>,
+    fresh: bool,
+) -> Option<u16> {
     let root = &app.root;
-    let n = st.rows.len();
+    let es = entries(st, app);
+    let n = es.len();
     if n == 0 {
         text(b, r.x + 2, r.y, r.width.saturating_sub(2), "Nothing allocated here", MUTED, BG, false);
-        return;
+        return None;
     }
-    let height = r.height as usize;
+    let at = cur(st, &es);
+    let bytes_of = |e: &Entry| {
+        resolve(root, &e.names)
+            .and_then(|rt| node_at(root, &rt))
+            .map(|n| n.bytes)
+            .unwrap_or(0)
+    };
     // One line is kept for the last row (the rest) or for what lies below.
-    let rows_area = height.saturating_sub(1).max(1);
-    if st.row < st.hot_scroll {
-        st.hot_scroll = st.row;
+    let avail = (r.height as usize).saturating_sub(1).max(1);
+    let (scroll, shown) = window(n, at, avail, st.hot_scroll, fresh);
+    st.hot_scroll = scroll;
+    let quiet = lerp(MUTED, BG, 0.3);
+    let mut y = r.y;
+    if scroll > 0 {
+        let above: u64 = es[..scroll].iter().map(bytes_of).sum();
+        text(
+            b,
+            r.x + 2,
+            y,
+            r.width.saturating_sub(2),
+            format!("↑ {} more above  ·  {}", scroll, size(above)),
+            quiet,
+            BG,
+            false,
+        );
+        y += 1;
     }
-    if st.row >= st.hot_scroll + rows_area {
-        st.hot_scroll = st.row + 1 - rows_area;
-    }
-    st.hot_scroll = st.hot_scroll.min(n.saturating_sub(rows_area));
     let sel_names = sel.map(|s| names_of(root, s)).unwrap_or_default();
     let widened = st.level > 0;
+    let moved = st.level != 0;
     let name_w = (r.width as usize * 32 / 100).clamp(14, 30) as u16;
     let size_x = r.x + 2 + name_w + 1;
     let loc_x = size_x + 9 + 3;
     let loc_w = r.right().saturating_sub(loc_x) as usize;
-    let largest = st
-        .rows
-        .iter()
-        .filter_map(|row| resolve(root, &row.names).and_then(|rt| node_at(root, &rt)).map(|n| n.bytes))
-        .max()
-        .unwrap_or(1)
-        .max(1);
-    let _ = largest;
-    let end = (st.hot_scroll + rows_area).min(n);
-    for (line, i) in (st.hot_scroll..end).enumerate() {
-        let y = r.y + line as u16;
-        let row = &st.rows[i];
-        let route = resolve(root, &row.names);
+    let mut sel_y = None;
+    for (i, e) in es.iter().enumerate().skip(scroll).take(shown) {
+        let route = resolve(root, &e.names);
         let node = route.as_ref().and_then(|rt| node_at(root, rt));
         let top = route.as_ref().map(|rt| rt[0]).unwrap_or(0);
         let c = hue(top);
-        let selected = i == st.row;
-        let inside = !sel_names.is_empty() && starts_with(&row.names, &sel_names);
+        let selected = i == at;
+        let inside = !sel_names.is_empty() && starts_with(&e.names, &sel_names);
         let bg = if selected { SURFACE } else { BG };
         fill(b, Rect::new(r.x, y, r.width, 1), bg);
         if selected {
+            sel_y = Some(y);
             put(b, r.x, y, "▌", lit(c), bg);
         } else if inside && widened {
             put(b, r.x, y, "▏", lit(c), bg);
         }
-        let Some(node) = node else {
+        let Some(thing) = node else {
             // Removed since the scan: struck in place, never reflowed.
-            let name = row.names.last().cloned().unwrap_or_default();
+            let name = e.names.last().cloned().unwrap_or_default();
             let struck: String = name.chars().flat_map(|ch| [ch, '\u{0336}']).collect();
             text(b, r.x + 2, y, name_w, struck, DIM, bg, false);
             text(b, size_x, y, 9, format!("{:>9}", "removed"), DIM, bg, false);
+            y += 1;
             continue;
         };
-        let glyph = collected_glyph(app, node);
-        let name = label_of(node);
-        let name_fg = if selected && !widened {
+        // A widened (or narrowed) row names what Space would take: that item and its size.
+        let shown_node = if selected && moved { sel.and_then(|s| node_at(root, s)).unwrap_or(thing) } else { thing };
+        let shown_names: Vec<String> = if selected && moved { sel_names.clone() } else { e.names.clone() };
+        let glyph = collected_glyph(app, shown_node);
+        let name = label_of(shown_node);
+        let name_fg = if selected {
             FG
-        } else if selected || inside && widened {
+        } else if inside && widened {
             lerp(MUTED, FG, 0.5)
         } else {
             MUTED
         };
         let gw = if glyph.is_some() { 2 } else { 0 };
-        text(b, r.x + 2, y, name_w - gw, &name, name_fg, bg, selected && !widened);
+        text(b, r.x + 2, y, name_w - gw, &name, name_fg, bg, selected);
         if let Some((g, gc)) = glyph {
             text(b, r.x + 2 + name_w - 1, y, 1, g, gc, bg, true);
         }
@@ -1038,20 +1194,16 @@ fn draw_hot_list(b: &mut Buffer, r: Rect, app: &App, st: &mut State, sel: Option
             size_x,
             y,
             9,
-            format!("{:>9}", size(node.bytes)),
+            format!("{:>9}", size(shown_node.bytes)),
             if selected { c } else { lerp(c, MUTED, 0.35) },
             bg,
             selected,
         );
-        // Where it lives: dim ancestors, the top-level folder in its hue, a
-        // widened selection's folder off-white.
-        let parents = &row.names[..row.names.len() - 1];
-        let keep = if selected && widened { Some(row.names.len() - 1 - st.level) } else { None };
+        // Where it lives: dim ancestors, the top-level folder in its hue.
+        let parents = &shown_names[..shown_names.len() - 1];
         let mut x = loc_x;
-        for (part, idx) in location(&root.name, parents, keep, loc_w) {
-            let fg = if Some(idx) == keep {
-                FG
-            } else if idx == 0 {
+        for (part, idx) in location(&root.name, parents, None, loc_w) {
+            let fg = if idx == 0 {
                 lerp(c, BG, if selected { 0.1 } else { 0.35 })
             } else {
                 lerp(MUTED, BG, if selected { 0.15 } else { 0.4 })
@@ -1060,23 +1212,37 @@ fn draw_hot_list(b: &mut Buffer, r: Rect, app: &App, st: &mut State, sel: Option
             if x + pw > r.right() {
                 break;
             }
-            text(b, x, y, pw, &part, fg, bg, Some(idx) == keep);
+            text(b, x, y, pw, &part, fg, bg, false);
             x += pw;
         }
+        // After the path, quietly: the row it was widened from, or what a
+        // collected folder holds of the list.
+        let note = if selected && widened {
+            format!("  ← from {}", label_of(thing))
+        } else if selected && moved {
+            String::new()
+        } else if e.folded {
+            let names: Vec<String> = e
+                .members
+                .iter()
+                .filter_map(|&m| st.rows[m].names.last().cloned())
+                .collect();
+            format!("  holds {}", names.join(", "))
+        } else {
+            String::new()
+        };
+        if !note.is_empty() && x + 4 < r.right() {
+            let nw = r.right() - x;
+            text(b, x, y, nw, &note, lerp(MUTED, BG, if selected { 0.2 } else { 0.45 }), bg, false);
+        }
+        y += 1;
     }
     // The last line: what lies below, or the rest of the disk.
-    let y = r.y + (end - st.hot_scroll) as u16;
+    let end = scroll + shown;
     if y < r.bottom() {
-        let listed: u64 = st
-            .rows
-            .iter()
-            .filter_map(|row| resolve(root, &row.names).and_then(|rt| node_at(root, &rt)).map(|n| n.bytes))
-            .sum();
+        let listed: u64 = es.iter().map(bytes_of).sum();
         let s = if end < n {
-            let below: u64 = st.rows[end..]
-                .iter()
-                .filter_map(|row| resolve(root, &row.names).and_then(|rt| node_at(root, &rt)).map(|n| n.bytes))
-                .sum();
+            let below: u64 = es[end..].iter().map(bytes_of).sum();
             format!("↓ {} more below  ·  {}", n - end, size(below))
         } else if root.bytes > listed {
             format!(
@@ -1087,41 +1253,51 @@ fn draw_hot_list(b: &mut Buffer, r: Rect, app: &App, st: &mut State, sel: Option
         } else {
             String::new()
         };
-        text(b, r.x + 2, y, r.width.saturating_sub(2), s, lerp(MUTED, BG, 0.3), BG, false);
+        text(b, r.x + 2, y, r.width.saturating_sub(2), s, quiet, BG, false);
     }
+    sel_y
 }
 
-fn draw_browse_list(b: &mut Buffer, r: Rect, app: &App, st: &mut State) {
+fn draw_browse_list(b: &mut Buffer, r: Rect, app: &App, st: &mut State, fresh: bool) -> Option<u16> {
     let node = app.current();
     let n = node.children.len();
-    if st.browse_route != app.route {
-        st.browse_route = app.route.clone();
-        st.browse_scroll = 0;
-    }
+    let fresh = fresh || st.browse_route != app.route;
+    st.browse_route = app.route.clone();
     if n == 0 {
         text(b, r.x + 2, r.y, r.width.saturating_sub(2), "This folder is empty", MUTED, BG, false);
-        return;
+        return None;
     }
     let height = r.height as usize;
-    // Airy rows, each with a line naming the biggest things inside, when they all fit.
+    // Airy rows, each with a line naming what it holds of the list, when all fit.
     let pitch = if n * 2 <= height { 2 } else { 1 };
-    let rows_area = if n * pitch > height { height.saturating_sub(1).max(1) } else { height / pitch };
-    if app.selected < st.browse_scroll {
-        st.browse_scroll = app.selected;
+    let avail = if n * pitch > height { height.saturating_sub(1).max(1) } else { height / pitch };
+    let (scroll, shown) = window(n, app.selected, avail, st.browse_scroll, fresh);
+    st.browse_scroll = scroll;
+    let quiet = lerp(MUTED, BG, 0.3);
+    let mut y = r.y;
+    if scroll > 0 {
+        let above: u64 = node.children[..scroll].iter().map(|c| c.bytes).sum();
+        text(
+            b,
+            r.x + 2,
+            y,
+            r.width.saturating_sub(2),
+            format!("↑ {} more above  ·  {}", scroll, size(above)),
+            quiet,
+            BG,
+            false,
+        );
+        y += 1;
     }
-    if app.selected >= st.browse_scroll + rows_area {
-        st.browse_scroll = app.selected + 1 - rows_area;
-    }
-    st.browse_scroll = st.browse_scroll.min(n.saturating_sub(rows_area));
     let name_w = (r.width as usize * 44 / 100).clamp(12, 34) as u16;
     let size_x = r.x + 2 + name_w + 1;
     let bar_x = size_x + 9 + 3;
     let bar_w = r.right().saturating_sub(bar_x + 1).min(40);
     let largest = node.children.iter().map(|c| c.bytes).max().unwrap_or(1).max(1);
-    let end = (st.browse_scroll + rows_area).min(n);
     let here = names_of(&app.root, &app.route);
-    for (line, i) in (st.browse_scroll..end).enumerate() {
-        let y = r.y + (line * pitch) as u16;
+    let es = if pitch == 2 { entries(st, app) } else { Vec::new() };
+    let mut sel_y = None;
+    for i in scroll..scroll + shown {
         let child = &node.children[i];
         let top = app.route.first().copied().unwrap_or(i);
         let c = hue(top);
@@ -1129,42 +1305,33 @@ fn draw_browse_list(b: &mut Buffer, r: Rect, app: &App, st: &mut State) {
         let bg = if selected { SURFACE } else { BG };
         fill(b, Rect::new(r.x, y, r.width, pitch as u16), bg);
         if selected {
+            sel_y = Some(y);
             for dy in 0..pitch as u16 {
                 put(b, r.x, y + dy, "▌", lit(c), bg);
             }
         }
         if pitch == 2 {
+            // What it holds of the list, by name only: the sizes are one key away.
             let mut names = here.clone();
             names.push(child.name.clone());
-            let inside: Vec<&Row> = st
-                .rows
+            let inside: Vec<String> = es
                 .iter()
-                .filter(|row| row.names.len() > names.len() && starts_with(&row.names, &names))
+                .filter(|e| e.names.len() > names.len() && starts_with(&e.names, &names))
+                .filter_map(|e| e.names.last().cloned())
                 .collect();
-            let mut x = r.x + 4;
-            let right = r.right().saturating_sub(1);
-            let quiet = lerp(MUTED, BG, 0.35);
-            for (k, row) in inside.iter().enumerate() {
-                let Some(t) = resolve(&app.root, &row.names).and_then(|rt| node_at(&app.root, &rt).map(|t| (label_of(t), t.bytes)))
-                else {
-                    continue;
-                };
-                let lead = if k == 0 { "holds " } else { "  ·  " };
-                let value = size(t.1);
-                let need = (lead.width() + t.0.width() + 1 + value.width()) as u16;
-                let more = format!("  +{} more", inside.len() - k);
-                if x + need + if k + 1 < inside.len() { more.width() as u16 } else { 0 } > right {
-                    if k > 0 {
-                        text(b, x, y + 1, more.width() as u16, &more, quiet, bg, false);
+            if !inside.is_empty() {
+                let room = r.width.saturating_sub(6) as usize;
+                let mut line = String::from("holds ");
+                for (k, name) in inside.iter().enumerate() {
+                    let more = format!(" +{} more", inside.len() - k);
+                    let piece = if k == 0 { name.clone() } else { format!(", {name}") };
+                    if line.width() + piece.width() + more.width() > room && k > 0 {
+                        line.push_str(&more);
+                        break;
                     }
-                    break;
+                    line.push_str(&piece);
                 }
-                text(b, x, y + 1, lead.width() as u16, lead, quiet, bg, false);
-                x += lead.width() as u16;
-                text(b, x, y + 1, t.0.width() as u16, &t.0, lerp(MUTED, BG, 0.15), bg, false);
-                x += t.0.width() as u16 + 1;
-                text(b, x, y + 1, value.width() as u16, &value, lerp(c, BG, 0.4), bg, false);
-                x += value.width() as u16;
+                text(b, r.x + 4, y + 1, room as u16, line, lerp(MUTED, BG, 0.35), bg, false);
             }
         }
         let glyph = collected_glyph(app, child);
@@ -1197,9 +1364,10 @@ fn draw_browse_list(b: &mut Buffer, r: Rect, app: &App, st: &mut State) {
             let fg = if selected { tint(c, 0.9) } else { tint(c, 0.5) };
             line_bar(b, bar_x, y, bar_w, len, fg, bg);
         }
+        y += pitch as u16;
     }
-    if end < n {
-        let y = r.y + (rows_area * pitch) as u16;
+    let end = scroll + shown;
+    if end < n && y < r.bottom() {
         let below: u64 = node.children[end..].iter().map(|c| c.bytes).sum();
         text(
             b,
@@ -1207,17 +1375,18 @@ fn draw_browse_list(b: &mut Buffer, r: Rect, app: &App, st: &mut State) {
             y,
             r.width.saturating_sub(2),
             format!("↓ {} more below  ·  {}", n - end, size(below)),
-            lerp(MUTED, BG, 0.3),
+            quiet,
             BG,
             false,
         );
     }
+    sel_y
 }
 
 /// The selection's ancestry as strata: one proportional bar per folder on the
 /// way down, each lighting the next step. An off-white outline holds the
 /// selection and everything below it.
-fn draw_strata(b: &mut Buffer, r: Rect, app: &App, path: &[usize], sel_depth: usize) {
+fn draw_strata(b: &mut Buffer, r: Rect, app: &App, path: &[usize], sel_depth: usize, anchor: Option<u16>) {
     let root = &app.root;
     if path.is_empty() || r.width < 12 || r.height < 3 {
         return;
@@ -1243,6 +1412,21 @@ fn draw_strata(b: &mut Buffer, r: Rect, app: &App, path: &[usize], sel_depth: us
     while m + 1 < sel_depth && need(m) > r.height as usize {
         m += 1;
     }
+    // Sit beside the selected row: the selection's title level with it, the
+    // ancestors stacked above, all kept inside the pane.
+    let contents = if sel_depth == k && has_bar(k - 1) {
+        1 + nodes[k - 1].children.iter().filter(|c| c.bytes > 0).count().min(6)
+    } else {
+        0
+    };
+    let pre = 1 + if m > 0 { 2 } else { 0 } + (m..sel_depth - 1).map(|i| block(i) + 1).sum::<usize>();
+    let height = need(m) + contents;
+    let lowest = r.bottom().saturating_sub(height as u16).max(r.y);
+    let top = anchor
+        .map(|ay| ay.saturating_sub(pre as u16))
+        .unwrap_or(r.y)
+        .clamp(r.y, lowest);
+    let r = Rect::new(r.x, top, r.width, r.bottom() - top);
     let inner_x = r.x + 2;
     let inner_w = r.width - 4;
     let mut y = r.y + 1;

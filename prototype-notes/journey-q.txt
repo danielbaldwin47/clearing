@@ -1,15 +1,15 @@
 # name columns rows keys (tmux key names, comma-separated; - for none)
 # Q, Hotlist. The screen opens on the biggest things anywhere on the disk.
 # Biggest things: ↑↓ choose · ←→ widen to the folder above / narrow back · Enter shows
-# the selection in its folder · Space collects and moves to the next row · Tab folders.
-# Folders: ↑↓ · Enter/→ open · ⌫/← up (at the top, back to the list) · Tab the list.
+# the selection in its folder · Space collects in place · Tab folders.
+# Folders: ↑↓ · Enter/→ open · ⌫ back the way you came, then the list · ← up · Tab the list.
 root-140x44 140 44 -
 root-100x30 100 30 -
 second-140x44 140 44 Down
 # Projects: deps (row 4) widened four levels, up to its top-level folder.
 projects-140x44 140 44 Down,Down,Down,Left,Left,Left,Left
-target-140x44 140 44 Down,Down,Down
-back-140x44 140 44 Down,Down,Down,Enter,BSpace,BSpace,BSpace,BSpace,BSpace
+target-140x44 140 44 Down,Down,Down,Right,Right
+back-140x44 140 44 Down,Down,Down,Enter,BSpace
 # .cache: Tab opens the folders at the top of the disk; .cache is the fourth folder.
 cache-140x44 140 44 Tab,Down,Down,Down,Enter
 cache-100x30 100 30 Tab,Down,Down,Down,Enter
@@ -22,3 +22,13 @@ folders-root-140x44 140 44 Tab
 tab-back-140x44 140 44 Down,Down,Down,Down,Down,Tab,BSpace,Tab
 node-modules-140x44 140 44 Down,Down
 deep-80x24 80 24 Down,Down,Down,Down,Down
+# Fix round: the critic's sequences.
+x-space-down-140x44 140 44 Space,Down
+x-enter-bs-140x44 140 44 Down,Down,Down,Enter,BSpace
+x-enter-deeper-140x44 140 44 Down,Down,Down,Down,Down,Left,Left,Enter,Enter,BSpace
+x-enter-up-140x44 140 44 Down,Down,Down,Down,Down,Enter,Left
+t6-80x24 80 24 Down,Down,Down,Down,Down,Down
+x-uncollect-target-140x44 140 44 Down,Down,Down,Space
+x-collect-widened-140x44 140 44 Down,Down,Down,Down,Down,Left,Left,Space
+x-smaller-140x44 140 44 Tab,Down,Down,Down,Down,Down,Down,Down,Down,Enter
+x-deps-space-140x44 140 44 Down,Down,Down,Right,Right,Space

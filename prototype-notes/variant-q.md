@@ -11,22 +11,21 @@ Biggest things (the opening view):
 | Key | Does |
 |---|---|
 | ↑ ↓ (j k), PgUp PgDn, Home End | choose a row (clamped, no wrap) |
-| ← (h) | widen: select the folder one level up the row's path (up to its top-level folder) |
-| → (l) | narrow back toward the row's thing; at the thing it says "Enter shows … among its folders" |
-| Enter | show the selection in its folder: the Folders tab opens on its parent with it selected |
-| Space | collect the selection, then move to the next row that is not inside it |
+| ← (h) | widen: select the folder one level up the row's path (up to its top-level folder); the row then shows that folder's name and size |
+| → (l) | narrow back toward the row's thing; on a collected folder's row, on down toward the largest listed thing inside it |
+| Enter | show the selection in its folder: the Folders tab opens on its parent with it selected; ⌫ comes straight back |
+| Space | collect the selection, in place |
 | Tab | the Folders tab, where you left it (the top of the disk at first) |
 | ⌫ | nothing: nothing lies behind this view, so a stray ⌫ never changes the selection |
 | c, t, d, ?, q, r | the app's own (they act on the lit selection) |
 
-Folders: ↑↓ choose, Enter/→ (l) open, ⌫/← (h) up one folder, and at the top of the disk ⌫/← returns to the list where you left it. Tab returns to the list from anywhere. Space collects without moving.
+Folders: ↑↓ choose, Enter/→ (l) open. ⌫ is "back": it undoes each open, and in the folder that Enter opened from the list (or at the top of the disk) it returns to the list where you left it. ← (h) is "up one folder", always, and at the top of the disk it too returns to the list. Tab returns to the list from anywhere. Space collects. A gathered `N smaller items` row cannot be opened.
 
 ## Keystroke counts (sample, from launch)
 
-- `atlas/target/debug/deps` selected: **3** (↓↓↓). It is row 4 of the first screen.
+- `atlas/target/debug/deps` selected: **5** (↓↓↓ →→). The sample starts with `atlas/target` collected, so deps and the other three ◇ rows inside it fold into one `target/ ◆ 41.8 GiB` row at row 4, and → narrows into it. On a disk without that collection deps is its own row 4: **3** (↓↓↓). Space on deps is refused with the app's "already included by collected folder" message.
 - `Gustav.pak` collected: **6** (↓×5, Space); **3** from deps (↓↓ Space). It is row 6.
-- Back to the start from either: **1** (Home), because the list never moved.
-- Note: the sample starts with `atlas/target` collected, so Space on deps is refused with the app's "already included by collected folder" message. The row shows ◇ from the first frame.
+- Back to the start: **1** (Home), because the list never moves. From the Folders view after an Enter: **1** (⌫).
 - `.cache` open: **5** (Tab ↓↓↓ Enter).
 
 ## The six jobs
@@ -52,12 +51,34 @@ Otherwise the folder is one thing. Files are always things. Folders a developer 
 - **No G Map in the Folders view.** The owner's complaint was that Tiles re-lay out on every drill. The Folders view instead keeps the Hotlist's layout: the same strip, the same strata, and a list in place of the Hotlist. Drilling changes the list and adds a stratum, and nothing else moves. The strata bars and the length bars on each row are the graphical part (research rules 6 and 7: length beats area).
 - **Tab is a tab, not "same item, other view".** Each view keeps its own place. Enter is the explicit "show this thing in its folder". I first built Tab to reveal the selection. That made "browse from the top" a detour (Tab dropped you deep, in `VMs/`), and coming back mapped a folder selection onto a widened row, which looked like a jump.
 - **Added: widening with ← →.** Widening turns the strata into a control. ←← on Gustav.pak selects Baldurs Gate 3 in 2 keys without leaving the list, and ←← on deps selects `target/` (cargo clean).
-- **Added: Space moves to the next row,** so the ranked list works as a queue of decisions: one key per row, Space to take or ↓ to skip.
+- ~~Space moves to the next row~~: removed in the fix round (see below).
 
 ## Weakest remaining points
 
-- A user may not expect Space to move on. "Space, then ↓" skips a row. The Legend says "Space collect, next", but a user acting from habit may still skip one. It is one line to switch off if the owner dislikes it.
+- A folded row keeps the position of its first listed member, not its own size rank. `target/ ◆ 41.8 GiB` sits at row 4, between 18.9 and 17.7 GiB, and its "holds deps, release, …" note says why. Re-sorting would move the row a user just acted on.
+- The strata pane still has empty space under shallow selections near the top of the list: the anchor only helps rows further down.
 - The Folders view of a small folder (`debug/` with 3 rows, `deps-folders-140x44`) is mostly empty space. It is honest, but sparse next to the Hotlist.
 - The thresholds (2%, two-thirds, 5%) are tuned on the sample and one real tree. On a disk where every project is under 2%, the projects appear one by one only through the 5% lump rule.
 - Rows named `data/` or `build/` need their path to be told apart. The path is always on the row, but the name column alone is ambiguous.
 - Nothing animates. The persistent strip and strata do the orienting, as terminal convention suggests (research, Q3), but the lit slice jumps rather than slides when the selection moves between top-level folders.
+
+## Fix round
+
+The critic's items, in rank order, and what I did.
+
+1. **A widened row kept its old name and size** (Space would take 118 GiB from a row saying 18.4). While widened, the selected row now shows the widened folder's name, glyph and size, with its own parent path, and a quiet `← from deps/` naming the row it came from (`projects-140x44`: `Projects/ 118.4 GiB ~/ ← from target/`). Narrowing into a collected folder's row does the same, e.g. `deps/ ◇ 18.4 GiB`.
+2. **No `↑ N more above`, and a resize kept the scroll.** Both lists now have M's walls: `↑ N more above · size` at the top and `↓ N more below · size` at the bottom. A resize (and every new folder) restarts the scroll from the top, so the top rows show whenever they fit. Checked live in tmux: at 80×24 with Gustav selected the list reads `↑ 3 more above · 69.0 GiB`, and back at 140×44 it starts at win11 again (`t6-80x24`).
+3. **Space moved on.** Space now collects in place; the row gains ◆ (or folds, see 5). `x-space-down`: Space then ↓ lands on 2024-trip.
+4. **Enter and ⌫ were not inverses.** ⌫ is now "back". In the folder that Enter opened from the list it returns straight to the list row (`x-enter-bs`, `back-140x44`: Enter ⌫ = where you were). After further opens it undoes each one in turn (`x-enter-deeper`). ← is "up one folder" always and clears that shortcut (`x-enter-up`, whose Legend then reads `⌫ back`). The Legend says `⌫ back to the list` and `← up a folder` whenever the two differ.
+5. **◇ rows under a collected folder filled the ranking.** Listed things inside a collected folder fold into one row for that folder: `target/ ◆ 41.8 GiB … holds deps, release, incremental, build`. It sits at the first member's position, so nothing below moves. Collecting a widened folder folds its rows in place (`x-collect-widened`: `Baldurs Gate 3/ ◆ 38.6 GiB holds Gustav.pak, Textures.pak…`), and Space again on it unfolds them, with the selection kept on the same folder. → on a folded row narrows into its largest listed member, so deps stays reachable (`target-140x44`).
+6. **The Folders root repeated numbers.** The Folders rows name what they hold by name only: `holds node_modules, target, data, .next, .venv, .git, media, assets`.
+
+Design:
+1. **Strip too dense.** Each top-level folder is now flat, with the listed things in one quiet tone: no zebra and no seams between neighbours. The selection keeps its full-hue slice, tick and name.
+2. **Strata pane half empty.** The strata now sit beside the selected row: the selection's title is level with the row, and its ancestors stack above it, kept inside the pane. For rows near the top the stack still starts at the pane's top.
+
+Shared: a node whose sample metadata has `tail_count` (`N smaller items`) is a gathered remainder. It is never a listed thing (it counts into the last row), never split, and has no `/`. Its detail reads "gathered small items", and Enter, → and l on it say it cannot be opened (`x-smaller`). No invented paths such as `Projects/9 smaller items/dotfiles` remain.
+
+Keep: the concentration rule, the disjoint rows and remainder row, the path column in the top-level hue, and the strata, all unchanged. Following the critic's note, I kept the Folders view simple (a plain list); O's outline could replace it later.
+
+Checks: clippy reports no warnings in `src/ui/proto_q.rs`. The Hotlist rendered at 551 sizes from 60×20 to 235×62 without a panic, and both views survived live resizes in tmux down to 60×20. All 25 journey scenes were recaptured.
